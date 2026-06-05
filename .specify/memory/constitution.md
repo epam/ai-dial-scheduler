@@ -1,50 +1,206 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+SYNC IMPACT REPORT
+==================
+Version change: 1.0.0 → 1.1.0
+
+Bump rationale: MINOR — Technical Constraints replaced with project-specific stack details
+  (Python 3.14, FastAPI, APScheduler, SQLAlchemy/SQLModel, PostgreSQL, Alembic, Pydantic v2,
+  uv, ruff, mypy). Two-service architecture constraint added. Code Conventions section added.
+  Development Workflow refined. No principles removed or semantically redefined.
+
+Modified principles: none (I–V titles and intent unchanged)
+
+Added sections:
+  - Code Conventions (new section derived from CLAUDE.md)
+
+Updated sections:
+  - Technical Constraints — now reflects actual project stack from CLAUDE.md
+  - Development Workflow — now includes DIAL-specific toolchain commands
+
+Removed sections: none
+
+Templates reviewed:
+  - .specify/templates/plan-template.md         ✅ aligned — Constitution Check gate present
+  - .specify/templates/spec-template.md         ✅ aligned — FR/SC structure unchanged
+  - .specify/templates/tasks-template.md        ✅ aligned — test-first phase ordering intact
+  - .specify/templates/constitution-template.md ✅ source template, no changes needed
+
+Follow-up TODOs:
+  - DIAL API reference (https://dialx.ai/dial_api) could not be fetched (JS-rendered).
+    Review and add any DIAL-specific auth/integration constraints when documentation
+    is accessible.
+-->
+
+# AIDIAL Scheduler Constitution
+
+## Project SDLC (NON-NEGOTIABLE)
+
+Software Development should stick to next lifecycle, top level actions are triggered by user and guided by agent:
+
+1) User runs /speckit-specify, this command should run with most capable available LLM (like opus)
+2) User runs /speckit-plan in same session, this command should run with most capable available LLM (like opus)
+3) User runs /speckit-implement in separate terminal, providing spec folder as an argument, 
+   this command should run with middle capabilities LLM (like sonnet):
+    - before execution agent should create unit tests using TDD approach;
+    - after implementation main agent should run uint tests and fix failing tests
+    - after implementation main agent should run ruff and fix found issues if them are not fixable automatically by ruff itself
+    - after implementation main agent should run mypy against src and test folders and fix found issues
+    - when all issues are fixed main agent should spawn code-review-agent, code-review-agent should not see main agent context
+    - after code-review-agent execution main agent should read produced code review report from spec directory, address comments and run code-review-agent
+    - repeat running code-review-agent until all issues are resolved
+    - run all quality gates
+    - create integration tests
+    - run integration tests
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Reliability First
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+All provided solutions should correspond to industry standards and best practices.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+Written code should be reliable and should take into account:
+- error handling, 
+- thread safety, 
+- correct i/o bound tasks execution with no blocking event loop,
+- loosing data prevention,
+- proper retry and timeout handling.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### II. Observability (NON-NEGOTIABLE)
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+Every scheduling decision (enqueue, dequeue, delay, retry, discard) MUST emit a structured log entry via `src.utils.logging` (`logger`).
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+Log entries MUST include: task ID, tenant/model identifier, decision type, ISO-8601 UTC timestamp, and reason code. `print()` is explicitly forbidden.
+OTLP Traces produced by AIDialSdk telemetry should produce 
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+**Rationale**: Scheduler bugs are notoriously hard to reproduce. Without full traceability
+from enqueue to execution, diagnosing priority inversions or starvation is impractical.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Use DialApp from AiDialSdk as FasApi wrapper for api services, it provides builtin tracing and metrics
+Use direct init_telemetry method from AiDialSdk non-api services, to get same built in tracing and metrics.  
+
+All task runs should be persisted in database, and contain data both about successful and failed runs and all attempts.
+
+
+### III. Test-First (NON-NEGOTIABLE)
+
+TDD is mandatory: tests MUST be written and confirmed failing before implementation begins.
+The Red-Green-Refactor cycle MUST be enforced. Unit tests cover pure logic; integration tests
+cover scheduler-to-queue and scheduler-to-downstream interactions; contract tests guard
+API/message-schema boundaries. No task may be marked complete if its associated tests do
+not pass. Tests run with `uv run pytest`.
+
+**Rationale**: Schedulers carry subtle timing and ordering invariants. Tests written after
+the fact tend to miss edge cases (e.g., clock skew, concurrent dispatch) that cause
+production incidents.
+
+### IV. Contract-Driven API
+
+Every external interface exposed by the API service (REST endpoint, request/response schema,
+configuration file format) MUST have a versioned contract (FastAPI auto-generated OpenAPI or
+explicit JSON Schema) committed alongside the implementation. Breaking changes MUST bump the
+contract's major version. Internal interfaces shared between the API service and the
+background worker MUST be expressed as explicit Python typed interfaces or Pydantic v2
+models — no ad-hoc dict passing across service boundaries.
+
+**Rationale**: The API and background worker are independently deployable services. Implicit
+contracts between them become integration failures under independent releases.
+
+### V. Simplicity & YAGNI
+
+The simplest solution that satisfies the current specification MUST be preferred. Abstractions
+MUST only be introduced when at least two concrete use cases demonstrably benefit. Functions
+and methods MUST have at most 2–3 parameters; group additional data into Pydantic models.
+Complexity MUST be documented in the plan's Complexity Tracking table. Framework magic that
+obscures control flow is explicitly discouraged.
+
+**Rationale**: Premature generalization in scheduling systems often introduces subtle ordering
+bugs and makes the system harder to reason about under failure conditions.
+
+## Technical Constraints
+
+- **Language**: Python 3.14. Type annotations are REQUIRED on all public interfaces and all
+  function signatures. `mypy` type-checking (`uv run mypy src`) MUST pass before merge.
+- **Web framework**: FastAPI. Reusable components (HTTP clients, etc.) MUST be held in
+  FastAPI application state; module-level globals are forbidden.
+- **Scheduling engine**: APScheduler (background worker service).
+- **ORM**: SQLAlchemy/SQLModel — no raw SQL. Database: PostgreSQL.
+- **Migrations**: Alembic (`uv run alembic upgrade head`). Every schema change requires an
+  autogenerated migration (`uv run alembic revision --autogenerate -m "description"`).
+- **Validation & settings**: Pydantic v2 for all request/response schemas and application
+  settings.
+- **Package manager**: `uv`. Lockfile MUST be committed. Install: `uv sync`.
+- **Linting/Formatting**: `ruff` (line-length=120, PEP 8 strict). Both `ruff check` and
+  `ruff format` violations are CI gate blockers.
+- **Containerization**: Both the API service and the background worker MUST be deployable as
+  Docker containers. A `Dockerfile` is a required deliverable for each service.
+- **Security**: `.env`, `.envrc`, and `secrets.env` files MUST NEVER be read by code.
+  No secrets, tokens, or credentials may be logged or printed. All credentials MUST be
+  injected via environment variables or a secrets manager. Dependencies MUST be scanned for
+  known CVEs before merge.
+- **Async**: `async`/`await` is REQUIRED for all I/O operations; `assert` is forbidden in
+  production code.
+- **DIAL platform**: The API service integrates with the DIAL platform. DIAL auth headers
+  and API conventions MUST be honoured; see `src/settings.py` (DIAL auth config) and
+  `src/utils/` (auth utilities) for integration points.
+
+## Code Conventions
+
+- **Naming**: `snake_case` for functions, variables, modules; `PascalCase` for classes.
+- **Imports**: stdlib → third-party → local (enforced by ruff).
+- **Docstrings**: Google-style on all public functions and classes.
+- **Comments**: Only for complex logic whose intent is non-obvious. All comments in English.
+- **Logging**: Use `src.utils.logging` `logger` exclusively — never `print()`.
+- **Project structure** (source of truth):
+
+  ```
+  src/
+  ├── app.py              # FastAPI app factory, middleware, lifespan
+  ├── settings.py         # Pydantic settings (DB, Redis, DIAL auth, etc.)
+  ├── constants.py        # Application constants
+  ├── api/
+  │   ├── v1/endpoints/   # Route handlers
+  │   ├── v1/interceptors/ # Request/response interceptors
+  │   └── dependencies/   # FastAPI dependency injection
+  ├── clients/            # External service clients (Redis, etc.)
+  ├── db/                 # Database engine, session, enums
+  ├── models/             # SQLAlchemy/SQLModel ORM models
+  ├── repositories/       # Data access layer (repository pattern)
+  ├── schemas/            # Pydantic schemas (API + internal)
+  ├── services/           # Business logic layer
+  ├── exceptions/         # Custom exception hierarchy
+  └── utils/              # Logging, auth utilities, HTTP helpers
+  tests/                  # Mirrors src/ structure
+  migrations/versions/    # Alembic migration scripts
+  ```
+
+## Development Workflow
+
+- All work starts from a feature branch named `NNN-short-description` off `main`.
+- Pull requests MUST reference the originating spec and pass all CI gates before merge.
+  CI gates: `uv run ruff check src tests`, `uv run ruff format --check src tests`,
+  `uv run mypy src`, `uv run pytest --cov=src`.
+- Each PR MUST include or update the relevant contract/schema if an API interface changed.
+- Code review MUST verify: principle compliance, test coverage (all new code covered),
+  observability instrumentation, absence of reliability hazards (unhandled errors, missing
+  retries), and absence of secrets in code or logs.
+- Releases follow SemVer: `MAJOR.MINOR.PATCH`. The changelog MUST be updated for every
+  release that affects the public API or observable behaviour.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all informal practices and ad-hoc agreements. Amendments require:
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+1. A written proposal (can be a PR description) stating what changes and why.
+2. Review and explicit approval by at least one additional team member.
+3. Version bump of this document following semantic versioning rules:
+   - **MAJOR**: Removal or redefinition of an existing principle.
+   - **MINOR**: Addition of a new principle or section, or material update of constraints.
+   - **PATCH**: Clarifications, wording improvements, non-semantic edits.
+4. Update of all dependent templates (see Sync Impact Report format above).
+
+All PRs and design reviews MUST include a Constitution Check verifying compliance with the
+five core principles. Complexity violations MUST be documented in the plan's Complexity
+Tracking table — undocumented violations are grounds for blocking a PR.
+
+**Version**: 1.1.0 | **Ratified**: 2026-06-05 | **Last Amended**: 2026-06-05
