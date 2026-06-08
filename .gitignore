@@ -37,7 +37,7 @@ report.xml
 coverage.xml
 
 
-.clode/skills
+.claude/skills/speckit-*
 .specify
 !.specify/memory
 !.specify/memory/**
