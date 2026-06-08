@@ -36,3 +36,8 @@ src/chat_v2/local_config/config.json
 report.xml
 coverage.xml
 
+
+.clode/skills
+.specify
+!.specify/memory
+!.specify/memory/**
