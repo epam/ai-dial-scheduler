@@ -1,0 +1,63 @@
+{
+  "routes": {
+    "scheduler": {
+      "paths": [
+        "/scheduler/.*"
+      ],
+      "userRoles": [
+        "default"
+      ],
+      "rewritePath": true,
+      "methods": [
+        "GET",
+        "POST",
+        "PUT"
+      ],
+      "upstreams": [
+        {
+          "endpoint": "http://host.docker.internal:5000"
+        }
+      ]
+    }
+  },
+  "models": {
+    "gpt-5.1-2025-11-13": {
+      "type": "chat",
+      "name": "gpt-5.1-2025-11-13",
+      "endpoint": "http://adapter-dial:5000/openai/deployments/gpt-5.1-2025-11-13/chat/completions",
+      "displayName": "gpt-5.1-2025-11-13",
+      "forwardAuthToken": false,
+      "description_keywords": [
+        "OCR Extraction"
+      ],
+      "inputAttachmentTypes": [
+        "*/*"
+      ],
+      "maxInputAttachments": 5,
+      "maxRetryAttempts": 3,
+      "upstreams": [
+        {
+          "endpoint": "<DIAL_URL>/openai/deployments/gpt-5.1-2025-11-13/chat/completions",
+          "key": "<DIAL_API_KEY>"
+        }
+      ]
+    }
+  },
+  "keys": {
+    "dial_api_key": {
+      "key": "dial_api_key",
+      "project": "TEST-PROJECT",
+      "secured": false,
+      "roles": [
+        "default"
+      ]
+    }
+  },
+  "roles": {
+    "default": {
+      "name": "default",
+      "limits": {
+      }
+    }
+  }
+}
