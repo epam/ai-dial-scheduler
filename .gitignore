@@ -41,3 +41,5 @@ coverage.xml
 .specify
 !.specify/memory
 !.specify/memory/**
+
+config.json
