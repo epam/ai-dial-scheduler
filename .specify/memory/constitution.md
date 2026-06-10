@@ -1,34 +1,37 @@
 <!--
 SYNC IMPACT REPORT
 ==================
-Version change: 1.0.0 → 1.1.0
+Version change: 1.1.0 → 1.2.0
 
-Bump rationale: MINOR — Technical Constraints replaced with project-specific stack details
-  (Python 3.14, FastAPI, APScheduler, SQLAlchemy/SQLModel, PostgreSQL, Alembic, Pydantic v2,
-  uv, ruff, mypy). Two-service architecture constraint added. Code Conventions section added.
-  Development Workflow refined. No principles removed or semantically redefined.
+Bump rationale: MINOR — Code Conventions > Project Structure materially updated.
+  api/ and worker/ are now explicit top-level service entry points. Shared domain
+  logic, settings, constants, and utilities move into lib/ (no imports from api/
+  or worker/ permitted). Layer dependency rules documented.
 
 Modified principles: none (I–V titles and intent unchanged)
 
-Added sections:
-  - Code Conventions (new section derived from CLAUDE.md)
+Added sections: none
 
 Updated sections:
-  - Technical Constraints — now reflects actual project stack from CLAUDE.md
-  - Development Workflow — now includes DIAL-specific toolchain commands
+  - Code Conventions > Project Structure — split into api/ + worker/ + lib/
 
 Removed sections: none
 
 Templates reviewed:
-  - .specify/templates/plan-template.md         ✅ aligned — Constitution Check gate present
+  - .specify/templates/plan-template.md         ✅ aligned — Constitution Check gate present;
+                                                   plan Source Code tree options use generic
+                                                   paths and will be filled per-feature
   - .specify/templates/spec-template.md         ✅ aligned — FR/SC structure unchanged
-  - .specify/templates/tasks-template.md        ✅ aligned — test-first phase ordering intact
+  - .specify/templates/tasks-template.md        ✅ aligned — path conventions section uses
+                                                   generic placeholders; per-feature tasks
+                                                   will reference real paths
   - .specify/templates/constitution-template.md ✅ source template, no changes needed
 
 Follow-up TODOs:
+  - worker/ internal structure (entry point, job definitions) is not yet defined.
+    Document once first worker job is implemented.
   - DIAL API reference (https://dialx.ai/dial_api) could not be fetched (JS-rendered).
-    Review and add any DIAL-specific auth/integration constraints when documentation
-    is accessible.
+    Review and add DIAL-specific auth/integration constraints when accessible.
 -->
 
 # AIDIAL Scheduler Constitution
@@ -39,7 +42,7 @@ Software Development should stick to next lifecycle, top level actions are trigg
 
 1) User runs /speckit-specify, this command should run with most capable available LLM (like opus)
 2) User runs /speckit-plan in same session, this command should run with most capable available LLM (like opus)
-3) User runs /speckit-implement in separate terminal, providing spec folder as an argument, 
+3) User runs /speckit-implement in separate terminal, providing spec folder as an argument,
    this command should run with middle capabilities LLM (like sonnet):
     - before execution agent should create unit tests using TDD approach;
     - after implementation main agent should run uint tests and fix failing tests
@@ -59,8 +62,8 @@ Software Development should stick to next lifecycle, top level actions are trigg
 All provided solutions should correspond to industry standards and best practices.
 
 Written code should be reliable and should take into account:
-- error handling, 
-- thread safety, 
+- error handling,
+- thread safety,
 - correct i/o bound tasks execution with no blocking event loop,
 - loosing data prevention,
 - proper retry and timeout handling.
@@ -68,16 +71,16 @@ Written code should be reliable and should take into account:
 
 ### II. Observability (NON-NEGOTIABLE)
 
-Every scheduling decision (enqueue, dequeue, delay, retry, discard) MUST emit a structured log entry via `src.utils.logging` (`logger`).
+Every scheduling decision (enqueue, dequeue, delay, retry, discard) MUST emit a structured log entry via `src.lib.utils.logging` (`logger`).
 
 Log entries MUST include: task ID, tenant/model identifier, decision type, ISO-8601 UTC timestamp, and reason code. `print()` is explicitly forbidden.
-OTLP Traces produced by AIDialSdk telemetry should produce 
+OTLP Traces produced by AIDialSdk telemetry should produce
 
 **Rationale**: Scheduler bugs are notoriously hard to reproduce. Without full traceability
 from enqueue to execution, diagnosing priority inversions or starvation is impractical.
 
 Use DialApp from AiDialSdk as FasApi wrapper for api services, it provides builtin tracing and metrics
-Use direct init_telemetry method from AiDialSdk non-api services, to get same built in tracing and metrics.  
+Use direct init_telemetry method from AiDialSdk non-api services, to get same built in tracing and metrics.
 
 All task runs should be persisted in database, and contain data both about successful and failed runs and all attempts.
 
@@ -141,8 +144,8 @@ bugs and makes the system harder to reason about under failure conditions.
 - **Async**: `async`/`await` is REQUIRED for all I/O operations; `assert` is forbidden in
   production code.
 - **DIAL platform**: The API service integrates with the DIAL platform. DIAL auth headers
-  and API conventions MUST be honoured; see `src/settings.py` (DIAL auth config) and
-  `src/utils/` (auth utilities) for integration points.
+  and API conventions MUST be honoured; see `src/lib/settings.py` (DIAL auth config) and
+  `src/lib/utils/` (auth utilities) for integration points.
 
 ## Code Conventions
 
@@ -150,29 +153,37 @@ bugs and makes the system harder to reason about under failure conditions.
 - **Imports**: stdlib → third-party → local (enforced by ruff).
 - **Docstrings**: Google-style on all public functions and classes.
 - **Comments**: Only for complex logic whose intent is non-obvious. All comments in English.
-- **Logging**: Use `src.utils.logging` `logger` exclusively — never `print()`.
+- **Logging**: Use `src.lib.utils.logging` `logger` exclusively — never `print()`.
 - **Project structure** (source of truth):
 
   ```
   src/
-  ├── app.py              # FastAPI app factory, middleware, lifespan
-  ├── settings.py         # Pydantic settings (DB, Redis, DIAL auth, etc.)
-  ├── constants.py        # Application constants
-  ├── api/
-  │   ├── v1/endpoints/   # Route handlers
-  │   ├── v1/interceptors/ # Request/response interceptors
-  │   └── dependencies/   # FastAPI dependency injection
-  ├── clients/            # External service clients (Redis, etc.)
-  ├── db/                 # Database engine, session, enums
-  ├── models/             # SQLAlchemy/SQLModel ORM models
-  ├── repositories/       # Data access layer (repository pattern)
-  ├── schemas/            # Pydantic schemas (API + internal)
-  ├── services/           # Business logic layer
-  ├── exceptions/         # Custom exception hierarchy
-  └── utils/              # Logging, auth utilities, HTTP helpers
-  tests/                  # Mirrors src/ structure
-  migrations/versions/    # Alembic migration scripts
+  ├── api/                      # FastAPI service entry point
+  │   ├── app.py                # App factory, middleware, lifespan
+  │   ├── v1/
+  │   │   ├── endpoints/        # Route handlers
+  │   │   └── interceptors/     # Request/response interceptors
+  │   └── dependencies/         # FastAPI dependency injection
+  ├── worker/                   # APScheduler background worker entry point
+  └── lib/                      # Shared library — no imports from api/ or worker/
+      ├── models/               # SQLAlchemy/SQLModel ORM models
+      ├── repositories/         # Data access layer (repository pattern)
+      ├── services/             # Business logic layer
+      ├── schemas/              # Pydantic schemas (API + internal)
+      ├── clients/              # External service clients (Redis, etc.)
+      ├── db/                   # Database engine, session, enums
+      ├── exceptions/           # Custom exception hierarchy
+      ├── settings.py           # Pydantic settings (DB, Redis, DIAL auth, etc.)
+      ├── constants.py          # Application constants
+      └── utils/                # Logging, auth utilities, HTTP helpers
+  tests/                        # Mirrors src/ structure
+  migrations/versions/          # Alembic migration scripts
   ```
+
+  **Layer rules**:
+  - `api/` and `worker/` depend on `lib/`.
+  - `lib/` MUST NOT import from `src.api` or `src.worker`; the dependency arrow flows inward only.
+  - Circular imports across layers are forbidden and are a CI gate blocker.
 
 ## Development Workflow
 
@@ -203,4 +214,4 @@ All PRs and design reviews MUST include a Constitution Check verifying complianc
 five core principles. Complexity violations MUST be documented in the plan's Complexity
 Tracking table — undocumented violations are grounds for blocking a PR.
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-05 | **Last Amended**: 2026-06-05
+**Version**: 1.2.0 | **Ratified**: 2026-06-05 | **Last Amended**: 2026-06-08
