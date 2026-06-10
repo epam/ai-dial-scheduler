@@ -71,3 +71,8 @@ migrations/versions/    # Alembic migration scripts
 - Use `pytest` with async support (`asyncio_mode = "auto"`)
 - Test files mirror `src/` structure under `tests/`
 - Use `pytest-mock` for mocking
+
+<!-- SPECKIT START -->
+## Active Feature Plan
+- Current plan: `specs/006-schedule-db-tables/plan.md` (Schedule & Run Persistence Tables)
+<!-- SPECKIT END -->

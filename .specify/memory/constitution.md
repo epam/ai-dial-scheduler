@@ -150,7 +150,7 @@ bugs and makes the system harder to reason about under failure conditions.
 ## Code Conventions
 
 - **Naming**: `snake_case` for functions, variables, modules; `PascalCase` for classes.
-- **Imports**: stdlib → third-party → local (enforced by ruff).
+- **Imports**: stdlib → third-party → local (enforced by ruff). Always use absolute imports (`from src.lib.models.schedule import Schedule`); relative imports and `__all__` are forbidden.
 - **Docstrings**: Google-style on all public functions and classes.
 - **Comments**: Only for complex logic whose intent is non-obvious. All comments in English.
 - **Logging**: Use `src.lib.utils.logging` `logger` exclusively — never `print()`.
