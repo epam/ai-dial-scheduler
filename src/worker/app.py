@@ -1,8 +1,23 @@
 import asyncio
 import signal
 
-from src.lib.scheduler import create_scheduler
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from src.lib.db.enums import DbDriver
+from src.lib.db.url import build_database_url
+from src.lib.settings import get_settings
 from src.lib.utils.logging import configure_logging, logger
+
+
+def create_worker() -> AsyncIOScheduler:
+    settings = get_settings()
+    sync_url = build_database_url(settings.db, driver=DbDriver.SYNC)
+    return AsyncIOScheduler(
+        jobstores={"default": SQLAlchemyJobStore(url=sync_url)},
+        job_defaults={"coalesce": False, "max_instances": 1, "misfire_grace_time": 60},
+        timezone="UTC",
+    )
 
 
 async def _jobstore_poller(scheduler, stop_event: asyncio.Event, interval_seconds: int = 5) -> None:
@@ -18,7 +33,7 @@ async def _jobstore_poller(scheduler, stop_event: asyncio.Event, interval_second
 
 
 async def _run() -> None:
-    scheduler = create_scheduler()
+    scheduler = create_worker()
     stop_event = asyncio.Event()
 
     loop = asyncio.get_running_loop()

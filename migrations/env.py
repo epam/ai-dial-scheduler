@@ -7,7 +7,9 @@ from sqlalchemy.engine import Connection
 
 from src.lib.db.engine import Database
 from src.lib.db.url import build_database_url
-from src.lib.models import BaseSQLModel
+from src.lib.models.base import BaseSQLModel
+import src.lib.models.schedule  # noqa: F401 — registers Schedule with BaseSQLModel.metadata
+import src.lib.models.schedule_run  # noqa: F401 — registers ScheduleRun with BaseSQLModel.metadata
 from src.lib.settings import DatabaseSettings
 
 
