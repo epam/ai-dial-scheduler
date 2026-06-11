@@ -1,3 +1,4 @@
+from typing import Any
 from urllib.parse import urlsplit
 
 from openai import AsyncAzureOpenAI
@@ -24,7 +25,7 @@ def _parse_deployment(url: str) -> tuple[str, str]:
 
 
 class ChatCompletionExecutor:
-    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> None:
+    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> dict[str, Any]:
         settings = get_settings()
         try:
             azure_endpoint, azure_deployment = _parse_deployment(properties.url)
@@ -40,8 +41,12 @@ class ChatCompletionExecutor:
             )
             if isinstance(response, ChatCompletion):
                 logger.info("run_result", run_id=ctx.run_id, result=str(response))
+                return {"result": response.model_dump()}
             else:
+                chunks = []
                 async for chunk in response:
                     logger.info("stream_chunk", run_id=ctx.run_id, chunk=str(chunk))
+                    chunks.append(chunk.model_dump())
+                return {"chunks": chunks}
         except Exception as exc:
             raise ScheduleRunError(str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id) from exc

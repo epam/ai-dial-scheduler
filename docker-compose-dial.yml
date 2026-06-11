@@ -41,6 +41,13 @@ services:
       'JAVA_OPTS': '-Dgflog.config=/opt/settings/gflog.xml'
       'aidial.config.files': '["/opt/config/config.json"]'
       'aidial.redis.singleServerConfig.address': 'redis://redis:6379'
+
+      'aidial.identityProviders.keycloak.jwksUrl': 'http://keycloak:8900/realms/dial/protocol/openid-connect/certs'
+      'aidial.identityProviders.keycloak.rolePath': 'roles'
+      'aidial.access.admin.rules': '[{"source": "roles", "function": "EQUAL", "targets": ["admin"]}]'
+      'aidial.identityProviders.keycloak.loggingKey': 'email'
+      'aidial.identityProviders.keycloak.loggingSalt': 'loggingSalt'
+
     depends_on:
       - redis
     volumes:
@@ -53,6 +60,32 @@ services:
     environment:
       DIAL_URL: "http://core:8080"
       LOG_LEVEL: "INFO"
+
+
+  keycloak:
+    image: keycloak/keycloak:26.3
+    user: root
+    command: [ "start-dev", "--import-realm", "--http-port=8900", "--hostname-backchannel-dynamic=true" ]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HOSTNAME: http://localhost:8900
+      KC_HOSTNAME_STRICT: false
+      KC_HOSTNAME_STRICT_HTTPS: false
+      KC_HTTP_ENABLED: true
+      KC_PROXY: edge
+      QUARKUS_HTTP_LIMITS_MAX_HEADER_SIZE: 64k
+      KC_INITIALIZE_EMPTY: 'true'
+      KC_FEATURE_CACHE_STACK: 'true'
+      KC_DB_PASSWORD: 'keycloak_password'
+      KC_ADMIN_PASSWORD: 'admin'
+      AUTH_KEYCLOAK_SECRET: 'keycloak_secret'
+    ports:
+      - "8900:8900"
+    volumes:
+      - ./dial_conf/keycloak/data:/opt/keycloak/data
+      - ./dial_conf/keycloak/import/realm-config.json:/opt/keycloak/data/import/realm-config.json
+    restart: always
 
 volumes:
   core-logs:

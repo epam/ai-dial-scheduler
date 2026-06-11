@@ -33,6 +33,7 @@ Backend for Dial Scheduler. Uses SQLAlchemy/SQLModel with PostgreSQL, async thro
 - Organize imports: stdlib → third-party → local (ruff handles this)
 - Never use assert in production code
 - Handle reusable components like http client in app state in case of FastApi, do not use globals.
+- `__init__.py` files must be empty — no imports, no code, no re-exports
 
 ## Project Structure
 ```
@@ -74,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/008-apscheduler-executor-worker/plan.md` (APScheduler Executor Worker)
+- Current plan: `specs/009-schedule-run-tracking/plan.md` (Schedule Run Tracking)
 <!-- SPECKIT END -->

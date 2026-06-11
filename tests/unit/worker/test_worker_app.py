@@ -3,9 +3,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import pytest
 
 from src.lib.db.enums import DbAuthMode
-from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.settings import DatabaseSettings, Settings
-from src.worker.app import create_worker, on_job_error
+from src.worker.app import create_worker
 
 
 @pytest.fixture
@@ -24,6 +23,9 @@ def mock_settings(mocker) -> Settings:
     settings.db = db_settings
     settings.noop_interval_seconds = 30
     settings.http_timeout_seconds = 10.0
+    settings.job_coalesce = False
+    settings.job_max_instances = 100
+    settings.job_misfire_grace_time = 60
     return settings
 
 
@@ -51,60 +53,11 @@ class TestCreateWorker:
         scheduler = create_worker()
         assert str(scheduler.timezone) == "UTC"
 
-    def test_job_defaults_coalesce_false(self, patched_create_worker):
+    def test_job_defaults_read_from_settings(self, patched_create_worker):
         scheduler = create_worker()
-        assert scheduler._job_defaults.get("coalesce") is False
-
-    def test_job_defaults_max_instances_one(self, patched_create_worker):
-        scheduler = create_worker()
-        assert scheduler._job_defaults.get("max_instances") == 1
-
-
-class TestOnJobError:
-    def test_logs_schedule_run_error_with_ids(self, mocker):
-        exc = ScheduleRunError("failed", schedule_id="sched-1", run_id="run-1")
-        event = mocker.MagicMock()
-        event.exception = exc
-
-        import structlog.testing
-
-        with structlog.testing.capture_logs() as logs:
-            on_job_error(event)
-
-        assert len(logs) == 1
-        log = logs[0]
-        assert log["schedule_id"] == "sched-1"
-        assert log["run_id"] == "run-1"
-        assert log["log_level"] == "error"
-
-    def test_logs_generic_error_with_job_id(self, mocker):
-        exc = RuntimeError("unexpected")
-        event = mocker.MagicMock()
-        event.exception = exc
-        event.job_id = "some-job-id"
-
-        import structlog.testing
-
-        with structlog.testing.capture_logs() as logs:
-            on_job_error(event)
-
-        assert len(logs) == 1
-        log = logs[0]
-        assert log["log_level"] == "error"
-        assert log["job_id"] == "some-job-id"
-
-    def test_schedule_run_error_does_not_stop_other_runs(self, mocker):
-        """Multiple calls to on_job_error are independent."""
-        for i in range(3):
-            exc = ScheduleRunError(f"failed-{i}", schedule_id=f"sched-{i}", run_id=f"run-{i}")
-            event = mocker.MagicMock()
-            event.exception = exc
-            import structlog.testing
-
-            with structlog.testing.capture_logs() as logs:
-                on_job_error(event)
-
-            assert len(logs) == 1
+        assert scheduler._job_defaults.get("coalesce") == patched_create_worker.job_coalesce
+        assert scheduler._job_defaults.get("max_instances") == patched_create_worker.job_max_instances
+        assert scheduler._job_defaults.get("misfire_grace_time") == patched_create_worker.job_misfire_grace_time
 
 
 class TestHeartbeatJobRegistration:

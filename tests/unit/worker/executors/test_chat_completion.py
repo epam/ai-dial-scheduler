@@ -149,6 +149,61 @@ class TestChatCompletionExecutorHappyPath:
         chunk_logs = [entry for entry in logs if entry.get("event") == "stream_chunk"]
         assert len(chunk_logs) == 3
 
+    async def test_returns_result_dict_for_non_stream(self, mocker):
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.AsyncMock()
+        mock_client_cls.return_value = mock_instance
+        completion = mocker.MagicMock(spec=ChatCompletion)
+        completion.model_dump.return_value = {"id": "cmpl-1", "choices": []}
+        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=completion)
+
+        mocker.patch(
+            "src.worker.executors.chat_completion.get_settings",
+            return_value=mocker.MagicMock(
+                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "key"),
+            ),
+        )
+
+        props = make_properties()
+        executor = ChatCompletionExecutor()
+
+        with structlog.testing.capture_logs():
+            result = await executor.execute(CTX, props)
+
+        assert "result" in result
+
+    async def test_returns_chunks_list_for_stream(self, mocker):
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.AsyncMock()
+        mock_client_cls.return_value = mock_instance
+
+        chunk1 = mocker.MagicMock()
+        chunk1.model_dump.return_value = {"id": "c1"}
+        chunk2 = mocker.MagicMock()
+        chunk2.model_dump.return_value = {"id": "c2"}
+
+        async def async_stream():
+            yield chunk1
+            yield chunk2
+
+        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=async_stream())
+
+        mocker.patch(
+            "src.worker.executors.chat_completion.get_settings",
+            return_value=mocker.MagicMock(
+                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "key"),
+            ),
+        )
+
+        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
+        executor = ChatCompletionExecutor()
+
+        with structlog.testing.capture_logs():
+            result = await executor.execute(CTX, props)
+
+        assert "chunks" in result
+        assert len(result["chunks"]) == 2
+
     async def test_dial_api_key_not_in_logs(self, mocker):
         mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
         mock_instance = mocker.AsyncMock()
