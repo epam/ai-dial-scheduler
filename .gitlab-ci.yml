@@ -100,10 +100,10 @@ stages:
 #     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
 
 
-# "Tag branch":
-#   stage: build
-#   rules:
-#     - if: "$CI_COMMIT_REF_SLUG =~ /^release-/ && $CI_COMMIT_MESSAGE !~ /^RobotBuild/"
+"Tag branch":
+  stage: build
+  rules:
+    - if: "$CI_COMMIT_REF_SLUG =~ /^release-/ && $CI_COMMIT_MESSAGE !~ /^RobotBuild/"
 
 build:
   rules:
