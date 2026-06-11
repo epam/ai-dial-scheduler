@@ -2,7 +2,9 @@
 @baseUrl = http://localhost:5000
 @dialUrl = http://127.0.0.1:8080
 // Paste the id returned by any Create request before running Update / Detail requests.
-@scheduleId = 124a0be1-93ed-41d1-a55f-0af84ba93fc6
+@scheduleId = 1260c271-9804-42c0-8521-fd469683ae44
+// Paste the id returned by any run in the list response before running Run Detail requests.
+@runId = 6239576f-44e6-4ef7-951a-4832d6e2f31c
 
 
 ### ============================================================
@@ -454,6 +456,86 @@ GET {{baseUrl}}/v1/schedules/{{scheduleId}}
 
 ### Get non-existent schedule → 404
 GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
+
+
+### ============================================================
+### LIST RUNS — happy paths
+### ============================================================
+
+###
+
+### List runs for a schedule — default pagination
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs
+
+###
+
+### List runs — first page, small limit
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=2&offset=0
+
+###
+
+### List runs — second page
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=2&offset=2
+
+###
+
+### List runs — large offset beyond results (empty page, count > 0)
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=20&offset=9999
+
+###
+
+### List runs — limit=1 (single result per page)
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=1&offset=0
+
+
+### ============================================================
+### LIST RUNS — error cases
+### ============================================================
+
+###
+
+### List runs — non-existent schedule → 404
+GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000/runs
+
+###
+
+### List runs — limit=0 → 422
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=0
+
+###
+
+### List runs — negative offset → 422
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?offset=-1
+
+
+### ============================================================
+### GET RUN DETAIL — happy paths
+### ============================================================
+
+###
+
+### Get run detail by id
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/{{runId}}
+
+
+### ============================================================
+### GET RUN DETAIL — error cases
+### ============================================================
+
+###
+
+### Get run detail — non-existent run → 404
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/00000000-0000-0000-0000-000000000001
+
+###
+
+### Get run detail — non-existent schedule → 404
+GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000/runs/{{runId}}
+
+###
+
+### Get run detail — malformed run_id → 422
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/not-a-uuid
 
 
 ### ============================================================

@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/009-schedule-run-tracking/plan.md` (Schedule Run Tracking)
+- Current plan: `specs/010-schedule-run-endpoints/plan.md` (Schedule Run List & Run Details Endpoints)
 <!-- SPECKIT END -->

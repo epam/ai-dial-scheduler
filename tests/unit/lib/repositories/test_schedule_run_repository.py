@@ -19,6 +19,7 @@ def mock_session(mocker):
     session.commit = mocker.AsyncMock()
     session.refresh = mocker.AsyncMock()
     session.get = mocker.AsyncMock()
+    session.execute = mocker.AsyncMock()
     return session
 
 
@@ -148,6 +149,106 @@ class TestScheduleRunRepositoryMarkError:
         mock_session.get.return_value = mocker.MagicMock(spec=ScheduleRun)
         repo = ScheduleRunRepository(mock_session)
         await repo.mark_error(RUN_ID, "error")
+
+        call_args = mock_session.get.call_args
+        assert call_args.args[1] == uuid.UUID(RUN_ID)
+
+
+class TestScheduleRunRepositoryListForSchedule:
+    async def test_returns_count_and_list(self, mock_session, mocker):
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        run = mocker.MagicMock(spec=ScheduleRun)
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 1
+        page_result = mocker.MagicMock()
+        page_result.scalars.return_value.all.return_value = [run]
+        mock_session.execute.side_effect = [count_result, page_result]
+
+        repo = ScheduleRunRepository(mock_session)
+        total, rows = await repo.list_for_schedule(SCHEDULE_ID, limit=10, offset=0)
+
+        assert total == 1
+        assert rows == [run]
+
+    async def test_passes_limit_and_offset(self, mock_session, mocker):
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = mocker.MagicMock()
+        page_result.scalars.return_value.all.return_value = []
+        mock_session.execute.side_effect = [count_result, page_result]
+
+        repo = ScheduleRunRepository(mock_session)
+        await repo.list_for_schedule(SCHEDULE_ID, limit=5, offset=10)
+
+        assert mock_session.execute.await_count == 2
+
+    async def test_empty_list_when_no_runs(self, mock_session, mocker):
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = mocker.MagicMock()
+        page_result.scalars.return_value.all.return_value = []
+        mock_session.execute.side_effect = [count_result, page_result]
+
+        repo = ScheduleRunRepository(mock_session)
+        total, rows = await repo.list_for_schedule(SCHEDULE_ID, limit=10, offset=0)
+
+        assert total == 0
+        assert rows == []
+
+
+class TestScheduleRunRepositoryGetForSchedule:
+    async def test_returns_run_when_schedule_matches(self, mock_session, mocker):
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        run = mocker.MagicMock(spec=ScheduleRun)
+        run.schedule_id = SCHEDULE_ID
+        mock_session.get.return_value = run
+
+        repo = ScheduleRunRepository(mock_session)
+        result = await repo.get_for_schedule(SCHEDULE_ID, RUN_ID)
+
+        assert result == run
+
+    async def test_returns_none_when_run_missing(self, mock_session):
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        mock_session.get.return_value = None
+
+        repo = ScheduleRunRepository(mock_session)
+        result = await repo.get_for_schedule(SCHEDULE_ID, RUN_ID)
+
+        assert result is None
+
+    async def test_returns_none_when_schedule_id_mismatch(self, mock_session, mocker):
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        run = mocker.MagicMock(spec=ScheduleRun)
+        run.schedule_id = "different-schedule-id"
+        mock_session.get.return_value = run
+
+        repo = ScheduleRunRepository(mock_session)
+        result = await repo.get_for_schedule(SCHEDULE_ID, RUN_ID)
+
+        assert result is None
+
+    async def test_fetches_by_uuid(self, mock_session, mocker):
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        run = mocker.MagicMock(spec=ScheduleRun)
+        run.schedule_id = SCHEDULE_ID
+        mock_session.get.return_value = run
+
+        repo = ScheduleRunRepository(mock_session)
+        await repo.get_for_schedule(SCHEDULE_ID, RUN_ID)
 
         call_args = mock_session.get.call_args
         assert call_args.args[1] == uuid.UUID(RUN_ID)
