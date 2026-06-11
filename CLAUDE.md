@@ -74,5 +74,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/006-schedule-db-tables/plan.md` (Schedule & Run Persistence Tables)
+- Current plan: `specs/007-schedule-endpoints/plan.md` (Schedule Management Endpoints)
 <!-- SPECKIT END -->

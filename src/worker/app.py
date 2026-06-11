@@ -36,9 +36,9 @@ async def _run() -> None:
     scheduler = create_worker()
     stop_event = asyncio.Event()
 
-    loop = asyncio.get_running_loop()
+    # add_signal_handler is Unix-only; signal.signal works on both platforms.
     for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, stop_event.set)
+        signal.signal(sig, lambda *_: stop_event.set())
 
     logger.info("Starting worker.")
     scheduler.start()

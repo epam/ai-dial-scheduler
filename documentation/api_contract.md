@@ -1,54 +1,117 @@
-All endpoints are filtered by created_by, so only creator can read/update schedules.
-For Upsert Schedule EP filtering performed only in case of update.
+All endpoints except Insert Schedule are filtered by created_by, so only creator can read/update schedules.
 
-## Upsert Schedule
-PUT /schedules/{schedule_id}
+## Insert Schedule
+POST /schedules/
 
+Request
 ```json
 {
-  "display_name": "", 
+  "display_name": "",
   "trigger": {
     "cron": {
       "fields": {
-        "year": "",
-        "month": "",
-        "day": "",
-        "week": "",
-        "day_of_week": "",
-        "hour": "",
-        "minute": "",
-        "second": ""
+        "year": "str|int|None",
+        "month": "str|int|None",
+        "day": "str|int|None",
+        "week": "str|int|None",
+        "day_of_week": "str|int|None",
+        "hour": "str|int|None",
+        "minute": "str|int|None",
+        "second": "str|int|None"
       },
-      "start_date": "datetime",
-      "end_date": "datetime"
+      "start_date": "datetime|None",
+      "end_date": "datetime|None"
     },
-    "date": "datetime"
+    "date": "datetime|None"
   },
   "properties": {
     "target_type": "chat_completion|rest|sse",
     "method": "POST|PUT|GET|null",
     "url": "",
     "payload": {},
-    "extra_headers": [{"tenant_id": "hcscd"}]
+    "extra_headers": {"tenant_id": "hcscd"},
+    "api_version": "str"
   }
 }
 ```
 
-If schedule created, table populated with created_by = user email from /v1/info dial endpoint
-TODO: Check if add_job(replace_existing=True) can be used without  reschedule_job()
+Response
+```json
+{
+  "id": "str",
+  "display_name": "",
+  "next_run_time": "datetime|None",
+  "trigger": {},
+  "properties": {},
+  "created_by": "",
+  "created_at": "datetime",
+  "updated_at": "datetime"
+}
+```
+ID is generated uuid4 converted to string, same value used for schedules.id table and as job id in scheduler.add_job
+Table populated with created_by = user email from /v1/info dial endpoint.
 
+## Update Schedule
+PUT /schedules/{schedule_id}
+
+Request
+```json
+{
+  "display_name": "",
+  "trigger": {
+    "cron": {
+      "fields": {
+        "year": "str|int|None",
+        "month": "str|int|None",
+        "day": "str|int|None",
+        "week": "str|int|None",
+        "day_of_week": "str|int|None",
+        "hour": "str|int|None",
+        "minute": "str|int|None",
+        "second": "str|int|None"
+      },
+      "start_date": "datetime|None",
+      "end_date": "datetime|None"
+    },
+    "date": "datetime|None"
+  },
+  "properties": {
+    "target_type": "chat_completion|rest|sse",
+    "method": "POST|PUT|GET|null",
+    "url": "",
+    "payload": {},
+    "extra_headers": {"tenant_id": "hcscd"},
+    "api_version": "str"
+  }
+}
+```
+
+Response
+```json
+{
+  "id": "str",
+  "display_name": "",
+  "next_run_time": "datetime|None",
+  "trigger": {},
+  "properties": {},
+  "created_by": "",
+  "created_at": "datetime",
+  "updated_at": "datetime"
+}
+```
 
 ## List Schedules
 GET /schedules/
 
 ```json
 {
-  "count": 242,           
-  "limit": 20,            
-  "offset": 40,           
-  "results": [            
+  "count": 242,
+  "limit": 20,
+  "offset": 40,
+  "results": [
     {
       "id": "str",
+      "display_name": "",
       "next_run_time": "datetime|None",
       "trigger_type": "cron|date",
       "created_by":"user_id",
@@ -63,7 +126,7 @@ GET /schedules/
 
 
 ## Schedule Details
-GET /schedules/{schedule_id} 
+GET /schedules/{schedule_id}
 
 
 ```json
@@ -96,10 +159,10 @@ GET /schedules/{schedule_id}/runs
 
 ```json
 {
-  "count": 242,           
-  "limit": 20,            
-  "offset": 40,           
-  "results": [            
+  "count": 242,
+  "limit": 20,
+  "offset": 40,
+  "results": [
     {
       "id": "uuid",
       "status": "success|error|in_progress|missed",
