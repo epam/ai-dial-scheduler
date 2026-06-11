@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
 from src.lib.constants import MOCK_USER_ID
-from src.lib.exceptions import JobRegistrationError, ScheduleNotFoundError
+from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
 from src.lib.schemas.pagination import Page
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleRequest, ScheduleResponse
 from src.lib.services.schedule_service import ScheduleService

@@ -6,7 +6,7 @@ from uuid import uuid4
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.lib.constants import EXECUTE_SCHEDULED_JOB_REF
-from src.lib.exceptions import JobRegistrationError, ScheduleNotFoundError
+from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
 from src.lib.models.schedule import Schedule
 from src.lib.repositories.schedule_repository import ScheduleRepository
 from src.lib.schemas.pagination import Page, Paginator

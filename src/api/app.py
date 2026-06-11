@@ -59,6 +59,13 @@ def create_api() -> DIALApp:
 
     app.include_router(schedules_router, prefix="/v1")
 
+    if settings.echo_endpoints:
+        from src.api.v1.echo_chat import EchoChatCompletion
+        from src.api.v1.endpoints.echo import router as echo_router
+
+        app.include_router(echo_router)
+        app.add_chat_completion("echo", EchoChatCompletion())
+
     return app
 
 
