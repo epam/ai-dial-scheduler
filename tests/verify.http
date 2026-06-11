@@ -1,5 +1,6 @@
 ### Variables
 @baseUrl = http://localhost:5000
+@dialUrl = http://127.0.0.1:8080
 // Paste the id returned by any Create request before running Update / Detail requests.
 @scheduleId = 124a0be1-93ed-41d1-a55f-0af84ba93fc6
 
@@ -463,3 +464,225 @@ GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
 
 ### Healthcheck endpoint
 GET {{baseUrl}}/health
+
+
+### ============================================================
+### INTEGRATION SELF-CHECK  (dev mode only — env != "prod")
+###
+### Echo endpoints:
+###   POST /echo/rest                                            → JSON response
+###   POST /echo/sse                                            → SSE stream
+###   POST /openai/deployments/echo/chat/completions            → OpenAI-compat (via aidial_sdk)
+###
+### Payload fields for REST and SSE echo handlers:
+###   success: bool   (default true)  — false → 500
+###   sleep:   float  (default 0.0)   — seconds to wait before responding
+###   chunks:  int    (default 3)     — events to emit (sse only)
+###
+### Chat completion echo uses standard OpenAI payload (messages, stream, etc.).
+### The DIAL SDK rejects unknown body fields, so success/sleep/chunks are not
+### supported there — the handler always returns 3 chunks with no delay.
+### ============================================================
+
+
+# --------------- Echo endpoint smoke tests -------------------
+
+### Echo REST — 200 OK
+POST {{baseUrl}}/echo/rest
+Content-Type: application/json
+
+{"success": true, "sleep": 0.0}
+
+###
+
+### Echo REST — 500 error
+POST {{baseUrl}}/echo/rest
+Content-Type: application/json
+
+{"success": false, "sleep": 0.0}
+
+###
+
+### Echo SSE — stream 4 events
+POST {{baseUrl}}/echo/sse
+Content-Type: application/json
+
+{"success": true, "sleep": 0.1, "chunks": 4}
+
+###
+
+### Echo SSE — 500 error before stream
+POST {{baseUrl}}/echo/sse
+Content-Type: application/json
+
+{"success": false}
+
+###
+
+### Echo Chat Completion — non-streaming, 3 chunks merged into one response
+POST {{baseUrl}}/openai/deployments/echo/chat/completions
+Content-Type: application/json
+Api-Key: dev-key
+
+{"messages": [{"role": "user", "content": "hello"}], "stream": false}
+
+###
+
+### Echo Chat Completion — streaming, 5 chunks
+POST {{baseUrl}}/openai/deployments/echo/chat/completions
+Content-Type: application/json
+Api-Key: dev-key
+
+{"messages": [{"role": "user", "content": "hello"}], "stream": true}
+
+###
+
+### Echo Chat Completion — non-OpenAI fields are silently ignored by the executor
+POST {{baseUrl}}/openai/deployments/echo/chat/completions
+Content-Type: application/json
+Api-Key: dev-key
+
+{"messages": [{"role": "user", "content": "hello"}], "stream": false}
+
+
+# --------------- Schedule jobs that call echo endpoints -------
+# Create these schedules, then start the worker to see real
+# end-to-end dispatch logs.  Use cron second=* for rapid firing.
+
+###
+
+# @name create_echo_rest_job
+### Schedule a REST job hitting the local echo endpoint (fires every second)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Echo REST self-check",
+  "trigger": {
+    "cron": {"fields": {"second": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true, "sleep": 0.2}
+  }
+}
+
+###
+
+# @name create_echo_rest_error_job
+### Schedule a REST job that always fails (fires every 10 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Echo REST error self-check",
+  "trigger": {
+    "cron": {"fields": {"second": "*/10"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": false}
+  }
+}
+
+###
+
+# @name create_echo_sse_job
+### Schedule an SSE job streaming 5 events (fires every 5 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Echo SSE self-check",
+  "trigger": {
+    "cron": {"fields": {"second": "*/5"}}
+  },
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/sse",
+    "payload": {"success": true, "sleep": 0.1, "chunks": 5}
+  }
+}
+
+###
+
+# @name create_echo_chat_streaming_job
+### Schedule a streaming chat completion job (fires every 5 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Echo Chat streaming self-check",
+  "trigger": {
+    "cron": {"fields": {"second": "*/5"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "http://localhost:5000/openai/deployments/echo/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "ping"}],
+      "model": "echo",
+      "stream": true
+    },
+    "api_version": "2024-02-01"
+  }
+}
+
+###
+
+# @name create_echo_chat_nonstreaming_job
+### Schedule a non-streaming chat completion job (fires every 5 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Echo Chat non-streaming self-check",
+  "trigger": {
+    "cron": {"fields": {"second": "*/5"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "http://localhost:5000/openai/deployments/echo/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "ping"}],
+      "model": "echo",
+      "stream": false
+    },
+    "api_version": "2024-02-01"
+  }
+}
+
+
+### ============================================================
+### REAL DIAL — live deployment smoke test
+### Requires local DIAL core running on 127.0.0.1:8080
+### ============================================================
+
+###
+
+# @name create_real_dial_streaming_job
+### Schedule a streaming chat job against the real gpt-4.1-mini deployment (fires every 30 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Real DIAL streaming smoke test",
+  "trigger": {
+    "cron": {"fields": {"second": "*/30"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dialUrl}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}

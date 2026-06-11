@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.lib.db.enums import TargetType, TriggerType
-from src.lib.exceptions import JobRegistrationError, ScheduleNotFoundError
+from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
 from src.lib.models.schedule import Schedule
 from src.lib.schemas.pagination import Page, Paginator
 from src.lib.schemas.schedule import (

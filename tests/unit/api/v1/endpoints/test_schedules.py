@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from src.api.app import create_api
-from src.lib.exceptions import JobRegistrationError, ScheduleNotFoundError
+from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
 from src.lib.schemas.pagination import Page, Paginator
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleResponse
 

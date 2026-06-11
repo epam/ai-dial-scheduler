@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     dial_api_key: SecretStr
     port: int = 5000
     log_level: str = "INFO"
+    noop_interval_seconds: int = 60
+    http_timeout_seconds: float = 30.0
+    echo_endpoints: bool = False
 
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
 

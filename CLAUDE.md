@@ -74,5 +74,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/007-schedule-endpoints/plan.md` (Schedule Management Endpoints)
+- Current plan: `specs/008-apscheduler-executor-worker/plan.md` (APScheduler Executor Worker)
 <!-- SPECKIT END -->

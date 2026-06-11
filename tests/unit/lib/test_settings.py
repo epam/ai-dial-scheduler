@@ -65,3 +65,43 @@ class TestGetSettings:
         s2 = get_settings()
 
         assert s1 is s2
+
+
+class TestWorkerSettings:
+    def test_noop_interval_seconds_default(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+
+        s = Settings()
+
+        assert s.noop_interval_seconds == 60
+
+    def test_http_timeout_seconds_default(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+
+        s = Settings()
+
+        assert s.http_timeout_seconds == 30.0
+
+    def test_noop_interval_seconds_override(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+        monkeypatch.setenv("NOOP_INTERVAL_SECONDS", "120")
+
+        s = Settings()
+
+        assert s.noop_interval_seconds == 120
+
+    def test_http_timeout_seconds_override(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+        monkeypatch.setenv("HTTP_TIMEOUT_SECONDS", "15.5")
+
+        s = Settings()
+
+        assert s.http_timeout_seconds == 15.5
