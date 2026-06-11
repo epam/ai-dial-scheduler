@@ -114,12 +114,37 @@ build:
       variables:
         DOCKER_ADDITIONAL_TAGS: "development"
 
-# trigger_deploy_dev:
-#   stage: deploy
-#   inherit:
-#     variables: false
-#   trigger:
-#     project: Clients/dial/dev/inference-router
-#     strategy: depend
-#   rules:
-#     - if: $CI_COMMIT_BRANCH == "development"
+trigger_deploy_migrations:
+  stage: deploy
+  inherit:
+    variables: false
+  trigger:
+    project: Clients/dial/dev/dial-scheduler/dial-scheduler-migrations
+    branch: $CI_DEFAULT_BRANCH
+    strategy: depend
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+trigger_deploy_api:
+  stage: deploy
+  inherit:
+    variables: false
+  trigger:
+    project: Clients/dial/dev/dial-scheduler/dial-scheduler-api
+    branch: $CI_DEFAULT_BRANCH
+  needs:
+    - trigger_deploy_migrations
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+trigger_deploy_worker:
+  stage: deploy
+  inherit:
+    variables: false
+  trigger:
+    project: Clients/dial/dev/dial-scheduler/dial-scheduler-worker
+    branch: $CI_DEFAULT_BRANCH
+  needs:
+    - trigger_deploy_migrations
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
