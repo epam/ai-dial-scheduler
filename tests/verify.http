@@ -1,0 +1,465 @@
+### Variables
+@baseUrl = http://localhost:5000
+// Paste the id returned by any Create request before running Update / Detail requests.
+@scheduleId = 124a0be1-93ed-41d1-a55f-0af84ba93fc6
+
+
+### ============================================================
+### CREATE — happy paths
+### ============================================================
+
+# @name create_cron
+### Create schedule with cron trigger (chat_completion)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Daily GPT report",
+  "trigger": {
+    "cron": {
+      "fields": {
+        "hour": "9",
+        "minute": "0",
+        "day_of_week": "mon-fri"
+      }
+    }
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "Generate daily report"}]
+    },
+    "extra_headers": {"tenant_id": "acme"},
+    "api_version": "2024-02-01"
+  }
+}
+
+###
+
+
+# @name create_cron_every_second
+### Create schedule with cron trigger (chat_completion)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Daily GPT report",
+  "trigger": {
+    "cron": {
+      "fields": {
+        "second": "*"
+      }
+    }
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "Generate daily report"}]
+    },
+    "extra_headers": {"tenant_id": "acme"},
+    "api_version": "2024-02-01"
+  }
+}
+
+###
+
+# @name create_cron_with_date_bounds
+### Create cron schedule with start/end bounds
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Bounded cron",
+  "trigger": {
+    "cron": {
+      "fields": {"hour": "10", "minute": "30"},
+      "start_date": "2026-07-01T00:00:00+00:00",
+      "end_date": "2026-12-31T23:59:59+00:00"
+    }
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+    "payload": {"messages": [{"role": "user", "content": "hello"}], "stream": true}
+  }
+}
+
+###
+
+# @name create_date
+### Create schedule with one-shot date trigger
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "One-shot job",
+  "trigger": {
+    "date": "2030-01-15T09:00:00+00:00"
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "https://api.example.com/webhook",
+    "payload": {"event": "trigger"},
+    "extra_headers": {"X-Source": "scheduler"}
+  }
+}
+
+###
+
+# @name create_rest_get
+### Create REST schedule with GET method
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Hourly health check",
+  "trigger": {
+    "cron": {
+      "fields": {"minute": "0"}
+    }
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "GET",
+    "url": "https://api.example.com/health"
+  }
+}
+
+###
+
+# @name create_sse
+### Create SSE schedule
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Streaming alert",
+  "trigger": {
+    "cron": {
+      "fields": {"hour": "8", "minute": "0"}
+    }
+  },
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "https://api.example.com/stream",
+    "payload": {"query": "daily summary"}
+  }
+}
+
+###
+
+# @name create_minimal_cron
+### Create schedule — only required fields, all optional omitted
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Minimal cron",
+  "trigger": {
+    "cron": {
+      "fields": {}
+    }
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+
+### ============================================================
+### CREATE — validation failures (expect 422)
+### ============================================================
+
+###
+
+### Both cron and date triggers supplied → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "Bad trigger",
+  "trigger": {
+    "cron": {"fields": {"hour": "9"}},
+    "date": "2030-01-01T09:00:00+00:00"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+###
+
+### No trigger supplied → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "No trigger",
+  "trigger": {},
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+###
+
+### chat_completion with method set → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "chat_completion with method",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "chat_completion",
+    "method": "POST",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+###
+
+### rest without method → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "rest without method",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "rest",
+    "url": "https://api.example.com/hook"
+  }
+}
+
+###
+
+### rest with api_version → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "rest with api_version",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "https://api.example.com/hook",
+    "api_version": "2024-02-01"
+  }
+}
+
+###
+
+### sse with api_version → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "sse with api_version",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "https://api.example.com/stream",
+    "api_version": "2024-02-01"
+  }
+}
+
+###
+
+### Non-HTTP URL → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "bad url",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "rest",
+    "method": "GET",
+    "url": "ftp://files.example.com/report"
+  }
+}
+
+###
+
+### Empty display_name → 422
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+
+{
+  "display_name": "   ",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+
+### ============================================================
+### UPDATE — happy paths
+### ============================================================
+
+###
+
+### Update schedule — change display_name and trigger
+PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
+Content-Type: application/json
+
+{
+  "display_name": "Daily GPT report",
+  "trigger": {
+    "cron": {
+      "fields": {
+        "minute": "*"
+      }
+    }
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "Generate daily report"}]
+    },
+    "extra_headers": {"tenant_id": "acme"},
+    "api_version": "2024-02-99"
+  }
+}
+
+###
+
+### Update schedule — switch from cron to date trigger
+PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
+Content-Type: application/json
+
+{
+  "display_name": "One-time migration job",
+  "trigger": {
+    "date": "2030-06-01T06:00:00+00:00"
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "https://api.example.com/migrate",
+    "payload": {"version": "v2"}
+  }
+}
+
+
+### ============================================================
+### UPDATE — error cases
+### ============================================================
+
+###
+
+### Update non-existent schedule → 404
+PUT {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
+Content-Type: application/json
+
+{
+  "display_name": "Ghost schedule",
+  "trigger": {"cron": {"fields": {"hour": "9"}}},
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+###
+
+### Update with invalid body → 422 (row unchanged)
+PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
+Content-Type: application/json
+
+{
+  "display_name": "Bad update",
+  "trigger": {},
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
+  }
+}
+
+
+### ============================================================
+### LIST — happy paths
+### ============================================================
+
+###
+
+### List schedules — default pagination
+GET {{baseUrl}}/v1/schedules/
+
+###
+
+### List schedules — first page, small limit
+GET {{baseUrl}}/v1/schedules/?limit=2&offset=0
+
+###
+
+### List schedules — second page
+GET {{baseUrl}}/v1/schedules/?limit=2&offset=2
+
+###
+
+### List schedules — large offset beyond results (empty page)
+GET {{baseUrl}}/v1/schedules/?limit=20&offset=9999
+
+###
+
+### List schedules — limit=1 (single result per page)
+GET {{baseUrl}}/v1/schedules/?limit=1&offset=0
+
+
+### ============================================================
+### LIST — validation failures (expect 422)
+### ============================================================
+
+###
+
+### limit=0 → 422
+GET {{baseUrl}}/v1/schedules/?limit=0
+
+###
+
+### negative offset → 422
+GET {{baseUrl}}/v1/schedules/?offset=-1
+
+
+### ============================================================
+### GET DETAIL — happy paths
+### ============================================================
+
+###
+
+### Get schedule detail by id
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}
+
+
+### ============================================================
+### GET DETAIL — error cases
+### ============================================================
+
+###
+
+### Get non-existent schedule → 404
+GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
+
+
+### ============================================================
+### HEALTHCHECK
+### ============================================================
+
+###
+
+### Healthcheck endpoint
+GET {{baseUrl}}/health
