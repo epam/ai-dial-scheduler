@@ -120,7 +120,7 @@ trigger_deploy_migrations:
     variables: false
   trigger:
     project: Clients/dial/dev/dial-scheduler/dial-scheduler-migrations
-    branch: $CI_DEFAULT_BRANCH
+    branch: master
     strategy: depend
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
@@ -131,7 +131,7 @@ trigger_deploy_api:
     variables: false
   trigger:
     project: Clients/dial/dev/dial-scheduler/dial-scheduler-api
-    branch: $CI_DEFAULT_BRANCH
+    branch: master
   needs:
     - trigger_deploy_migrations
   rules:
@@ -143,7 +143,7 @@ trigger_deploy_worker:
     variables: false
   trigger:
     project: Clients/dial/dev/dial-scheduler/dial-scheduler-worker
-    branch: $CI_DEFAULT_BRANCH
+    branch: master
   needs:
     - trigger_deploy_migrations
   rules:
