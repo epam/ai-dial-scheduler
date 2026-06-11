@@ -43,3 +43,4 @@ coverage.xml
 !.specify/memory/**
 
 config.json
+dial_conf/keycloak/data

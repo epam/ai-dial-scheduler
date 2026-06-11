@@ -130,6 +130,36 @@ class TestRestExecutorHappyPath:
             assert "my-secret-key" not in str(log)
 
 
+class TestRestExecutorReturnsResult:
+    async def test_returns_status_code_and_parsed_json_body(self, mock_client, mocker):
+        mock_client.request.return_value.status_code = 200
+        mock_client.request.return_value.text = '{"ok": true}'
+        mock_client.request.return_value.headers = {"content-type": "application/json"}
+
+        props = make_properties()
+        executor = RestExecutor()
+
+        with structlog.testing.capture_logs():
+            result = await executor.execute(CTX, props)
+
+        assert result["status_code"] == 200
+        assert result["body"] == {"ok": True}
+
+    async def test_returns_text_body_when_not_json(self, mock_client):
+        mock_client.request.return_value.status_code = 200
+        mock_client.request.return_value.text = "plain text response"
+        mock_client.request.return_value.headers = {"content-type": "text/plain"}
+
+        props = make_properties()
+        executor = RestExecutor()
+
+        with structlog.testing.capture_logs():
+            result = await executor.execute(CTX, props)
+
+        assert result["status_code"] == 200
+        assert result["body"] == "plain text response"
+
+
 class TestRestExecutorFailurePath:
     async def test_non_2xx_raises_schedule_run_error(self, mock_client, mocker):
         mock_client.request.return_value.raise_for_status.side_effect = httpx.HTTPStatusError(

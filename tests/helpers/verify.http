@@ -559,7 +559,7 @@ Content-Type: application/json
 {
   "display_name": "Echo REST self-check",
   "trigger": {
-    "cron": {"fields": {"second": "*"}}
+    "cron": {"fields": {"second": "0"}}
   },
   "properties": {
     "target_type": "rest",

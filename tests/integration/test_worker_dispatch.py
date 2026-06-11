@@ -33,6 +33,16 @@ def scheduler():
 
 async def test_rest_job_fires_end_to_end(scheduler, mocker):
     """A rest job fired through a real scheduler calls the executor and logs a result."""
+    import uuid
+
+    created_row = mocker.MagicMock()
+    created_row.id = uuid.uuid4()
+    mock_repo = mocker.AsyncMock()
+    mock_repo.create_in_progress = mocker.AsyncMock(return_value=created_row)
+    mock_repo.mark_success = mocker.AsyncMock(return_value=mocker.MagicMock())
+    mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+    mocker.patch("src.worker.jobs.Database")
+
     mock_response = mocker.MagicMock(spec=httpx.Response)
     mock_response.status_code = 200
     mock_response.text = "ok"

@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     noop_interval_seconds: int = 60
     http_timeout_seconds: float = 30.0
     echo_endpoints: bool = False
+    job_coalesce: bool = False
+    job_max_instances: int = 1
+    job_misfire_grace_time: int = 60
 
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
 

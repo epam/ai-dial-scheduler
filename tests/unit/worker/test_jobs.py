@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from structlog.contextvars import clear_contextvars, get_contextvars
 import structlog.testing
@@ -16,12 +18,27 @@ def reset_context():
     clear_contextvars()
 
 
+@pytest.fixture
+def mock_run_repo(mocker):
+    import uuid
+
+    mock_repo = mocker.AsyncMock()
+    created_row = mocker.MagicMock()
+    created_row.id = uuid.uuid4()
+    mock_repo.create_in_progress = mocker.AsyncMock(return_value=created_row)
+    mock_repo.mark_success = mocker.AsyncMock(return_value=mocker.MagicMock())
+    mock_repo.mark_error = mocker.AsyncMock(return_value=mocker.MagicMock())
+    mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+    mocker.patch("src.worker.jobs.Database")
+    return mock_repo
+
+
 class TestExecuteScheduledJobHappyPath:
-    async def test_generates_run_id_and_calls_executor(self, mocker):
+    async def test_generates_run_id_and_calls_executor(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mock_executor = mocker.AsyncMock()
-        mock_executor.execute = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
 
         with structlog.testing.capture_logs():
@@ -40,11 +57,11 @@ class TestExecuteScheduledJobHappyPath:
         assert ctx.run_id
         assert ctx.schedule_id == SCHEDULE_ID
 
-    async def test_binds_run_id_and_schedule_id_in_log_context(self, mocker):
+    async def test_binds_run_id_and_schedule_id_in_log_context(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mock_executor = mocker.AsyncMock()
-        mock_executor.execute = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
 
         with structlog.testing.capture_logs() as logs:
@@ -60,11 +77,11 @@ class TestExecuteScheduledJobHappyPath:
         schedule_logs = [entry for entry in logs if entry.get("schedule_id") == SCHEDULE_ID]
         assert len(schedule_logs) >= 1
 
-    async def test_contextvars_cleared_after_success(self, mocker):
+    async def test_contextvars_cleared_after_success(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mock_executor = mocker.AsyncMock()
-        mock_executor.execute = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
 
         with structlog.testing.capture_logs():
@@ -79,10 +96,11 @@ class TestExecuteScheduledJobHappyPath:
 
         assert get_contextvars() == {}
 
-    async def test_validates_kwargs_as_schedule_properties(self, mocker):
+    async def test_validates_kwargs_as_schedule_properties(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"result": {"id": "cmpl-1", "choices": []}})
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
 
         with structlog.testing.capture_logs():
@@ -99,7 +117,7 @@ class TestExecuteScheduledJobHappyPath:
 
 
 class TestExecuteScheduledJobValidationFailure:
-    async def test_invalid_kwargs_raises_schedule_run_error(self, mocker):
+    async def test_invalid_kwargs_raises_schedule_run_error(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mocker.patch("src.worker.jobs.resolve_executor")
@@ -117,7 +135,7 @@ class TestExecuteScheduledJobValidationFailure:
         assert exc_info.value.schedule_id == SCHEDULE_ID
         assert exc_info.value.run_id
 
-    async def test_contextvars_cleared_after_failure(self, mocker):
+    async def test_contextvars_cleared_after_failure(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mocker.patch("src.worker.jobs.resolve_executor")
@@ -133,7 +151,7 @@ class TestExecuteScheduledJobValidationFailure:
 
         assert get_contextvars() == {}
 
-    async def test_executor_error_wrapped_as_schedule_run_error(self, mocker):
+    async def test_executor_error_wrapped_as_schedule_run_error(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mock_executor = mocker.AsyncMock()
@@ -153,6 +171,329 @@ class TestExecuteScheduledJobValidationFailure:
             )
 
         assert exc_info.value.schedule_id == SCHEDULE_ID
+
+
+class TestExecuteScheduledJobInProgressCreation:
+    async def test_creates_in_progress_run_before_execution(self, mocker):
+        from src.worker.jobs import execute_scheduled_job
+
+        created_row = mocker.MagicMock()
+        created_row.id = uuid.uuid4()
+        mock_repo = mocker.AsyncMock()
+        mock_repo.create_in_progress = mocker.AsyncMock(return_value=created_row)
+        mock_repo.mark_success = mocker.AsyncMock(return_value=mocker.MagicMock())
+        mock_repo.mark_error = mocker.AsyncMock(return_value=mocker.MagicMock())
+        mocker.patch(
+            "src.worker.jobs.ScheduleRunRepository",
+            return_value=mock_repo,
+        )
+        mocker.patch("src.worker.jobs.Database")
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        mock_repo.create_in_progress.assert_awaited_once()
+        kwargs = mock_repo.create_in_progress.call_args.kwargs
+        assert kwargs["schedule_id"] == SCHEDULE_ID
+        assert isinstance(kwargs["schedule_snapshot"], dict)
+
+    async def test_schedule_snapshot_contains_kwargs(self, mocker):
+        from src.worker.jobs import execute_scheduled_job
+
+        created_row = mocker.MagicMock()
+        created_row.id = uuid.uuid4()
+        mock_repo = mocker.AsyncMock()
+        mock_repo.create_in_progress = mocker.AsyncMock(return_value=created_row)
+        mock_repo.mark_success = mocker.AsyncMock(return_value=mocker.MagicMock())
+        mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+        mocker.patch("src.worker.jobs.Database")
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com/test",
+                payload={"key": "val"},
+                extra_headers={},
+            )
+
+        snapshot = mock_repo.create_in_progress.call_args.kwargs["schedule_snapshot"]
+        assert snapshot["url"] == "https://example.com/test"
+        assert snapshot["target_type"] == "rest"
+
+    async def test_in_progress_created_before_validation(self, mocker):
+        from src.worker.jobs import execute_scheduled_job
+
+        created_row = mocker.MagicMock()
+        created_row.id = uuid.uuid4()
+        mock_repo = mocker.AsyncMock()
+        mock_repo.create_in_progress = mocker.AsyncMock(return_value=created_row)
+        mock_repo.mark_error = mocker.AsyncMock(return_value=mocker.MagicMock())
+        mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+        mocker.patch("src.worker.jobs.Database")
+        mocker.patch("src.worker.jobs.resolve_executor")
+
+        with pytest.raises(ScheduleRunError):
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                # missing method — will fail validation
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        mock_repo.create_in_progress.assert_awaited_once()
+
+    async def test_create_in_progress_failure_aborts_run(self, mocker):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_repo = mocker.AsyncMock()
+        mock_repo.create_in_progress = mocker.AsyncMock(side_effect=Exception("DB down"))
+        mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+        mocker.patch("src.worker.jobs.Database")
+        mock_executor = mocker.AsyncMock()
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        mock_executor.execute.assert_not_awaited()
+        assert any(log.get("event") == "run_create_failed" and log.get("log_level") == "error" for log in logs)
+
+    async def test_create_in_progress_failure_clears_contextvars(self, mocker):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_repo = mocker.AsyncMock()
+        mock_repo.create_in_progress = mocker.AsyncMock(side_effect=Exception("DB down"))
+        mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+        mocker.patch("src.worker.jobs.Database")
+        mocker.patch("src.worker.jobs.resolve_executor")
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        assert get_contextvars() == {}
+
+    async def test_logs_run_created(self, mocker):
+        from src.worker.jobs import execute_scheduled_job
+
+        created_row = mocker.MagicMock()
+        created_row.id = uuid.uuid4()
+        mock_repo = mocker.AsyncMock()
+        mock_repo.create_in_progress = mocker.AsyncMock(return_value=created_row)
+        mock_repo.mark_success = mocker.AsyncMock(return_value=mocker.MagicMock())
+        mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+        mocker.patch("src.worker.jobs.Database")
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        assert any(log.get("event") == "run_created" for log in logs)
+
+
+class TestExecuteScheduledJobPersistence:
+    async def test_marks_success_after_execution(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        exec_result = {"status_code": 200, "body": {"ok": True}}
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value=exec_result)
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        mock_run_repo.mark_success.assert_awaited_once()
+        call_args = mock_run_repo.mark_success.call_args
+        assert call_args.args[1] == exec_result
+
+    async def test_marks_error_on_schedule_run_error(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("timeout", schedule_id=SCHEDULE_ID, run_id="run-x")
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        mock_run_repo.mark_error.assert_awaited_once()
+
+    async def test_marks_error_on_validation_failure(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mocker.patch("src.worker.jobs.resolve_executor")
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        mock_run_repo.mark_error.assert_awaited_once()
+
+    async def test_logs_run_recorded_success(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        assert any(log.get("event") == "run_recorded_success" for log in logs)
+
+    async def test_logs_run_recorded_error(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("fail", schedule_id=SCHEDULE_ID, run_id="run-x")
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        assert any(log.get("event") == "run_recorded_error" for log in logs)
+
+    async def test_logs_run_failed_on_error(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("fail", schedule_id=SCHEDULE_ID, run_id="run-x")
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        assert any(log.get("event") == "run_failed" for log in logs)
+
+    async def test_logs_run_persist_failed_when_mark_success_raises(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_run_repo.mark_success = mocker.AsyncMock(side_effect=Exception("DB gone"))
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        assert any(log.get("event") == "run_persist_failed" for log in logs)
+
+    async def test_logs_run_record_missing_when_mark_success_returns_none(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_run_repo.mark_success = mocker.AsyncMock(return_value=None)
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        assert any(log.get("event") == "run_record_missing" for log in logs)
 
 
 class TestHeartbeatHandler:

@@ -1,3 +1,5 @@
+from typing import Any
+
 import httpx
 import httpx_sse
 from httpx_sse import aconnect_sse
@@ -11,9 +13,10 @@ from src.lib.utils.logging import logger
 
 
 class SseExecutor:
-    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> None:
+    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> dict[str, Any]:
         settings = get_settings()
         headers = {API_KEY_HEADER: settings.dial_api_key.get_secret_value(), **properties.extra_headers}
+        events: list[dict[str, str]] = []
 
         try:
             async with httpx.AsyncClient(timeout=settings.http_timeout_seconds) as client:
@@ -28,5 +31,8 @@ class SseExecutor:
                         event_source.response.raise_for_status()
                     async for event in event_source.aiter_sse():
                         logger.info("sse_event", run_id=ctx.run_id, **{event.event: event.data})
+                        events.append({"event": event.event, "data": event.data})
         except (httpx.HTTPStatusError, httpx.TransportError, httpx_sse.SSEError) as exc:
             raise ScheduleRunError(str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id) from exc
+
+        return {"events": events}

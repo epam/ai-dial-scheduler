@@ -2,7 +2,6 @@ import asyncio
 import contextlib
 import signal
 
-from apscheduler.events import EVENT_JOB_ERROR, JobExecutionEvent
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -10,7 +9,6 @@ from apscheduler.triggers.interval import IntervalTrigger
 from src.lib.constants import HEARTBEAT_JOB_ID, HEARTBEAT_JOB_NAME
 from src.lib.db.enums import DbDriver
 from src.lib.db.url import build_database_url
-from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.settings import get_settings
 from src.lib.utils.logging import configure_logging, logger
 from src.worker.jobs import heartbeat
@@ -23,17 +21,13 @@ def create_worker() -> AsyncIOScheduler:
         jobstores={
             "default": SQLAlchemyJobStore(url=sync_url),
         },
-        job_defaults={"coalesce": False, "max_instances": 1, "misfire_grace_time": 60},
+        job_defaults={
+            "coalesce": settings.job_coalesce,
+            "max_instances": settings.job_max_instances,
+            "misfire_grace_time": settings.job_misfire_grace_time,
+        },
         timezone="UTC",
     )
-
-
-def on_job_error(event: JobExecutionEvent) -> None:
-    exc = event.exception
-    if isinstance(exc, ScheduleRunError):
-        logger.error("run_failed", schedule_id=exc.schedule_id, run_id=exc.run_id, error=str(exc))
-    else:
-        logger.error("job_error", job_id=event.job_id, error=str(exc))
 
 
 async def _jobstore_poller(scheduler: AsyncIOScheduler, stop_event: asyncio.Event, interval_seconds: int = 5) -> None:
@@ -66,8 +60,6 @@ async def _run() -> None:
             loop.add_signal_handler(sig, _request_stop)
         except NotImplementedError:  # Windows
             signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop_event.set))
-
-    scheduler.add_listener(on_job_error, EVENT_JOB_ERROR)
 
     scheduler.add_job(
         heartbeat,

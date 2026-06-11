@@ -6,7 +6,7 @@ If jub successful it should return standardized object with next fields:
 
 - `run_id`: uuid4
 - `schedule_id`: str
-- `result`: json
+- `result`: json # accumulated list of values in case of streamed chat completion or sse, or direct response json
 
 # Failed jobs
 Scheduled job execution wrapped in `try/except` block and reraises standardized exception

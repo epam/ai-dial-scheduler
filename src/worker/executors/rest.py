@@ -1,3 +1,6 @@
+import json
+from typing import Any
+
 import httpx
 
 from src.lib.constants import API_KEY_HEADER
@@ -9,7 +12,7 @@ from src.lib.utils.logging import logger
 
 
 class RestExecutor:
-    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> None:
+    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> dict[str, Any]:
         settings = get_settings()
         headers = {API_KEY_HEADER: settings.dial_api_key.get_secret_value(), **properties.extra_headers}
 
@@ -25,4 +28,10 @@ class RestExecutor:
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             raise ScheduleRunError(str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id) from exc
 
+        try:
+            body: Any = json.loads(response.text)
+        except ValueError:
+            body = response.text
+
         logger.info("run_result", run_id=ctx.run_id, status=response.status_code, result=response.text)
+        return {"status_code": response.status_code, "body": body}

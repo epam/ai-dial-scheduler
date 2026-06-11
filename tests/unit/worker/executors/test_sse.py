@@ -175,6 +175,55 @@ class TestSseExecutorHappyPath:
             assert "my-sse-secret" not in str(log)
 
 
+class TestSseExecutorReturnsResult:
+    async def test_returns_events_list(self, mock_client, mocker):
+        events = [
+            mocker.MagicMock(event="data", data="chunk1"),
+            mocker.MagicMock(event="data", data="chunk2"),
+        ]
+
+        async def async_iter():
+            for e in events:
+                yield e
+
+        event_source = mocker.MagicMock()
+        event_source.response = mocker.MagicMock(status_code=200)
+        event_source.aiter_sse = async_iter
+        event_source.__aenter__ = mocker.AsyncMock(return_value=event_source)
+        event_source.__aexit__ = mocker.AsyncMock(return_value=False)
+
+        mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
+
+        props = make_properties()
+        executor = SseExecutor()
+
+        with structlog.testing.capture_logs():
+            result = await executor.execute(CTX, props)
+
+        assert result == {"events": [{"event": "data", "data": "chunk1"}, {"event": "data", "data": "chunk2"}]}
+
+    async def test_returns_empty_events_for_zero_event_stream(self, mock_client, mocker):
+        async def async_iter():
+            return
+            yield
+
+        event_source = mocker.MagicMock()
+        event_source.response = mocker.MagicMock(status_code=200)
+        event_source.aiter_sse = async_iter
+        event_source.__aenter__ = mocker.AsyncMock(return_value=event_source)
+        event_source.__aexit__ = mocker.AsyncMock(return_value=False)
+
+        mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
+
+        props = make_properties()
+        executor = SseExecutor()
+
+        with structlog.testing.capture_logs():
+            result = await executor.execute(CTX, props)
+
+        assert result == {"events": []}
+
+
 class TestSseExecutorFailurePath:
     async def test_non_2xx_raises_schedule_run_error(self, mock_client, mocker):
         event_source = mocker.MagicMock()
