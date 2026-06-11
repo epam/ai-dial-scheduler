@@ -1,0 +1,125 @@
+include:
+  - project: GitLab/ci
+    ref: 3.2.1
+    file: docker/docker-generic.gitlab-ci.yml
+
+
+variables:
+  # CI Images (for custom jobs)
+  PYTHON_IMAGE: "dockerhub.deltixhub.com/python:3.13"
+
+  # Python build variables
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+  # Docker configuration (for template)
+  DOCKER_PATH: dial-scheduler/images/dial-scheduler
+  DOCKERFILE_PATH: "."
+  DOCKER_ADDITIONAL_TAG: ""
+  DOCKER_BUILD_ARGS: ""
+
+stages:
+  - test
+  - build
+  - scan
+  - deploy
+  - publish
+
+
+# app-linter:
+#   stage: test
+#   image: ${PYTHON_IMAGE}
+#   before_script:
+#     - python --version ; pip --version
+#     - pip install uv
+#     - uv sync --all-groups
+#   script:
+#     - uv run ruff check .
+#   cache:
+#     key: ${CI_COMMIT_REF_SLUG}
+#     paths:
+#       - .cache/pip
+#       - .venv
+#   tags:
+#     - DockerExecutor
+#     - aws-large
+#   rules:
+#     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+
+# app-style_checks:
+#   stage: test
+#   image: ${PYTHON_IMAGE}
+#   before_script:
+#     - python --version ; pip --version
+#     - pip install uv
+#     - uv sync --all-groups
+#   script:
+#     - uv run ruff format --check .
+#   cache:
+#     key: ${CI_COMMIT_REF_SLUG}
+#     paths:
+#       - .cache/pip
+#       - .venv
+#   allow_failure: true
+#   tags:
+#     - DockerExecutor
+#     - aws-large
+#   rules:
+#     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+# app-tests:
+#   stage: test
+#   image: ${PYTHON_IMAGE}
+#   before_script:
+#     - python --version ; pip --version
+#     - pip install uv
+#     - uv sync --all-groups
+#   script:
+#     - uv run pytest --cov=src --cov-report=xml:coverage.xml --junitxml=report.xml
+#   artifacts:
+#     paths:
+#       - report.xml
+#       - coverage.xml
+#     reports:
+#       junit: report.xml
+#       coverage_report:
+#         coverage_format: cobertura
+#         path: coverage.xml
+#     when: always
+#     expire_in: 1 week
+#   cache:
+#     key: ${CI_COMMIT_REF_SLUG}
+#     paths:
+#       - .cache/pip
+#       - .venv
+#   allow_failure: true
+#   tags:
+#     - DockerExecutor
+#     - aws-large
+#   rules:
+#     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
+
+
+# "Tag branch":
+#   stage: build
+#   rules:
+#     - if: "$CI_COMMIT_REF_SLUG =~ /^release-/ && $CI_COMMIT_MESSAGE !~ /^RobotBuild/"
+
+build:
+  rules:
+    - if: $CI_COMMIT_TAG
+      variables:
+        DOCKER_ADDITIONAL_TAGS: "latest"
+    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"
+      variables:
+        DOCKER_ADDITIONAL_TAGS: "development"
+
+# trigger_deploy_dev:
+#   stage: deploy
+#   inherit:
+#     variables: false
+#   trigger:
+#     project: Clients/dial/dev/inference-router
+#     strategy: depend
+#   rules:
+#     - if: $CI_COMMIT_BRANCH == "development"
