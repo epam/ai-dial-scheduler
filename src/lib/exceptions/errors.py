@@ -10,6 +10,10 @@ class JobRegistrationError(SchedulerError):
     """Raised when APScheduler fails to register a job after row persistence."""
 
 
+class ScheduleRunNotFoundError(SchedulerError):
+    """Raised when a run is not found or does not belong to the given schedule."""
+
+
 class ScheduleRunError(SchedulerError):
     """Raised when a scheduled run fails; carries schedule_id and run_id for correlation."""
 

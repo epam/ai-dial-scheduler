@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 import uuid
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.lib.db.enums import ScheduleRunStatus
@@ -43,4 +44,33 @@ class ScheduleRunRepository:
         row.end_time = datetime.now(UTC)
         row.result = {"error_text": error_text}
         await self._session.commit()
+        return row
+
+    async def list_for_schedule(self, schedule_id: str, limit: int, offset: int) -> tuple[int, list[ScheduleRun]]:
+        """Return total count and a page of runs for a schedule, ordered created_at DESC, id DESC."""
+        runs_table = ScheduleRun.__table__  # type: ignore[attr-defined]
+        schedule_id_col = runs_table.c.schedule_id
+        created_at_col = runs_table.c.created_at
+        id_col = runs_table.c.id
+
+        count_stmt = select(func.count()).select_from(runs_table).where(schedule_id_col == schedule_id)
+        count_result = await self._session.execute(count_stmt)
+        total = count_result.scalar_one()
+
+        page_stmt = (
+            select(ScheduleRun)
+            .where(schedule_id_col == schedule_id)
+            .order_by(created_at_col.desc(), id_col.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        page_result = await self._session.execute(page_stmt)
+        rows = page_result.scalars().all()
+        return total, list(rows)
+
+    async def get_for_schedule(self, schedule_id: str, run_id: str) -> ScheduleRun | None:
+        """Fetch a run by PK, returning None if it does not belong to the given schedule."""
+        row = await self._session.get(ScheduleRun, uuid.UUID(run_id))
+        if row is None or row.schedule_id != schedule_id:
+            return None
         return row
