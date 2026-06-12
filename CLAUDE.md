@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/010-schedule-run-endpoints/plan.md` (Schedule Run List & Run Details Endpoints)
+- Current plan: `specs/011-user-id-auth/plan.md` (User Identity Authentication for Schedule Endpoints)
 <!-- SPECKIT END -->

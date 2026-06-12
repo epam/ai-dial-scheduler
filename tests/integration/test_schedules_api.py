@@ -18,6 +18,7 @@ import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.db import get_db_session
 from src.api.dependencies.scheduler import get_scheduler
 from src.api.v1.endpoints.schedules import router as schedules_router
@@ -32,6 +33,9 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 # ---------------------------------------------------------------------------
 
 
+INTEGRATION_USER_ID = "mock_user_id"
+
+
 @pytest.fixture(scope="module")
 def test_app(engine: AsyncEngine) -> FastAPI:
     app = FastAPI()
@@ -41,7 +45,11 @@ def test_app(engine: AsyncEngine) -> FastAPI:
         async with AsyncSession(engine, expire_on_commit=False) as session:
             yield session
 
+    async def override_user_id() -> str:
+        return INTEGRATION_USER_ID
+
     app.dependency_overrides[get_db_session] = override_db
+    app.dependency_overrides[get_user_id] = override_user_id
     return app
 
 

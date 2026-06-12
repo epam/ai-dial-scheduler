@@ -1,756 +1,30 @@
 ### Variables
-@baseUrl = http://localhost:5000
+# Switch between direct and DIAL-routed access by toggling the active @baseUrl line.
+#@baseUrl = http://localhost:5000
+@baseUrl = http://127.0.0.1:8080/v1/deployments/scheduler/route
+
 @dialUrl = http://127.0.0.1:8080
-// Paste the id returned by any Create request before running Update / Detail requests.
+
+# Auth — credential value is centralised here; header name is fixed as Api-Key.
+# To switch to Bearer: find-replace  "Api-Key: {{authValue}}"
+#                               with  "Authorization: Bearer {{authValue}}"
+@authValue = dial_api_key
+
+# Paste the id returned by a Create request before running Update / Detail requests.
 @scheduleId = 1260c271-9804-42c0-8521-fd469683ae44
-// Paste the id returned by any run in the list response before running Run Detail requests.
+# Paste the id returned by a run in the list response before running Run Detail requests.
 @runId = 6239576f-44e6-4ef7-951a-4832d6e2f31c
 
 
 ### ============================================================
-### CREATE — happy paths
+### CREATE
 ### ============================================================
-
-# @name create_cron
-### Create schedule with cron trigger (chat_completion)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Daily GPT report",
-  "trigger": {
-    "cron": {
-      "fields": {
-        "hour": "9",
-        "minute": "0",
-        "day_of_week": "mon-fri"
-      }
-    }
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
-    "payload": {
-      "messages": [{"role": "user", "content": "Generate daily report"}]
-    },
-    "extra_headers": {"tenant_id": "acme"},
-    "api_version": "2024-02-01"
-  }
-}
-
-###
-
-
-# @name create_cron_every_second
-### Create schedule with cron trigger (chat_completion)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Daily GPT report",
-  "trigger": {
-    "cron": {
-      "fields": {
-        "second": "*"
-      }
-    }
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
-    "payload": {
-      "messages": [{"role": "user", "content": "Generate daily report"}]
-    },
-    "extra_headers": {"tenant_id": "acme"},
-    "api_version": "2024-02-01"
-  }
-}
-
-###
-
-# @name create_cron_with_date_bounds
-### Create cron schedule with start/end bounds
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Bounded cron",
-  "trigger": {
-    "cron": {
-      "fields": {"hour": "10", "minute": "30"},
-      "start_date": "2026-07-01T00:00:00+00:00",
-      "end_date": "2026-12-31T23:59:59+00:00"
-    }
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
-    "payload": {"messages": [{"role": "user", "content": "hello"}], "stream": true}
-  }
-}
-
-###
-
-# @name create_date
-### Create schedule with one-shot date trigger
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "One-shot job",
-  "trigger": {
-    "date": "2030-01-15T09:00:00+00:00"
-  },
-  "properties": {
-    "target_type": "rest",
-    "method": "POST",
-    "url": "https://api.example.com/webhook",
-    "payload": {"event": "trigger"},
-    "extra_headers": {"X-Source": "scheduler"}
-  }
-}
-
-###
-
-# @name create_rest_get
-### Create REST schedule with GET method
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Hourly health check",
-  "trigger": {
-    "cron": {
-      "fields": {"minute": "0"}
-    }
-  },
-  "properties": {
-    "target_type": "rest",
-    "method": "GET",
-    "url": "https://api.example.com/health"
-  }
-}
-
-###
-
-# @name create_sse
-### Create SSE schedule
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Streaming alert",
-  "trigger": {
-    "cron": {
-      "fields": {"hour": "8", "minute": "0"}
-    }
-  },
-  "properties": {
-    "target_type": "sse",
-    "method": "POST",
-    "url": "https://api.example.com/stream",
-    "payload": {"query": "daily summary"}
-  }
-}
-
-###
-
-# @name create_minimal_cron
-### Create schedule — only required fields, all optional omitted
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Minimal cron",
-  "trigger": {
-    "cron": {
-      "fields": {}
-    }
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-
-### ============================================================
-### CREATE — validation failures (expect 422)
-### ============================================================
-
-###
-
-### Both cron and date triggers supplied → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Bad trigger",
-  "trigger": {
-    "cron": {"fields": {"hour": "9"}},
-    "date": "2030-01-01T09:00:00+00:00"
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-###
-
-### No trigger supplied → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "No trigger",
-  "trigger": {},
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-###
-
-### chat_completion with method set → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "chat_completion with method",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "chat_completion",
-    "method": "POST",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-###
-
-### rest without method → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "rest without method",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "rest",
-    "url": "https://api.example.com/hook"
-  }
-}
-
-###
-
-### rest with api_version → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "rest with api_version",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "rest",
-    "method": "POST",
-    "url": "https://api.example.com/hook",
-    "api_version": "2024-02-01"
-  }
-}
-
-###
-
-### sse with api_version → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "sse with api_version",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "sse",
-    "method": "POST",
-    "url": "https://api.example.com/stream",
-    "api_version": "2024-02-01"
-  }
-}
-
-###
-
-### Non-HTTP URL → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "bad url",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "rest",
-    "method": "GET",
-    "url": "ftp://files.example.com/report"
-  }
-}
-
-###
-
-### Empty display_name → 422
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "   ",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-
-### ============================================================
-### UPDATE — happy paths
-### ============================================================
-
-###
-
-### Update schedule — change display_name and trigger
-PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
-Content-Type: application/json
-
-{
-  "display_name": "Daily GPT report",
-  "trigger": {
-    "cron": {
-      "fields": {
-        "minute": "*"
-      }
-    }
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
-    "payload": {
-      "messages": [{"role": "user", "content": "Generate daily report"}]
-    },
-    "extra_headers": {"tenant_id": "acme"},
-    "api_version": "2024-02-99"
-  }
-}
-
-###
-
-### Update schedule — switch from cron to date trigger
-PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
-Content-Type: application/json
-
-{
-  "display_name": "One-time migration job",
-  "trigger": {
-    "date": "2030-06-01T06:00:00+00:00"
-  },
-  "properties": {
-    "target_type": "rest",
-    "method": "POST",
-    "url": "https://api.example.com/migrate",
-    "payload": {"version": "v2"}
-  }
-}
-
-
-### ============================================================
-### UPDATE — error cases
-### ============================================================
-
-###
-
-### Update non-existent schedule → 404
-PUT {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
-Content-Type: application/json
-
-{
-  "display_name": "Ghost schedule",
-  "trigger": {"cron": {"fields": {"hour": "9"}}},
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-###
-
-### Update with invalid body → 422 (row unchanged)
-PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
-Content-Type: application/json
-
-{
-  "display_name": "Bad update",
-  "trigger": {},
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions"
-  }
-}
-
-
-### ============================================================
-### LIST — happy paths
-### ============================================================
-
-###
-
-### List schedules — default pagination
-GET {{baseUrl}}/v1/schedules/
-
-###
-
-### List schedules — first page, small limit
-GET {{baseUrl}}/v1/schedules/?limit=2&offset=0
-
-###
-
-### List schedules — second page
-GET {{baseUrl}}/v1/schedules/?limit=2&offset=2
-
-###
-
-### List schedules — large offset beyond results (empty page)
-GET {{baseUrl}}/v1/schedules/?limit=20&offset=9999
-
-###
-
-### List schedules — limit=1 (single result per page)
-GET {{baseUrl}}/v1/schedules/?limit=1&offset=0
-
-
-### ============================================================
-### LIST — validation failures (expect 422)
-### ============================================================
-
-###
-
-### limit=0 → 422
-GET {{baseUrl}}/v1/schedules/?limit=0
-
-###
-
-### negative offset → 422
-GET {{baseUrl}}/v1/schedules/?offset=-1
-
-
-### ============================================================
-### GET DETAIL — happy paths
-### ============================================================
-
-###
-
-### Get schedule detail by id
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}
-
-
-### ============================================================
-### GET DETAIL — error cases
-### ============================================================
-
-###
-
-### Get non-existent schedule → 404
-GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
-
-
-### ============================================================
-### LIST RUNS — happy paths
-### ============================================================
-
-###
-
-### List runs for a schedule — default pagination
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs
-
-###
-
-### List runs — first page, small limit
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=2&offset=0
-
-###
-
-### List runs — second page
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=2&offset=2
-
-###
-
-### List runs — large offset beyond results (empty page, count > 0)
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=20&offset=9999
-
-###
-
-### List runs — limit=1 (single result per page)
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=1&offset=0
-
-
-### ============================================================
-### LIST RUNS — error cases
-### ============================================================
-
-###
-
-### List runs — non-existent schedule → 404
-GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000/runs
-
-###
-
-### List runs — limit=0 → 422
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?limit=0
-
-###
-
-### List runs — negative offset → 422
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs?offset=-1
-
-
-### ============================================================
-### GET RUN DETAIL — happy paths
-### ============================================================
-
-###
-
-### Get run detail by id
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/{{runId}}
-
-
-### ============================================================
-### GET RUN DETAIL — error cases
-### ============================================================
-
-###
-
-### Get run detail — non-existent run → 404
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/00000000-0000-0000-0000-000000000001
-
-###
-
-### Get run detail — non-existent schedule → 404
-GET {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000/runs/{{runId}}
-
-###
-
-### Get run detail — malformed run_id → 422
-GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/not-a-uuid
-
-
-### ============================================================
-### HEALTHCHECK
-### ============================================================
-
-###
-
-### Healthcheck endpoint
-GET {{baseUrl}}/health
-
-
-### ============================================================
-### INTEGRATION SELF-CHECK  (dev mode only — env != "prod")
-###
-### Echo endpoints:
-###   POST /echo/rest                                            → JSON response
-###   POST /echo/sse                                            → SSE stream
-###   POST /openai/deployments/echo/chat/completions            → OpenAI-compat (via aidial_sdk)
-###
-### Payload fields for REST and SSE echo handlers:
-###   success: bool   (default true)  — false → 500
-###   sleep:   float  (default 0.0)   — seconds to wait before responding
-###   chunks:  int    (default 3)     — events to emit (sse only)
-###
-### Chat completion echo uses standard OpenAI payload (messages, stream, etc.).
-### The DIAL SDK rejects unknown body fields, so success/sleep/chunks are not
-### supported there — the handler always returns 3 chunks with no delay.
-### ============================================================
-
-
-# --------------- Echo endpoint smoke tests -------------------
-
-### Echo REST — 200 OK
-POST {{baseUrl}}/echo/rest
-Content-Type: application/json
-
-{"success": true, "sleep": 0.0}
-
-###
-
-### Echo REST — 500 error
-POST {{baseUrl}}/echo/rest
-Content-Type: application/json
-
-{"success": false, "sleep": 0.0}
-
-###
-
-### Echo SSE — stream 4 events
-POST {{baseUrl}}/echo/sse
-Content-Type: application/json
-
-{"success": true, "sleep": 0.1, "chunks": 4}
-
-###
-
-### Echo SSE — 500 error before stream
-POST {{baseUrl}}/echo/sse
-Content-Type: application/json
-
-{"success": false}
-
-###
-
-### Echo Chat Completion — non-streaming, 3 chunks merged into one response
-POST {{baseUrl}}/openai/deployments/echo/chat/completions
-Content-Type: application/json
-Api-Key: dev-key
-
-{"messages": [{"role": "user", "content": "hello"}], "stream": false}
-
-###
-
-### Echo Chat Completion — streaming, 5 chunks
-POST {{baseUrl}}/openai/deployments/echo/chat/completions
-Content-Type: application/json
-Api-Key: dev-key
-
-{"messages": [{"role": "user", "content": "hello"}], "stream": true}
-
-###
-
-### Echo Chat Completion — non-OpenAI fields are silently ignored by the executor
-POST {{baseUrl}}/openai/deployments/echo/chat/completions
-Content-Type: application/json
-Api-Key: dev-key
-
-{"messages": [{"role": "user", "content": "hello"}], "stream": false}
-
-
-# --------------- Schedule jobs that call echo endpoints -------
-# Create these schedules, then start the worker to see real
-# end-to-end dispatch logs.  Use cron second=* for rapid firing.
-
-###
-
-# @name create_echo_rest_job
-### Schedule a REST job hitting the local echo endpoint (fires every second)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Echo REST self-check",
-  "trigger": {
-    "cron": {"fields": {"second": "0"}}
-  },
-  "properties": {
-    "target_type": "rest",
-    "method": "POST",
-    "url": "http://localhost:5000/echo/rest",
-    "payload": {"success": true, "sleep": 0.2}
-  }
-}
-
-###
-
-# @name create_echo_rest_error_job
-### Schedule a REST job that always fails (fires every 10 s)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Echo REST error self-check",
-  "trigger": {
-    "cron": {"fields": {"second": "*/10"}}
-  },
-  "properties": {
-    "target_type": "rest",
-    "method": "POST",
-    "url": "http://localhost:5000/echo/rest",
-    "payload": {"success": false}
-  }
-}
-
-###
-
-# @name create_echo_sse_job
-### Schedule an SSE job streaming 5 events (fires every 5 s)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Echo SSE self-check",
-  "trigger": {
-    "cron": {"fields": {"second": "*/5"}}
-  },
-  "properties": {
-    "target_type": "sse",
-    "method": "POST",
-    "url": "http://localhost:5000/echo/sse",
-    "payload": {"success": true, "sleep": 0.1, "chunks": 5}
-  }
-}
-
-###
-
-# @name create_echo_chat_streaming_job
-### Schedule a streaming chat completion job (fires every 5 s)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Echo Chat streaming self-check",
-  "trigger": {
-    "cron": {"fields": {"second": "*/5"}}
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "http://localhost:5000/openai/deployments/echo/chat/completions",
-    "payload": {
-      "messages": [{"role": "user", "content": "ping"}],
-      "model": "echo",
-      "stream": true
-    },
-    "api_version": "2024-02-01"
-  }
-}
-
-###
-
-# @name create_echo_chat_nonstreaming_job
-### Schedule a non-streaming chat completion job (fires every 5 s)
-POST {{baseUrl}}/v1/schedules/
-Content-Type: application/json
-
-{
-  "display_name": "Echo Chat non-streaming self-check",
-  "trigger": {
-    "cron": {"fields": {"second": "*/5"}}
-  },
-  "properties": {
-    "target_type": "chat_completion",
-    "url": "http://localhost:5000/openai/deployments/echo/chat/completions",
-    "payload": {
-      "messages": [{"role": "user", "content": "ping"}],
-      "model": "echo",
-      "stream": false
-    },
-    "api_version": "2024-02-01"
-  }
-}
-
-
-### ============================================================
-### REAL DIAL — live deployment smoke test
-### Requires local DIAL core running on 127.0.0.1:8080
-### ============================================================
-
-###
 
 # @name create_real_dial_streaming_job
-### Schedule a streaming chat job against the real gpt-4.1-mini deployment (fires every 30 s)
+### Streaming chat_completion against real DIAL gpt-4.1-mini (fires every 30 s)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
+Api-Key: {{authValue}}
 
 {
   "display_name": "Real DIAL streaming smoke test",
@@ -768,3 +42,151 @@ Content-Type: application/json
     "api_version": "2025-01-01-preview"
   }
 }
+
+###
+
+# @name create_echo_rest_success
+### REST echo — success (fires every second)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Echo REST success",
+  "trigger": {
+    "cron": {"fields": {"second": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true, "sleep": 0.2}
+  }
+}
+
+###
+
+# @name create_echo_rest_error
+### REST echo — always returns 500 (fires every 10 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Echo REST error",
+  "trigger": {
+    "cron": {"fields": {"second": "*/10"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": false}
+  }
+}
+
+###
+
+# @name create_echo_sse_success
+### SSE echo — streams 5 events (fires every 5 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Echo SSE success",
+  "trigger": {
+    "cron": {"fields": {"second": "*/5"}}
+  },
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/sse",
+    "payload": {"success": true, "sleep": 0.1, "chunks": 5}
+  }
+}
+
+###
+
+# @name create_echo_sse_error
+### SSE echo — 500 error before stream starts (fires every 10 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Echo SSE error",
+  "trigger": {
+    "cron": {"fields": {"second": "*/10"}}
+  },
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/sse",
+    "payload": {"success": false}
+  }
+}
+
+
+### ============================================================
+### LIST SCHEDULES
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/
+Api-Key: {{authValue}}
+
+
+### ============================================================
+### GET SCHEDULE DETAIL
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}
+Api-Key: {{authValue}}
+
+
+### ============================================================
+### UPDATE SCHEDULE
+### ============================================================
+
+###
+
+PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Updated schedule",
+  "trigger": {
+    "cron": {"fields": {"minute": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true}
+  }
+}
+
+
+### ============================================================
+### LIST SCHEDULE RUNS
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs
+Api-Key: {{authValue}}
+
+
+### ============================================================
+### GET RUN DETAIL
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/{{runId}}
+Api-Key: {{authValue}}

@@ -2,9 +2,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
-from src.lib.constants import MOCK_USER_ID
 from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
 from src.lib.schemas.pagination import Page
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleRequest, ScheduleResponse
@@ -21,10 +21,11 @@ PaginationDep = Annotated[Pagination, Depends()]
 async def create_schedule(
     request: ScheduleRequest,
     service: ScheduleServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
 ) -> ScheduleResponse:
     """Create a new schedule and register it with the job scheduler."""
     try:
-        return await service.create(request, MOCK_USER_ID)
+        return await service.create(request, user_id)
     except JobRegistrationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -34,10 +35,11 @@ async def update_schedule(
     schedule_id: str,
     request: ScheduleRequest,
     service: ScheduleServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
 ) -> ScheduleResponse:
     """Update an existing schedule and re-register it with the job scheduler."""
     try:
-        return await service.update(schedule_id, request, MOCK_USER_ID)
+        return await service.update(schedule_id, request, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
     except JobRegistrationError as exc:
@@ -48,18 +50,20 @@ async def update_schedule(
 async def list_schedules(
     service: ScheduleServiceDep,
     pagination: PaginationDep,
+    user_id: Annotated[str, Depends(get_user_id)],
 ) -> Page[ScheduleListItem]:
     """Return a paginated, owner-scoped list of schedules."""
-    return await service.list(MOCK_USER_ID, pagination.paginator("/schedules"))
+    return await service.list(user_id, pagination.paginator("/schedules"))
 
 
 @router.get("/{schedule_id}", response_model=ScheduleResponse)
 async def get_schedule(
     schedule_id: str,
     service: ScheduleServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
 ) -> ScheduleResponse:
     """Return the full detail for an owned schedule."""
     try:
-        return await service.get(schedule_id, MOCK_USER_ID)
+        return await service.get(schedule_id, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc

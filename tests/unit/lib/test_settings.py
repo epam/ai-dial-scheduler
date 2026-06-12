@@ -67,6 +67,27 @@ class TestGetSettings:
         assert s1 is s2
 
 
+class TestUserIdPathList:
+    def test_default_user_id_path_list(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+
+        s = Settings()
+
+        assert s.user_id_path_list == ["userClaims.email.0", "project"]
+
+    def test_user_id_path_list_override(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+        monkeypatch.setenv("USER_ID_PATH_LIST", '["project", "sub"]')
+
+        s = Settings()
+
+        assert s.user_id_path_list == ["project", "sub"]
+
+
 class TestWorkerSettings:
     def test_noop_interval_seconds_default(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")

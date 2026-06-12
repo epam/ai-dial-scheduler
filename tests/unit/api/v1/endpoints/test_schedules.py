@@ -10,6 +10,8 @@ from src.lib.schemas.pagination import Page, Paginator
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleResponse
 
 
+TEST_USER_ID = "alice@example.com"
+
 VALID_REQUEST = {
     "display_name": "Test Schedule",
     "trigger": {
@@ -32,7 +34,7 @@ def make_response(schedule_id: str = "test-uuid") -> ScheduleResponse:
         next_run_time=now,
         trigger={"cron": {"fields": {"hour": 9}}},
         properties={"target_type": "chat_completion", "url": "https://example.com"},
-        created_by="mock_user_id",
+        created_by=TEST_USER_ID,
         created_at=now,
         updated_at=now,
     )
@@ -47,12 +49,17 @@ def mock_service():
 def client(mock_service):
     app = create_api()
 
+    from src.api.dependencies.auth import get_user_id
     from src.api.dependencies.scheduler import get_schedule_service
 
     async def override_service():
         yield mock_service
 
+    async def override_user_id():
+        return TEST_USER_ID
+
     app.dependency_overrides[get_schedule_service] = override_service
+    app.dependency_overrides[get_user_id] = override_user_id
     return TestClient(app)
 
 
@@ -66,7 +73,16 @@ class TestPostSchedule:
         body = response.json()
         assert "id" in body
         assert body["display_name"] == "Test Schedule"
-        assert body["created_by"] == "mock_user_id"
+        assert body["created_by"] == TEST_USER_ID
+
+    def test_create_passes_resolved_user_id_to_service(self, client, mock_service):
+        mock_service.create.return_value = make_response()
+
+        client.post("/v1/schedules/", json=VALID_REQUEST)
+
+        mock_service.create.assert_awaited_once()
+        _, user_id_arg = mock_service.create.call_args.args
+        assert user_id_arg == TEST_USER_ID
 
     def test_create_invalid_trigger_returns_422(self, client, mock_service):
         bad_request = {**VALID_REQUEST, "trigger": {}}  # no cron or date
@@ -102,6 +118,15 @@ class TestPutSchedule:
         assert response.status_code == 200
         assert response.json()["id"] == "test-uuid"
 
+    def test_update_passes_resolved_user_id_to_service(self, client, mock_service):
+        mock_service.update.return_value = make_response()
+
+        client.put("/v1/schedules/test-uuid", json=VALID_REQUEST)
+
+        mock_service.update.assert_awaited_once()
+        _, _, user_id_arg = mock_service.update.call_args.args
+        assert user_id_arg == TEST_USER_ID
+
     def test_update_unknown_id_returns_404(self, client, mock_service):
         mock_service.update.side_effect = ScheduleNotFoundError("nonexistent")
         response = client.put("/v1/schedules/nonexistent", json=VALID_REQUEST)
@@ -134,14 +159,12 @@ class TestGetSchedules:
         assert body["limit"] == 20
         assert body["offset"] == 0
 
-    def test_list_passes_paginator_with_defaults(self, client, mock_service):
+    def test_list_passes_resolved_user_id_to_service(self, client, mock_service):
         mock_service.list.return_value = empty_page()
 
         client.get("/v1/schedules/")
 
-        mock_service.list.assert_awaited_once_with(
-            "mock_user_id", Paginator(limit=20, offset=0, base_path="/schedules")
-        )
+        mock_service.list.assert_awaited_once_with(TEST_USER_ID, Paginator(limit=20, offset=0, base_path="/schedules"))
 
 
 class TestGetScheduleDetail:
@@ -150,6 +173,13 @@ class TestGetScheduleDetail:
         response = client.get("/v1/schedules/test-uuid")
         assert response.status_code == 200
         assert response.json()["id"] == "test-uuid"
+
+    def test_get_passes_resolved_user_id_to_service(self, client, mock_service):
+        mock_service.get.return_value = make_response("test-uuid")
+
+        client.get("/v1/schedules/test-uuid")
+
+        mock_service.get.assert_awaited_once_with("test-uuid", TEST_USER_ID)
 
     def test_get_unknown_id_returns_404(self, client, mock_service):
         mock_service.get.side_effect = ScheduleNotFoundError("nonexistent")
