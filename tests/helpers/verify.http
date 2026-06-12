@@ -11,7 +11,7 @@
 @authValue = dial_api_key
 
 # Paste the id returned by a Create request before running Update / Detail requests.
-@scheduleId = 1260c271-9804-42c0-8521-fd469683ae44
+@scheduleId = b112c49c-eb0a-491f-a0e8-abfef71a58bd
 # Paste the id returned by a run in the list response before running Run Detail requests.
 @runId = 6239576f-44e6-4ef7-951a-4832d6e2f31c
 
@@ -170,6 +170,26 @@ Api-Key: {{authValue}}
     "payload": {"success": true}
   }
 }
+
+
+### ============================================================
+### PAUSE SCHEDULE
+### ============================================================
+
+###
+
+POST {{baseUrl}}/v1/schedules/{{scheduleId}}/pause
+Api-Key: {{authValue}}
+
+
+### ============================================================
+### RESUME SCHEDULE
+### ============================================================
+
+###
+
+POST {{baseUrl}}/v1/schedules/{{scheduleId}}/resume
+Api-Key: {{authValue}}
 
 
 ### ============================================================
