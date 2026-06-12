@@ -333,3 +333,162 @@ class TestGetScheduleDetail:
 
         response = await client.get(f"/v1/schedules/{schedule_id}")
         assert response.json()["display_name"] == "Reflected Update"
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/schedules/{id}/pause
+# ---------------------------------------------------------------------------
+
+
+class TestPauseSchedule:
+    async def test_pause_owned_returns_200_with_null_next_run_time(self, client: httpx.AsyncClient) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        assert create_resp.status_code == 201
+        schedule_id = create_resp.json()["id"]
+
+        response = await client.post(f"/v1/schedules/{schedule_id}/pause")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == schedule_id
+        assert body["next_run_time"] is None
+
+    async def test_pause_schedule_still_retrievable_after_pause(self, client: httpx.AsyncClient) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        await client.post(f"/v1/schedules/{schedule_id}/pause")
+
+        get_resp = await client.get(f"/v1/schedules/{schedule_id}")
+        assert get_resp.status_code == 200
+        assert get_resp.json()["id"] == schedule_id
+
+    async def test_pause_response_is_schedule_response_shape(self, client: httpx.AsyncClient) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        response = await client.post(f"/v1/schedules/{schedule_id}/pause")
+
+        body = response.json()
+        assert "id" in body
+        assert "display_name" in body
+        assert "trigger" in body
+        assert "properties" in body
+        assert "created_by" in body
+        assert "created_at" in body
+        assert "updated_at" in body
+
+    async def test_pause_nonexistent_returns_404(self, client: httpx.AsyncClient) -> None:
+        fake_id = str(uuid.uuid4())
+        response = await client.post(f"/v1/schedules/{fake_id}/pause")
+        assert response.status_code == 404
+
+    async def test_pause_cross_owner_returns_404_identical_to_unknown(
+        self, client: httpx.AsyncClient, test_app: FastAPI
+    ) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        async def override_other_user() -> str:
+            return "other_user_id"
+
+        test_app.dependency_overrides[get_user_id] = override_other_user
+        try:
+            cross_response = await client.post(f"/v1/schedules/{schedule_id}/pause")
+            unknown_response = await client.post(f"/v1/schedules/{uuid.uuid4()}/pause")
+        finally:
+            test_app.dependency_overrides[get_user_id] = lambda: INTEGRATION_USER_ID
+
+        assert cross_response.status_code == 404
+        assert unknown_response.status_code == 404
+
+    async def test_pause_unauthenticated_returns_401(self, client: httpx.AsyncClient, test_app: FastAPI) -> None:
+        from fastapi import HTTPException
+
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        async def raise_unauthorized() -> str:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        test_app.dependency_overrides[get_user_id] = raise_unauthorized
+        try:
+            response = await client.post(f"/v1/schedules/{schedule_id}/pause")
+        finally:
+            test_app.dependency_overrides[get_user_id] = lambda: INTEGRATION_USER_ID
+
+        assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/schedules/{id}/resume
+# ---------------------------------------------------------------------------
+
+
+class TestResumeSchedule:
+    async def test_resume_paused_returns_200(self, client: httpx.AsyncClient) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        assert create_resp.status_code == 201
+        schedule_id = create_resp.json()["id"]
+
+        await client.post(f"/v1/schedules/{schedule_id}/pause")
+        response = await client.post(f"/v1/schedules/{schedule_id}/resume")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["id"] == schedule_id
+
+    async def test_resume_response_is_schedule_response_shape(self, client: httpx.AsyncClient) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        await client.post(f"/v1/schedules/{schedule_id}/pause")
+        response = await client.post(f"/v1/schedules/{schedule_id}/resume")
+
+        body = response.json()
+        assert "id" in body
+        assert "display_name" in body
+        assert "trigger" in body
+        assert "properties" in body
+        assert "created_by" in body
+
+    async def test_resume_nonexistent_returns_404(self, client: httpx.AsyncClient) -> None:
+        fake_id = str(uuid.uuid4())
+        response = await client.post(f"/v1/schedules/{fake_id}/resume")
+        assert response.status_code == 404
+
+    async def test_resume_cross_owner_returns_404_identical_to_unknown(
+        self, client: httpx.AsyncClient, test_app: FastAPI
+    ) -> None:
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        async def override_other_user() -> str:
+            return "other_user_id"
+
+        test_app.dependency_overrides[get_user_id] = override_other_user
+        try:
+            cross_response = await client.post(f"/v1/schedules/{schedule_id}/resume")
+            unknown_response = await client.post(f"/v1/schedules/{uuid.uuid4()}/resume")
+        finally:
+            test_app.dependency_overrides[get_user_id] = lambda: INTEGRATION_USER_ID
+
+        assert cross_response.status_code == 404
+        assert unknown_response.status_code == 404
+
+    async def test_resume_unauthenticated_returns_401(self, client: httpx.AsyncClient, test_app: FastAPI) -> None:
+        from fastapi import HTTPException
+
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+
+        async def raise_unauthorized() -> str:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        test_app.dependency_overrides[get_user_id] = raise_unauthorized
+        try:
+            response = await client.post(f"/v1/schedules/{schedule_id}/resume")
+        finally:
+            test_app.dependency_overrides[get_user_id] = lambda: INTEGRATION_USER_ID
+
+        assert response.status_code == 401

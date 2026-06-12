@@ -67,3 +67,29 @@ async def get_schedule(
         return await service.get(schedule_id, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+
+
+@router.post("/{schedule_id}/pause", response_model=ScheduleResponse)
+async def pause_schedule(
+    schedule_id: str,
+    service: ScheduleServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
+) -> ScheduleResponse:
+    """Pause an owned schedule so it stops firing."""
+    try:
+        return await service.pause(schedule_id, user_id)
+    except ScheduleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+
+
+@router.post("/{schedule_id}/resume", response_model=ScheduleResponse)
+async def resume_schedule(
+    schedule_id: str,
+    service: ScheduleServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
+) -> ScheduleResponse:
+    """Resume an owned paused schedule so it fires again on its trigger."""
+    try:
+        return await service.resume(schedule_id, user_id)
+    except ScheduleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc

@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/011-user-id-auth/plan.md` (User Identity Authentication for Schedule Endpoints)
+- Current plan: `specs/012-schedule-pause-resume/plan.md` (Schedule Pause & Resume Endpoints)
 <!-- SPECKIT END -->

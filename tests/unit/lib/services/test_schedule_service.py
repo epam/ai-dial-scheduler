@@ -306,3 +306,208 @@ class TestScheduleServiceGet:
 
         with pytest.raises(ScheduleNotFoundError):
             await service.get("nonexistent", "mock_user_id")
+
+
+class TestScheduleServicePause:
+    @pytest.mark.asyncio
+    async def test_pause_owned_calls_pause_job_and_returns_response(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as mock_thread:
+            result = await service.pause("test-uuid", "mock_user_id")
+
+        assert isinstance(result, ScheduleResponse)
+        assert result.next_run_time is None
+        mock_thread.assert_awaited_once()
+        call_args = mock_thread.await_args[0]
+        assert call_args[0] == scheduler.pause_job
+        assert call_args[1] == "test-uuid"
+
+    @pytest.mark.asyncio
+    async def test_pause_idempotent_already_paused(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.pause("test-uuid", "mock_user_id")
+
+        assert isinstance(result, ScheduleResponse)
+
+    @pytest.mark.asyncio
+    async def test_pause_job_lookup_error_raises_schedule_not_found(self):
+        from apscheduler.jobstores.base import JobLookupError
+
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=JobLookupError("test-uuid")),
+        ):
+            with pytest.raises(ScheduleNotFoundError):
+                await service.pause("test-uuid", "mock_user_id")
+
+    @pytest.mark.asyncio
+    async def test_pause_not_owned_raises_schedule_not_found(self):
+        repo = AsyncMock()
+        repo.get.return_value = None
+        scheduler = MagicMock()
+
+        service = ScheduleService(repo, scheduler)
+
+        with pytest.raises(ScheduleNotFoundError):
+            await service.pause("test-uuid", "other_user")
+
+        scheduler.pause_job.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_pause_runtime_error_propagates(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=RuntimeError("unexpected")),
+        ):
+            with pytest.raises(RuntimeError):
+                await service.pause("test-uuid", "mock_user_id")
+
+
+class TestScheduleServiceResume:
+    @pytest.mark.asyncio
+    async def test_resume_owned_calls_resume_job_and_returns_response(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as mock_thread:
+            result = await service.resume("test-uuid", "mock_user_id")
+
+        assert isinstance(result, ScheduleResponse)
+        assert result.next_run_time == now
+        mock_thread.assert_awaited_once()
+        call_args = mock_thread.await_args[0]
+        assert call_args[0] == scheduler.resume_job
+        assert call_args[1] == "test-uuid"
+
+    @pytest.mark.asyncio
+    async def test_resume_idempotent_already_active(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.resume("test-uuid", "mock_user_id")
+
+        assert isinstance(result, ScheduleResponse)
+
+    @pytest.mark.asyncio
+    async def test_resume_exhausted_trigger_returns_null_next_run_time(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.resume("test-uuid", "mock_user_id")
+
+        assert result.next_run_time is None
+
+    @pytest.mark.asyncio
+    async def test_resume_job_lookup_error_raises_schedule_not_found(self):
+        from apscheduler.jobstores.base import JobLookupError
+
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=JobLookupError("test-uuid")),
+        ):
+            with pytest.raises(ScheduleNotFoundError):
+                await service.resume("test-uuid", "mock_user_id")
+
+    @pytest.mark.asyncio
+    async def test_resume_not_owned_raises_schedule_not_found(self):
+        repo = AsyncMock()
+        repo.get.return_value = None
+        scheduler = MagicMock()
+
+        service = ScheduleService(repo, scheduler)
+
+        with pytest.raises(ScheduleNotFoundError):
+            await service.resume("test-uuid", "other_user")
+
+        scheduler.resume_job.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_resume_runtime_error_propagates(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, None)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=RuntimeError("unexpected")),
+        ):
+            with pytest.raises(RuntimeError):
+                await service.resume("test-uuid", "mock_user_id")

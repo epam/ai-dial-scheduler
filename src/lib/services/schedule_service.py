@@ -3,6 +3,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from src.lib.constants import EXECUTE_SCHEDULED_JOB_REF
@@ -178,4 +179,32 @@ class ScheduleService:
         if row is None:
             raise ScheduleNotFoundError(schedule_id)
         schedule, next_run_time = row
+        return self._to_response(schedule, next_run_time)
+
+    async def pause(self, schedule_id: str, created_by: str) -> ScheduleResponse:
+        """Pause an owned schedule's APScheduler job, or raise ScheduleNotFoundError."""
+        row = await self._repo.get(schedule_id, created_by)
+        if row is None:
+            raise ScheduleNotFoundError(schedule_id)
+        try:
+            await asyncio.to_thread(self._scheduler.pause_job, schedule_id)
+        except JobLookupError as exc:
+            raise ScheduleNotFoundError(schedule_id) from exc
+        logger.info("schedule_paused", schedule_id=schedule_id)
+        row = await self._repo.get(schedule_id, created_by)
+        schedule, next_run_time = row  # type: ignore[misc]
+        return self._to_response(schedule, next_run_time)
+
+    async def resume(self, schedule_id: str, created_by: str) -> ScheduleResponse:
+        """Resume an owned schedule's APScheduler job, or raise ScheduleNotFoundError."""
+        row = await self._repo.get(schedule_id, created_by)
+        if row is None:
+            raise ScheduleNotFoundError(schedule_id)
+        try:
+            await asyncio.to_thread(self._scheduler.resume_job, schedule_id)
+        except JobLookupError as exc:
+            raise ScheduleNotFoundError(schedule_id) from exc
+        logger.info("schedule_resumed", schedule_id=schedule_id)
+        row = await self._repo.get(schedule_id, created_by)
+        schedule, next_run_time = row  # type: ignore[misc]
         return self._to_response(schedule, next_run_time)
