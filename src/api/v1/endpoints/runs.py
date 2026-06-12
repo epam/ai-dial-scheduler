@@ -3,9 +3,9 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.runs import get_schedule_run_service
-from src.lib.constants import MOCK_USER_ID
 from src.lib.exceptions.errors import ScheduleNotFoundError, ScheduleRunNotFoundError
 from src.lib.schemas.pagination import Page
 from src.lib.schemas.run import RunListItem, RunResponse
@@ -23,11 +23,12 @@ async def list_runs(
     schedule_id: str,
     service: ScheduleRunServiceDep,
     pagination: PaginationDep,
+    user_id: Annotated[str, Depends(get_user_id)],
 ) -> Page[RunListItem]:
     """Return a paginated run history for an owned schedule."""
     try:
         base_path = f"/schedules/{schedule_id}/runs"
-        return await service.list_runs(schedule_id, MOCK_USER_ID, pagination.paginator(base_path))
+        return await service.list_runs(schedule_id, user_id, pagination.paginator(base_path))
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
 
@@ -37,10 +38,11 @@ async def get_run(
     schedule_id: str,
     run_id: uuid.UUID,
     service: ScheduleRunServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
 ) -> RunResponse:
     """Return full detail for a specific run under an owned schedule."""
     try:
-        return await service.get_run(schedule_id, MOCK_USER_ID, str(run_id))
+        return await service.get_run(schedule_id, user_id, str(run_id))
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
     except ScheduleRunNotFoundError as exc:

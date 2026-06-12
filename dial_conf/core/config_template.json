@@ -1,31 +1,48 @@
 {
-  "routes": {
+  "applications": {
     "scheduler": {
-      "paths": [
-        "/scheduler/.*"
-      ],
-      "userRoles": [
-        "default"
-      ],
-      "rewritePath": true,
-      "methods": [
-        "GET",
-        "POST",
-        "PUT"
-      ],
-      "upstreams": [
-        {
-          "endpoint": "http://host.docker.internal:5000"
+      "endpoint": "http://scheduler",
+      "displayName": "DIAL Scheduler",
+      "routes": {
+        "main": {
+          "dial:rewritePath": true,
+          "dial:paths": [
+            "/.*"
+          ],
+          "dial:methods": [
+            "DELETE",
+            "GET",
+            "PATCH",
+            "POST",
+            "PUT"
+          ],
+          "dial:upstreams": [
+            {
+              "dial:endpoint": "http://host.docker.internal:5000",
+              "dial:weight": 1,
+              "dial:tier": 0
+            }
+          ],
+          "dial:maxRetryAttempts": 1,
+          "dial:order": 2147483647,
+          "dial:permissions": [
+            "READ",
+            "WRITE"
+          ],
+          "dial:attachmentPaths": {
+            "dial:requestBody": [],
+            "dial:responseBody": []
+          }
         }
-      ]
+      }
     }
   },
   "models": {
-    "gpt-5.1-2025-11-13": {
+    "gpt-4.1-mini-2025-04-14": {
       "type": "chat",
-      "name": "gpt-5.1-2025-11-13",
-      "endpoint": "http://adapter-dial:5000/openai/deployments/gpt-5.1-2025-11-13/chat/completions",
-      "displayName": "gpt-5.1-2025-11-13",
+      "name": "gpt-4.1-mini-2025-04-14",
+      "endpoint": "http://adapter-dial:5000/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+      "displayName": "gpt-4.1-mini-2025-04-14",
       "forwardAuthToken": false,
       "description_keywords": [
         "OCR Extraction"
@@ -37,7 +54,7 @@
       "maxRetryAttempts": 3,
       "upstreams": [
         {
-          "endpoint": "<DIAL_URL>/openai/deployments/gpt-5.1-2025-11-13/chat/completions",
+          "endpoint": "<DIAL_URL>/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
           "key": "<DIAL_API_KEY>"
         }
       ]

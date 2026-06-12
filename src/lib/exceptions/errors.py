@@ -21,3 +21,7 @@ class ScheduleRunError(SchedulerError):
         super().__init__(message)
         self.schedule_id = schedule_id
         self.run_id = run_id
+
+
+class DialServiceError(SchedulerError):
+    """Raised when the DIAL service is unreachable or returns an unexpected non-2xx response."""

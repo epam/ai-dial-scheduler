@@ -14,6 +14,8 @@ from src.lib.schemas.pagination import Page
 from src.lib.schemas.run import RunListItem, RunResponse, RunScheduleSummary
 
 
+TEST_USER_ID = "alice@example.com"
+
 SCHEDULE_ID = str(uuid.uuid4())
 RUN_ID = uuid.uuid4()
 
@@ -50,6 +52,7 @@ def mock_service():
 
 @pytest.fixture
 def client(mock_service):
+    from src.api.dependencies.auth import get_user_id
     from src.api.dependencies.runs import get_schedule_run_service
     from src.api.v1.endpoints.runs import router as runs_router
 
@@ -59,7 +62,11 @@ def client(mock_service):
     async def override_service():
         yield mock_service
 
+    async def override_user_id():
+        return TEST_USER_ID
+
     app.dependency_overrides[get_schedule_run_service] = override_service
+    app.dependency_overrides[get_user_id] = override_user_id
     return TestClient(app)
 
 
@@ -86,6 +93,14 @@ class TestListRunsEndpoint:
         body = response.json()
         assert body["count"] == 1
         assert len(body["results"]) == 1
+
+    def test_list_passes_resolved_user_id_to_service(self, client, mock_service):
+        mock_service.list_runs.return_value = empty_page()
+
+        client.get(f"/v1/schedules/{SCHEDULE_ID}/runs")
+
+        call_args = mock_service.list_runs.call_args.args
+        assert call_args[1] == TEST_USER_ID
 
     def test_list_returns_200_with_empty_results(self, client, mock_service):
         mock_service.list_runs.return_value = empty_page()
@@ -139,6 +154,14 @@ class TestGetRunEndpoint:
         body = response.json()
         assert body["id"] == str(RUN_ID)
         assert body["status"] == ScheduleRunStatus.SUCCESS.value
+
+    def test_get_passes_resolved_user_id_to_service(self, client, mock_service):
+        mock_service.get_run.return_value = make_run_response()
+
+        client.get(f"/v1/schedules/{SCHEDULE_ID}/runs/{RUN_ID}")
+
+        call_args = mock_service.get_run.call_args.args
+        assert call_args[1] == TEST_USER_ID
 
     def test_get_returns_404_when_run_not_found(self, client, mock_service):
         mock_service.get_run.side_effect = ScheduleRunNotFoundError(str(RUN_ID))
