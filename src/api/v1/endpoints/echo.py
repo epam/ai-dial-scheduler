@@ -33,11 +33,9 @@ async def echo_sse(request: EchoRequest) -> StreamingResponse:
         raise HTTPException(status_code=500, detail="echo error")
 
     async def generate() -> AsyncIterator[str]:
-        if request.sleep > 0:
-            await asyncio.sleep(request.sleep)
         for i in range(request.chunks):
             logger.info("echo_sse_event", chunk_index=i)
             yield f"data: chunk {i}\n\n"
-            await asyncio.sleep(0)
+            await asyncio.sleep(request.sleep or 0)
 
     return StreamingResponse(generate(), media_type="text/event-stream")

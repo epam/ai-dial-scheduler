@@ -23,6 +23,7 @@ class TestScheduleRepositoryCreate:
     @pytest.mark.asyncio
     async def test_create_inserts_and_commits(self):
         session = AsyncMock()
+        session.add = MagicMock()
         session.refresh = AsyncMock()
         repo = ScheduleRepository(session)
         schedule = make_schedule()
@@ -60,6 +61,7 @@ class TestScheduleRepositoryUpdate:
     @pytest.mark.asyncio
     async def test_update_owned_row_commits(self):
         session = AsyncMock()
+        session.add = MagicMock()
         schedule = make_schedule()
         session.get = AsyncMock(return_value=schedule)
         session.refresh = AsyncMock()

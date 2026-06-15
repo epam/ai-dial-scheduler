@@ -9,6 +9,7 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
 from src.lib.utils.logging import logger
+from src.worker.clients import HttpClientProvider
 
 
 def _parse_deployment(url: str) -> tuple[str, str]:
@@ -34,6 +35,7 @@ class ChatCompletionExecutor:
                 api_key=settings.dial_api_key.get_secret_value(),
                 api_version=properties.api_version,
                 azure_deployment=azure_deployment,
+                http_client=HttpClientProvider().client,
             )
             response = await client.chat.completions.create(
                 **properties.payload,

@@ -38,9 +38,9 @@ def setup_context():
 @pytest.fixture
 def mock_client(mocker):
     client = mocker.AsyncMock(spec=httpx.AsyncClient)
-    client.__aenter__ = mocker.AsyncMock(return_value=client)
-    client.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch("src.worker.executors.sse.httpx.AsyncClient", return_value=client)
+    provider = mocker.MagicMock()
+    provider.client = client
+    mocker.patch("src.worker.executors.sse.HttpClientProvider", return_value=provider)
     return client
 
 
@@ -73,7 +73,6 @@ class TestSseExecutorHappyPath:
             "src.worker.executors.sse.get_settings",
             return_value=mocker.MagicMock(
                 dial_api_key=mocker.MagicMock(get_secret_value=lambda: "sse-key"),
-                http_timeout_seconds=30.0,
             ),
         )
 
@@ -149,7 +148,6 @@ class TestSseExecutorHappyPath:
             "src.worker.executors.sse.get_settings",
             return_value=mocker.MagicMock(
                 dial_api_key=mocker.MagicMock(get_secret_value=lambda: "my-sse-secret"),
-                http_timeout_seconds=30.0,
             ),
         )
 

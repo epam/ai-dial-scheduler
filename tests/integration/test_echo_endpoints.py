@@ -72,7 +72,6 @@ def _make_asgi_client_factory(app: FastAPI):
 def mock_settings(mocker):
     return mocker.MagicMock(
         dial_api_key=mocker.MagicMock(get_secret_value=lambda: "test-key"),
-        http_timeout_seconds=30.0,
         api_version=None,
     )
 
@@ -228,8 +227,13 @@ class TestSseExecutorWithEchoEndpoint:
 
 class TestChatCompletionExecutorWithEchoEndpoint:
     @pytest.fixture(autouse=True)
-    def patch_chat(self, mocker, mock_settings):
+    async def patch_chat(self, mocker, mock_settings):
         mocker.patch("src.worker.executors.chat_completion.get_settings", return_value=mock_settings)
+        async with _RealAsyncClient() as real_client:
+            provider = mocker.MagicMock()
+            provider.client = real_client
+            mocker.patch("src.worker.executors.chat_completion.HttpClientProvider", return_value=provider)
+            yield
 
     async def test_streaming_logs_one_entry_per_chunk(self, dial_server: str) -> None:
         from src.worker.executors.chat_completion import ChatCompletionExecutor

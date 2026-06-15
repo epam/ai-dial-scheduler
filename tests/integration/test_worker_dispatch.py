@@ -50,9 +50,9 @@ async def test_rest_job_fires_end_to_end(scheduler, mocker):
 
     mock_http_client = mocker.AsyncMock(spec=httpx.AsyncClient)
     mock_http_client.request = mocker.AsyncMock(return_value=mock_response)
-    mock_http_client.__aenter__ = mocker.AsyncMock(return_value=mock_http_client)
-    mock_http_client.__aexit__ = mocker.AsyncMock(return_value=False)
-    mocker.patch("src.worker.executors.rest.httpx.AsyncClient", return_value=mock_http_client)
+    provider = mocker.MagicMock()
+    provider.client = mock_http_client
+    mocker.patch("src.worker.executors.rest.HttpClientProvider", return_value=provider)
 
     fired = asyncio.Event()
     original_execute = None

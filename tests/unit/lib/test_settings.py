@@ -1,7 +1,7 @@
 import pytest
 
 from src.lib.db.enums import DbAuthMode, DbDriver
-from src.lib.settings import DatabaseSettings, Settings, get_settings
+from src.lib.settings import ApiHttpSettings, DatabaseSettings, Settings, WorkerHttpSettings, get_settings
 
 
 class TestDatabaseSettings:
@@ -98,15 +98,6 @@ class TestWorkerSettings:
 
         assert s.noop_interval_seconds == 60
 
-    def test_http_timeout_seconds_default(self, monkeypatch):
-        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
-        monkeypatch.setenv("DIAL_API_KEY", "key")
-        monkeypatch.setenv("DB_PASSWORD", "pass")
-
-        s = Settings()
-
-        assert s.http_timeout_seconds == 30.0
-
     def test_noop_interval_seconds_override(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
         monkeypatch.setenv("DIAL_API_KEY", "key")
@@ -117,12 +108,46 @@ class TestWorkerSettings:
 
         assert s.noop_interval_seconds == 120
 
-    def test_http_timeout_seconds_override(self, monkeypatch):
-        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
-        monkeypatch.setenv("DIAL_API_KEY", "key")
-        monkeypatch.setenv("DB_PASSWORD", "pass")
-        monkeypatch.setenv("HTTP_TIMEOUT_SECONDS", "15.5")
 
-        s = Settings()
+class TestApiHttpSettings:
+    def test_defaults(self):
+        s = ApiHttpSettings()
 
-        assert s.http_timeout_seconds == 15.5
+        assert s.timeout_seconds == 60.0
+        assert s.connect_timeout_seconds == 5.0
+        assert s.read_timeout_seconds == 60.0
+        assert s.write_timeout_seconds == 60.0
+        assert s.pool_timeout_seconds == 5.0
+        assert s.max_connections == 200
+        assert s.max_keepalive_connections == 20
+
+    def test_override_via_env(self, monkeypatch):
+        monkeypatch.setenv("API_HTTP_TIMEOUT_SECONDS", "120.0")
+        monkeypatch.setenv("API_HTTP_CONNECT_TIMEOUT_SECONDS", "10.0")
+
+        s = ApiHttpSettings()
+
+        assert s.timeout_seconds == 120.0
+        assert s.connect_timeout_seconds == 10.0
+
+
+class TestWorkerHttpSettings:
+    def test_defaults(self):
+        s = WorkerHttpSettings()
+
+        assert s.timeout_seconds == 60.0
+        assert s.connect_timeout_seconds == 5.0
+        assert s.read_timeout_seconds == 60.0
+        assert s.write_timeout_seconds == 60.0
+        assert s.pool_timeout_seconds == 5.0
+        assert s.max_connections == 200
+        assert s.max_keepalive_connections == 20
+
+    def test_override_via_env(self, monkeypatch):
+        monkeypatch.setenv("WORKER_HTTP_TIMEOUT_SECONDS", "45.0")
+        monkeypatch.setenv("WORKER_HTTP_READ_TIMEOUT_SECONDS", "90.0")
+
+        s = WorkerHttpSettings()
+
+        assert s.timeout_seconds == 45.0
+        assert s.read_timeout_seconds == 90.0

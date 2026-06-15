@@ -28,17 +28,19 @@ class Database:
             return self._engine
 
         if self._engine is not None and force_fresh:
+            self._engine.sync_engine.dispose()
             self._engine = None
             self._sessionmaker = None
 
         logger.info(f"Initializing a new DB engine with {settings.db.db_auth_mode} auth mode.")
         engine = self._init_engine_url_based(poolclass=poolclass)
-
-        self._sessionmaker = async_sessionmaker(
+        sessionmaker = async_sessionmaker(
             bind=engine,
             expire_on_commit=False,
             autoflush=False,
         )
+        self._engine = engine
+        self._sessionmaker = sessionmaker
         return engine
 
     def _init_engine_url_based(self, *, poolclass: type[Pool] | None = None) -> AsyncEngine:
@@ -56,11 +58,9 @@ class Database:
             engine_kwargs["pool_size"] = settings.db.db_pool_size
             engine_kwargs["max_overflow"] = settings.db.db_max_overflow
             engine_kwargs["pool_recycle"] = settings.db.db_pool_recycle_seconds
+            engine_kwargs["pool_timeout"] = settings.db.db_pool_timeout_seconds
 
-        engine = create_async_engine(url, **engine_kwargs)
-
-        self._engine = engine
-        return engine
+        return create_async_engine(url, **engine_kwargs)
 
     @property
     def engine(self) -> AsyncEngine:

@@ -11,6 +11,7 @@ from src.lib.db.enums import DbDriver
 from src.lib.db.url import build_database_url
 from src.lib.settings import get_settings
 from src.lib.utils.logging import configure_logging, logger
+from src.worker.clients import HttpClientProvider
 from src.worker.jobs import heartbeat
 
 
@@ -79,6 +80,9 @@ async def _run() -> None:
 
     logger.info("Starting worker.")
     scheduler.start()
+    # Build the shared HTTP client up front so its TLS context is created once,
+    # before jobs fire, rather than blocking the event loop on the first run.
+    _ = HttpClientProvider().client
     poller = asyncio.create_task(_jobstore_poller(scheduler, stop_event))
     try:
         await stop_event.wait()
@@ -86,7 +90,8 @@ async def _run() -> None:
         poller.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await poller
-        scheduler.shutdown(wait=True)
+        scheduler.shutdown(wait=False)
+        await HttpClientProvider().aclose()
         logger.info("Worker stopped.")
 
 
