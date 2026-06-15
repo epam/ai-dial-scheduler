@@ -17,6 +17,7 @@ from src.lib.utils.logging import LoggingConfig, configure_logging, logger
 
 @asynccontextmanager
 async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
+    settings = get_settings()
     database = Database()
     database.init_engine()
     scheduler = create_scheduler()
@@ -25,9 +26,19 @@ async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
     scheduler.start(paused=True)
     app.state.scheduler = scheduler  # type: ignore[attr-defined]
     try:
+        api_http = settings.api_http
         async with httpx.AsyncClient(
-            timeout=httpx.Timeout(60.0, connect=5.0, read=60.0, write=60.0, pool=5.0),
-            limits=httpx.Limits(max_connections=200, max_keepalive_connections=20),
+            timeout=httpx.Timeout(
+                api_http.timeout_seconds,
+                connect=api_http.connect_timeout_seconds,
+                read=api_http.read_timeout_seconds,
+                write=api_http.write_timeout_seconds,
+                pool=api_http.pool_timeout_seconds,
+            ),
+            limits=httpx.Limits(
+                max_connections=api_http.max_connections,
+                max_keepalive_connections=api_http.max_keepalive_connections,
+            ),
         ) as app_client:
             logger.info("Created global HTTP Client for the app lifespan.")
             app.state.app_client = app_client  # type: ignore[attr-defined]

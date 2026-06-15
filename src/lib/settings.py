@@ -24,6 +24,7 @@ class DatabaseSettings(BaseSettings):
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_recycle_seconds: int = 1800
+    db_pool_timeout_seconds: int = 30
     db_pool_pre_ping: bool = True
     db_echo: bool = False
     db_auth_mode: DbAuthMode = DbAuthMode.PASSWORD
@@ -45,6 +46,40 @@ class DatabaseSettings(BaseSettings):
         return self
 
 
+class ApiHttpSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_prefix="API_HTTP_",
+    )
+
+    timeout_seconds: float = 60.0
+    connect_timeout_seconds: float = 5.0
+    read_timeout_seconds: float = 60.0
+    write_timeout_seconds: float = 60.0
+    pool_timeout_seconds: float = 5.0
+    max_connections: int = 200
+    max_keepalive_connections: int = 20
+
+
+class WorkerHttpSettings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        env_prefix="WORKER_HTTP_",
+    )
+
+    timeout_seconds: float = 60.0
+    connect_timeout_seconds: float = 5.0
+    read_timeout_seconds: float = 60.0
+    write_timeout_seconds: float = 60.0
+    pool_timeout_seconds: float = 5.0
+    max_connections: int = 200
+    max_keepalive_connections: int = 20
+
+
 class Settings(BaseSettings):
     model_config = ENV_FILE_MODEL_CONFIG
 
@@ -55,7 +90,6 @@ class Settings(BaseSettings):
     port: int = 5000
     log_level: str = "INFO"
     noop_interval_seconds: int = 60
-    http_timeout_seconds: float = 30.0
     echo_endpoints: bool = False
     job_coalesce: bool = False
     job_max_instances: int = 1
@@ -63,6 +97,8 @@ class Settings(BaseSettings):
     user_id_path_list: list[str] = ["userClaims.email.0", "project"]
 
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    api_http: ApiHttpSettings = Field(default_factory=ApiHttpSettings)
+    worker_http: WorkerHttpSettings = Field(default_factory=WorkerHttpSettings)
 
 
 @lru_cache

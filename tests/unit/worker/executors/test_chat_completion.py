@@ -1,3 +1,4 @@
+import httpx
 from openai.types.chat import ChatCompletion
 import pytest
 from structlog.contextvars import bind_contextvars, clear_contextvars
@@ -32,6 +33,14 @@ def setup_context():
     bind_contextvars(run_id=RUN_ID, schedule_id=SCHEDULE_ID)
     yield
     clear_contextvars()
+
+
+@pytest.fixture(autouse=True)
+def mock_http_client(mocker):
+    provider = mocker.MagicMock()
+    provider.client = mocker.AsyncMock(spec=httpx.AsyncClient)
+    mocker.patch("src.worker.executors.chat_completion.HttpClientProvider", return_value=provider)
+    return provider.client
 
 
 class TestChatCompletionExecutorHappyPath:

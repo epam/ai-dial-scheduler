@@ -22,7 +22,6 @@ def mock_settings(mocker) -> Settings:
     settings.app_name = "aidial-scheduler"
     settings.db = db_settings
     settings.noop_interval_seconds = 30
-    settings.http_timeout_seconds = 10.0
     settings.job_coalesce = False
     settings.job_max_instances = 100
     settings.job_misfire_grace_time = 60

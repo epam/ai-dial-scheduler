@@ -44,10 +44,10 @@ def mock_client(mocker):
 
     client = mocker.AsyncMock(spec=httpx.AsyncClient)
     client.request = mocker.AsyncMock(return_value=response)
-    client.__aenter__ = mocker.AsyncMock(return_value=client)
-    client.__aexit__ = mocker.AsyncMock(return_value=False)
 
-    mocker.patch("src.worker.executors.rest.httpx.AsyncClient", return_value=client)
+    provider = mocker.MagicMock()
+    provider.client = client
+    mocker.patch("src.worker.executors.rest.HttpClientProvider", return_value=provider)
     return client
 
 
@@ -70,7 +70,6 @@ class TestRestExecutorHappyPath:
             "src.worker.executors.rest.get_settings",
             return_value=mocker.MagicMock(
                 dial_api_key=mocker.MagicMock(get_secret_value=lambda: "secret-key"),
-                http_timeout_seconds=30.0,
             ),
         )
         props = make_properties()
@@ -87,7 +86,6 @@ class TestRestExecutorHappyPath:
             "src.worker.executors.rest.get_settings",
             return_value=mocker.MagicMock(
                 dial_api_key=mocker.MagicMock(get_secret_value=lambda: "default-key"),
-                http_timeout_seconds=30.0,
             ),
         )
         props = make_properties(extra_headers={"Api-Key": "override-key", "X-Custom": "val"})
@@ -117,7 +115,6 @@ class TestRestExecutorHappyPath:
             "src.worker.executors.rest.get_settings",
             return_value=mocker.MagicMock(
                 dial_api_key=mocker.MagicMock(get_secret_value=lambda: "my-secret-key"),
-                http_timeout_seconds=30.0,
             ),
         )
         props = make_properties()
