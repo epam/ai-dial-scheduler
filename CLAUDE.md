@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/012-schedule-pause-resume/plan.md` (Schedule Pause & Resume Endpoints)
+- Current plan: `specs/016-mcp-endpoint-exposure/plan.md` (MCP Endpoint Exposure)
 <!-- SPECKIT END -->

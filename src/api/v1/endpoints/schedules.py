@@ -1,6 +1,7 @@
+import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.pagination import Pagination
@@ -16,34 +17,104 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 ScheduleServiceDep = Annotated[ScheduleService, Depends(get_schedule_service)]
 PaginationDep = Annotated[Pagination, Depends()]
 
+_SCHEDULE_EXAMPLES = {
+    "chat_completion": {
+        "summary": "Chat completion (DIAL model)",
+        "value": {
+            "display_name": "Daily GPT-4o summary",
+            "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
+            "properties": {
+                "target_type": "chat_completion",
+                "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+                "payload": {
+                    "messages": [{"role": "user", "content": "Summarise today's highlights."}],
+                    "model": "gpt-4o",
+                    "stream": False,
+                },
+                "api_version": "2025-01-01-preview",
+            },
+        },
+    },
+    "rest": {
+        "summary": "REST POST call",
+        "value": {
+            "display_name": "Hourly REST ping",
+            "trigger": {"cron": {"fields": {"minute": 0}}},
+            "properties": {
+                "target_type": "rest",
+                "method": "POST",
+                "url": "https://example.com/api/ping",
+                "payload": {"source": "scheduler"},
+            },
+        },
+    },
+    "sse": {
+        "summary": "SSE streaming call",
+        "value": {
+            "display_name": "Every-5-min SSE stream",
+            "trigger": {"cron": {"fields": {"minute": "*/5"}}},
+            "properties": {
+                "target_type": "sse",
+                "method": "POST",
+                "url": "https://example.com/api/stream",
+                "payload": {"prompt": "Generate a status update."},
+            },
+        },
+    },
+}
+
+
+def _examples_docstring() -> str:
+    parts = ["Examples:"]
+    for ex in _SCHEDULE_EXAMPLES.values():
+        parts.append(f"\n{ex['summary']}:\n```json\n{json.dumps(ex['value'], indent=2)}\n```")
+    return "\n".join(parts)
+
+
+_EXAMPLES_DOC = _examples_docstring()
+
+ScheduleRequestBody = Annotated[ScheduleRequest, Body(openapi_examples=_SCHEDULE_EXAMPLES)]
+
 
 @router.post("/", status_code=201, response_model=ScheduleResponse)
 async def create_schedule(
-    request: ScheduleRequest,
+    request: ScheduleRequestBody,
     service: ScheduleServiceDep,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> ScheduleResponse:
-    """Create a new schedule and register it with the job scheduler."""
+    """Create a new schedule and register it with the job scheduler.
+
+    The `properties.target_type` field determines the call style:
+    - `chat_completion` — calls a DIAL chat-completions endpoint; set `api_version` if required.
+    - `rest` — plain HTTP request; `method` is required.
+    - `sse` — Server-Sent Events stream; `method` is required.
+    """
     try:
         return await service.create(request, user_id)
     except JobRegistrationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
 
+router.routes[-1].description += "\n\n" + _EXAMPLES_DOC  # type: ignore[union-attr,attr-defined]
+
+
 @router.put("/{schedule_id}", response_model=ScheduleResponse)
 async def update_schedule(
     schedule_id: str,
-    request: ScheduleRequest,
+    request: ScheduleRequestBody,
     service: ScheduleServiceDep,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> ScheduleResponse:
-    """Update an existing schedule and re-register it with the job scheduler."""
+    """Replace all fields of an existing schedule and re-register it with the job scheduler."""
     try:
         return await service.update(schedule_id, request, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
     except JobRegistrationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+router.routes[-1].description += "\n\n" + _EXAMPLES_DOC  # type: ignore[union-attr,attr-defined]
 
 
 @router.get("/", response_model=Page[ScheduleListItem])

@@ -1,5 +1,6 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from aidial_sdk import DIALApp
 from aidial_sdk.telemetry.types import TelemetryConfig
@@ -45,8 +46,23 @@ async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
             yield
         logger.info("Destroyed global HTTP Client for the app lifespan.")
     finally:
+        mcp_client = getattr(app.state, "mcp_backing_client", None)
+        if mcp_client is not None:
+            await mcp_client.aclose()
         scheduler.shutdown(wait=False)
         await database.dispose()
+
+
+def _wrap_with_mcp_lifespan(original_lifespan: Any, mcp_asgi: Any) -> Any:
+    """Return a combined lifespan that starts the original then the MCP sub-app."""
+
+    @asynccontextmanager
+    async def combined(app: DIALApp) -> AsyncGenerator[None, None]:
+        async with original_lifespan(app):
+            async with mcp_asgi.lifespan(mcp_asgi):
+                yield
+
+    return combined
 
 
 def create_api() -> DIALApp:
@@ -78,6 +94,17 @@ def create_api() -> DIALApp:
 
         app.include_router(echo_router)
         app.add_chat_completion("echo", EchoChatCompletion())
+
+    if settings.mcp_enabled:
+        from src.api.mcp.server import build_mcp_server
+
+        mcp_server, mcp_backing_client = build_mcp_server(app, settings)
+        mcp_asgi = mcp_server.http_app(path="/")
+        app.state.mcp_backing_client = mcp_backing_client  # type: ignore[attr-defined]
+        original_lifespan = app.router.lifespan_context
+        app.router.lifespan_context = _wrap_with_mcp_lifespan(original_lifespan, mcp_asgi)
+        app.mount(settings.mcp_path, mcp_asgi)
+        logger.info("mcp_mounted", path=settings.mcp_path)
 
     return app
 
