@@ -99,11 +99,11 @@ def create_api() -> DIALApp:
         from src.api.mcp.server import build_mcp_server
 
         mcp_server, mcp_backing_client = build_mcp_server(app, settings)
-        mcp_asgi = mcp_server.http_app(path="/")
+        mcp_asgi = mcp_server.http_app(path=settings.mcp_path)
         app.state.mcp_backing_client = mcp_backing_client  # type: ignore[attr-defined]
         original_lifespan = app.router.lifespan_context
         app.router.lifespan_context = _wrap_with_mcp_lifespan(original_lifespan, mcp_asgi)
-        app.mount(settings.mcp_path, mcp_asgi)
+        app.mount("/", mcp_asgi)
         logger.info("mcp_mounted", path=settings.mcp_path)
 
     return app
