@@ -1,7 +1,37 @@
+import os
+
 import pytest
 import structlog
 
 from src.lib.utils.logging import logger as _app_logger
+
+
+@pytest.fixture(scope="session", autouse=True)
+def set_required_env_vars():
+    """Provide minimal env vars so Settings and DatabaseSettings can be instantiated without a .env file."""
+    defaults = {
+        "DIAL_URL": "http://localhost:8080",
+        "DIAL_API_KEY": "test-api-key",
+        "DB_PASSWORD": "test-password",
+    }
+    existing = {k: os.environ[k] for k in defaults if k in os.environ}
+    for k, v in defaults.items():
+        if k not in os.environ:
+            os.environ[k] = v
+
+    from src.lib.settings import get_settings
+
+    get_settings.cache_clear()
+
+    yield
+
+    for k in defaults:
+        if k in existing:
+            os.environ[k] = existing[k]
+        else:
+            os.environ.pop(k, None)
+
+    get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)
