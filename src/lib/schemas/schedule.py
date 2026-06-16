@@ -72,6 +72,8 @@ class ScheduleProperties(BaseModel):
         if self.target_type == TargetType.CHAT_COMPLETION:
             if self.method is not None:
                 raise ValueError("method must not be set for target_type 'chat_completion'")
+            if not self.api_version:
+                raise ValueError("api_version is required for target_type 'chat_completion'")
             if "stream" not in self.payload:
                 self.payload = {**self.payload, "stream": False}
         else:
