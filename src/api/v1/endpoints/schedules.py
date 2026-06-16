@@ -25,11 +25,11 @@ _SCHEDULE_EXAMPLES = {
             "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
             "properties": {
                 "target_type": "chat_completion",
-                "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+                "url": "http://dial-core.dial.svc.cluster.local/openai/deployments/gpt-4o/chat/completions",
                 "payload": {
                     "messages": [{"role": "user", "content": "Summarise today's highlights."}],
                     "model": "gpt-4o",
-                    "stream": False,
+                    "stream": True,
                 },
                 "api_version": "2025-01-01-preview",
             },

@@ -25,6 +25,7 @@ def make_request() -> ScheduleRequest:
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            api_version="2025-01-01-preview",
         ),
     )
 
@@ -49,6 +50,7 @@ def make_date_request() -> ScheduleRequest:
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            api_version="2025-01-01-preview",
         ),
     )
 

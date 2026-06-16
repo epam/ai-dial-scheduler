@@ -45,6 +45,7 @@ class TestScheduleProperties:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            api_version="2025-01-01-preview",
         )
         assert props.method is None
         assert props.payload["stream"] is False
@@ -54,6 +55,7 @@ class TestScheduleProperties:
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
             payload={"messages": []},
+            api_version="2025-01-01-preview",
         )
         assert props.payload["stream"] is False
 
@@ -62,6 +64,7 @@ class TestScheduleProperties:
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
             payload={"stream": True},
+            api_version="2025-01-01-preview",
         )
         assert props.payload["stream"] is True
 
@@ -72,6 +75,21 @@ class TestScheduleProperties:
             api_version="2024-02-01",
         )
         assert props.api_version == "2024-02-01"
+
+    def test_chat_completion_requires_api_version(self):
+        with pytest.raises(ValidationError, match="api_version is required"):
+            ScheduleProperties(
+                target_type=TargetType.CHAT_COMPLETION,
+                url="https://example.com/api",
+            )
+
+    def test_chat_completion_empty_api_version_raises(self):
+        with pytest.raises(ValidationError, match="api_version is required"):
+            ScheduleProperties(
+                target_type=TargetType.CHAT_COMPLETION,
+                url="https://example.com/api",
+                api_version="",
+            )
 
     def test_rest_requires_method(self):
         with pytest.raises(ValidationError, match="method is required"):
@@ -147,5 +165,6 @@ class TestScheduleRequest:
                 properties=ScheduleProperties(
                     target_type=TargetType.CHAT_COMPLETION,
                     url="https://example.com/api",
+                    api_version="2025-01-01-preview",
                 ),
             )
