@@ -8,3 +8,6 @@ DEFAULT_PAGE_LIMIT = 20
 HEARTBEAT_JOB_ID = "worker_heartbeat"
 HEARTBEAT_JOB_NAME = "worker_heartbeat"
 API_KEY_HEADER = "Api-Key"
+
+MCP_SERVER_NAME = "aidial-scheduler"
+MCP_BACKING_BASE_URL = "http://scheduler.internal"
