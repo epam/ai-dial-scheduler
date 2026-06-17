@@ -1,37 +1,69 @@
 {
   "applications": {
-    "scheduler": {
-      "endpoint": "http://scheduler",
-      "displayName": "DIAL Scheduler",
+    "dial_scheduler": {
+      "name": "dial_scheduler",
+      "display_name": "DIAL Scheduler",
+      "description": "",
+      "forward_auth_token": false,
+      "features": {
+        "system_prompt_supported": true,
+        "tools_supported": false,
+        "seed_supported": false,
+        "url_attachments_supported": false,
+        "folder_attachments_supported": false,
+        "allow_resume": true,
+        "accessible_by_per_request_key": true,
+        "content_parts_supported": false,
+        "temperature_supported": true,
+        "parallel_tool_calls_supported": true,
+        "assistant_attachments_in_request_supported": false
+      },
+      "defaults": {},
+      "responses_defaults": {},
+      "interceptors": [],
+      "description_keywords": [],
+      "max_retry_attempts": 1,
+      "created_at": 1781620131029,
+      "updated_at": 1781620294191,
+      "dependencies": [],
+      "application_properties": {},
+      "mcp": {
+        "endpoint": "http://host.docker.internal:5000/mcp",
+        "transport": "http",
+        "allowedTools": [],
+        "configDelivery": "meta",
+        "forwardPerRequestKey": true
+      },
       "routes": {
         "main": {
-          "dial:rewritePath": true,
-          "dial:paths": [
+          "name": "main",
+          "rewritePath": true,
+          "paths": [
             "/.*"
           ],
-          "dial:methods": [
+          "methods": [
             "DELETE",
             "GET",
             "PATCH",
             "POST",
             "PUT"
           ],
-          "dial:upstreams": [
+          "upstreams": [
             {
-              "dial:endpoint": "http://host.docker.internal:5000",
-              "dial:weight": 1,
-              "dial:tier": 0
+              "endpoint": "http://host.docker.internal:5000",
+              "weight": 1,
+              "tier": 0
             }
           ],
-          "dial:maxRetryAttempts": 1,
-          "dial:order": 2147483647,
-          "dial:permissions": [
+          "maxRetryAttempts": 1,
+          "order": 2147483647,
+          "permissions": [
             "READ",
             "WRITE"
           ],
-          "dial:attachmentPaths": {
-            "dial:requestBody": [],
-            "dial:responseBody": []
+          "attachmentPaths": {
+            "requestBody": [],
+            "responseBody": []
           }
         }
       }
@@ -44,7 +76,10 @@
       "endpoint": "http://adapter-dial:5000/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
       "displayName": "gpt-4.1-mini-2025-04-14",
       "forwardAuthToken": false,
-      "description_keywords": [
+      "descriptionKeywords": [
+        "Text Generation",
+        "Continue Supported",
+        "Image Recognition",
         "OCR Extraction"
       ],
       "inputAttachmentTypes": [

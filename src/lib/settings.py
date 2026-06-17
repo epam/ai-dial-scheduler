@@ -97,6 +97,7 @@ class Settings(BaseSettings):
     user_id_path_list: list[str] = ["userClaims.email.0", "userClaims.preferred_username", "project"]
     mcp_enabled: bool = True
     mcp_path: str = "/mcp"
+    readiness_db_timeout_seconds: float = 2.0
 
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
     api_http: ApiHttpSettings = Field(default_factory=ApiHttpSettings)

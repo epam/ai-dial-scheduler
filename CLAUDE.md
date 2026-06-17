@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/016-mcp-endpoint-exposure/plan.md` (MCP Endpoint Exposure)
+- Current plan: `specs/017-observability-improvements/plan.md` (Observability Improvements)
 <!-- SPECKIT END -->
