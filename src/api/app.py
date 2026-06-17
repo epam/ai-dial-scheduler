@@ -8,6 +8,7 @@ import httpx
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn
 
+from src.api.v1.endpoints.health import router as health_router
 from src.api.v1.endpoints.runs import router as runs_router
 from src.api.v1.endpoints.schedules import router as schedules_router
 from src.lib.db.engine import Database
@@ -85,6 +86,7 @@ def create_api() -> DIALApp:
         allow_headers=["*"],
     )
 
+    app.include_router(health_router)
     app.include_router(schedules_router, prefix="/v1")
     app.include_router(runs_router, prefix="/v1")
 

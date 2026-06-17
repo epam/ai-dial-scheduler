@@ -1,15 +1,29 @@
 from collections import OrderedDict
+from collections.abc import MutableMapping
 import logging
 import logging.config
 import os
+from typing import Any
 
+from opentelemetry import trace
 import structlog
 from structlog.stdlib import ProcessorFormatter
 
 from src.lib.settings import get_settings
 
 
-def _order_keys(_, __, event_dict) -> OrderedDict:
+def _add_trace_span_ids(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
+    """Inject trace_id and span_id when a valid OTel span is active."""
+    ctx = trace.get_current_span().get_span_context()
+    if ctx.is_valid:
+        if "trace_id" not in event_dict:
+            event_dict["trace_id"] = format(ctx.trace_id, "032x")
+        if "span_id" not in event_dict:
+            event_dict["span_id"] = format(ctx.span_id, "016x")
+    return event_dict
+
+
+def _order_keys(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> OrderedDict:
     format_keys = ["timestamp", "level", "event", "logger"]
     ordered_keys = OrderedDict()
     for key in format_keys:
@@ -38,6 +52,7 @@ class LoggingConfig:
                         structlog.contextvars.merge_contextvars,
                         structlog.stdlib.add_log_level,
                         structlog.stdlib.add_logger_name,
+                        _add_trace_span_ids,
                         structlog.processors.TimeStamper(fmt="iso"),
                         structlog.processors.format_exc_info,
                         ProcessorFormatter.remove_processors_meta,
@@ -48,6 +63,7 @@ class LoggingConfig:
                         structlog.contextvars.merge_contextvars,
                         structlog.stdlib.add_log_level,
                         structlog.stdlib.add_logger_name,
+                        _add_trace_span_ids,
                         structlog.processors.TimeStamper(fmt="iso"),
                     ],
                 },
@@ -86,6 +102,7 @@ def configure_logging() -> None:
             structlog.contextvars.merge_contextvars,
             structlog.stdlib.add_log_level,
             structlog.stdlib.add_logger_name,
+            _add_trace_span_ids,
             structlog.processors.TimeStamper(fmt="iso"),
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],

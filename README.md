@@ -42,6 +42,18 @@ Expected response:
 
 HTTP 200.
 
+## Verifying Readiness (database check)
+
+```bash
+curl -i http://localhost:5000/ready
+```
+
+Returns `200` with `{"status":"ready","database":"ok"}` when the database is reachable,
+or `503` with `{"status":"not_ready","database":"unavailable"}` when it is not.
+The service itself keeps running in the `503` case and recovers automatically once the DB
+is reachable again. The timeout for the internal check is controlled by
+`READINESS_DB_TIMEOUT_SECONDS` (default `2.0` seconds).
+
 ## Verifying Worker
 
 ```bash
@@ -110,6 +122,39 @@ uv run pytest tests/integration/ -v
 ```bash
 uv run pytest --cov=src --cov-report=term-missing
 ```
+
+## Observability / OTLP
+
+Both the API service and the background worker emit distributed traces, metrics, and structured
+logs (with `trace_id` / `span_id` on every log record produced within an active span). Export to
+an OTLP-compatible collector is controlled entirely by standard OpenTelemetry SDK environment
+variables — no code changes are required.
+
+Copy these into your `.env` (or set them in the container environment) to enable export:
+
+```dotenv
+# Enable OTLP export of traces and metrics
+OTEL_TRACES_EXPORTER=otlp
+OTEL_METRICS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+OTEL_SERVICE_NAME=aidial-scheduler
+
+# Optional: also export structured logs via OTLP
+# OTEL_LOGS_EXPORTER=otlp
+
+# Optional: expose Prometheus metrics scrape endpoint (port 9464)
+# OTEL_METRICS_EXPORTER=prometheus
+
+# Internal OpenTelemetry logger verbosity (default: ERROR)
+# OTEL_LOG_LEVEL=ERROR
+```
+
+When none of the `OTEL_*_EXPORTER` variables are set the services start normally with
+telemetry export inactive. Pointing the endpoint at an unreachable collector does **not**
+crash the services — export failures are handled silently by background batch processors.
+
+See `.env.example` for a commented reference of all supported variables.
 
 ## Quality Gates
 

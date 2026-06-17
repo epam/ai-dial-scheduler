@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from opentelemetry import trace
 from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
@@ -13,6 +14,9 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
 from src.worker.dispatcher import resolve_executor
+
+
+_tracer = trace.get_tracer(__name__)
 
 
 async def _persist_success(run_id: str, schedule_id: str, result: dict[str, Any]) -> None:
@@ -42,6 +46,11 @@ async def _persist_error(run_id: str, schedule_id: str, error_text: str) -> None
 
 
 async def execute_scheduled_job(schedule_id: str, **kwargs: Any) -> None:
+    with _tracer.start_as_current_span(f"job:schedule:{schedule_id}"):
+        await _execute_scheduled_job_inner(schedule_id, **kwargs)
+
+
+async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
     clear_contextvars()
     bind_contextvars(schedule_id=schedule_id)
     logger.info("run_start", schedule_id=schedule_id)
@@ -84,5 +93,6 @@ async def execute_scheduled_job(schedule_id: str, **kwargs: Any) -> None:
 
 
 async def heartbeat() -> None:
-    clear_contextvars()
-    logger.info("heartbeat", job_name=HEARTBEAT_JOB_NAME, executed_at=datetime.now(UTC).isoformat())
+    with _tracer.start_as_current_span("job:heartbeat"):
+        clear_contextvars()
+        logger.info("heartbeat", job_name=HEARTBEAT_JOB_NAME, executed_at=datetime.now(UTC).isoformat())

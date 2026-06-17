@@ -10,7 +10,7 @@ authors = [
 ]
 
 dependencies = [
-    "aidial-sdk==0.37.0",
+    "aidial-sdk[telemetry]==0.37.0",
     "apscheduler~=3.11",
     "sqlalchemy[asyncio]==2.0.50",
     "sqlmodel==0.0.38",
