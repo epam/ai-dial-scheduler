@@ -90,6 +90,7 @@ class ScheduleRequest(BaseModel):
     display_name: str
     trigger: ScheduleTrigger
     properties: ScheduleProperties
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("display_name")
     @classmethod
@@ -107,6 +108,7 @@ class ScheduleResponse(BaseModel):
     next_run_time: datetime | None
     trigger: dict[str, Any]
     properties: dict[str, Any]
+    metadata: dict[str, Any] = Field(default_factory=dict)
     created_by: str
     created_at: datetime
     updated_at: datetime

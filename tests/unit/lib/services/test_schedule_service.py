@@ -40,6 +40,19 @@ def make_schedule(schedule_id: str = "test-uuid") -> Schedule:
     )
 
 
+def make_request_with_metadata(metadata: dict) -> ScheduleRequest:
+    return ScheduleRequest(
+        display_name="Test Schedule",
+        trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
+        properties=ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            api_version="2025-01-01-preview",
+        ),
+        metadata=metadata,
+    )
+
+
 def make_date_request() -> ScheduleRequest:
     """Request with a date trigger to verify JSONB datetime serialization."""
     from datetime import timezone
@@ -279,6 +292,123 @@ class TestScheduleServiceList:
         result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
 
         assert result.results[0].trigger_type == TriggerType.CRON
+
+
+class TestScheduleServiceMetadata:
+    @pytest.mark.asyncio
+    async def test_create_persists_metadata(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.create(make_request_with_metadata({"tenant": "hcscd"}), "mock_user_id")
+
+        persisted: Schedule = repo.create.await_args[0][0]
+        assert persisted.schedule_metadata == {"tenant": "hcscd"}
+
+    @pytest.mark.asyncio
+    async def test_create_defaults_metadata_to_empty(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.create(make_request(), "mock_user_id")
+
+        persisted: Schedule = repo.create.await_args[0][0]
+        assert persisted.schedule_metadata == {}
+
+    @pytest.mark.asyncio
+    async def test_update_passes_metadata_to_repo(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+        repo.update.return_value = schedule
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.update("test-uuid", make_request_with_metadata({"env": "prod"}), "mock_user_id")
+
+        assert repo.update.await_args.kwargs["metadata"] == {"env": "prod"}
+
+    @pytest.mark.asyncio
+    async def test_update_restores_prior_metadata_on_job_failure(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.schedule_metadata = {"tenant": "old"}
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+        repo.update.return_value = schedule
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=Exception("add_job failed")),
+        ):
+            with pytest.raises(JobRegistrationError):
+                await service.update("test-uuid", make_request_with_metadata({"tenant": "new"}), "mock_user_id")
+
+        restore_kwargs = repo.update.await_args_list[1].kwargs
+        assert restore_kwargs["metadata"] == {"tenant": "old"}
+
+    @pytest.mark.asyncio
+    async def test_list_forwards_metadata_filter_to_repo(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = ScheduleService(repo, scheduler)
+        await service.list(
+            "mock_user_id",
+            Paginator(limit=10, offset=0, base_path="/schedules"),
+            {"tenant": "hcscd"},
+        )
+
+        assert repo.list.await_args.kwargs["metadata_filter"] == {"tenant": "hcscd"}
+
+    @pytest.mark.asyncio
+    async def test_get_returns_metadata_in_response(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.schedule_metadata = {"tenant": "hcscd"}
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+        result = await service.get("test-uuid", "mock_user_id")
+
+        assert result.metadata == {"tenant": "hcscd"}
 
 
 class TestScheduleServiceGet:

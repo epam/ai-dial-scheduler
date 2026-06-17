@@ -37,6 +37,33 @@ class TestScheduleModel:
     def test_kwargs_not_nullable(self) -> None:
         assert not Schedule.__table__.c.kwargs.nullable
 
+    def test_metadata_column_named_metadata(self) -> None:
+        assert "metadata" in Schedule.__table__.c
+
+    def test_metadata_is_jsonb(self) -> None:
+        assert isinstance(Schedule.__table__.c["metadata"].type, JSONB)
+
+    def test_metadata_not_nullable(self) -> None:
+        assert not Schedule.__table__.c["metadata"].nullable
+
+    def test_metadata_has_server_default(self) -> None:
+        assert Schedule.__table__.c["metadata"].server_default is not None
+
+    def test_metadata_gin_index_declared(self) -> None:
+        index = next(ix for ix in Schedule.__table__.indexes if ix.name == "IX_schedules_metadata")
+        assert index.dialect_options["postgresql"]["using"] == "gin"
+        assert [c.name for c in index.columns] == ["metadata"]
+
+    def test_metadata_attribute_defaults_to_empty_dict(self) -> None:
+        schedule = Schedule(
+            id="x",
+            display_name="x",
+            created_by="u",
+            trigger={},
+            kwargs={},
+        )
+        assert schedule.schedule_metadata == {}
+
     def test_created_at_inherits_from_base(self) -> None:
         assert "created_at" in Schedule.__table__.c
 

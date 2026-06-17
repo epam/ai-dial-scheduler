@@ -1,7 +1,7 @@
 ### Variables
 # Switch between direct and DIAL-routed access by toggling the active @baseUrl line.
 #@baseUrl = http://localhost:5000
-@baseUrl = http://127.0.0.1:8080/v1/deployments/scheduler/route
+@baseUrl = http://127.0.0.1:8080/v1/deployments/dial_scheduler/route
 
 @dialUrl = http://127.0.0.1:8080
 
@@ -11,7 +11,7 @@
 @authValue = dial_api_key
 
 # Paste the id returned by a Create request before running Update / Detail requests.
-@scheduleId = b112c49c-eb0a-491f-a0e8-abfef71a58bd
+@scheduleId = bb16ca12-1cff-4c1c-bd36-83c02d41ef19
 # Paste the id returned by a run in the list response before running Run Detail requests.
 @runId = 6239576f-44e6-4ef7-951a-4832d6e2f31c
 
@@ -127,6 +127,28 @@ Api-Key: {{authValue}}
   }
 }
 
+###
+
+# @name create_with_metadata
+### REST echo with business metadata — filterable by metadata__tenant=hcscd
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Echo REST with metadata",
+  "trigger": {
+    "cron": {"fields": {"day": "1"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true}
+  },
+  "metadata": {"tenant": "hcscd", "env": "prod"}
+}
+
 
 ### ============================================================
 ### LIST SCHEDULES
@@ -135,6 +157,12 @@ Api-Key: {{authValue}}
 ###
 
 GET {{baseUrl}}/v1/schedules/
+Api-Key: {{authValue}}
+
+###
+
+### Filter by metadata — only schedules whose metadata.tenant is the string "hcscd"
+GET {{baseUrl}}/v1/schedules/?metadata__tenant=hcscd
 Api-Key: {{authValue}}
 
 

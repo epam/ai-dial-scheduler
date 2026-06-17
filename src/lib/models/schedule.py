@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import String
+from sqlalchemy import Column, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
@@ -19,6 +19,9 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
         created_by: Identity of the schedule creator/owner.
         trigger: Structured trigger definition stored as JSONB.
         kwargs: Structured call arguments stored as JSONB.
+        schedule_metadata: Business tags stored in the JSONB ``metadata`` column.
+            Mapped under ``schedule_metadata`` because ``metadata`` is reserved by
+            SQLAlchemy's declarative base. Only string-valued entries are filterable.
     """
 
     id: str = Field(
@@ -35,3 +38,9 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
         sa_type=JSONB(),  # type: ignore[call-overload]
         sa_column_kwargs={"nullable": False},
     )
+    schedule_metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        sa_column=Column("metadata", JSONB(), nullable=False, server_default=text("'{}'::jsonb")),
+    )
+
+    __table_args__ = (Index("IX_schedules_metadata", "metadata", postgresql_using="gin"),)

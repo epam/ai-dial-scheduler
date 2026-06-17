@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy.dialects import postgresql
 
 from src.lib.models.schedule import Schedule
 from src.lib.repositories.schedule_repository import ScheduleRepository
@@ -78,6 +79,47 @@ class TestScheduleRepositoryUpdate:
         session.commit.assert_awaited_once()
         assert result is not None
         assert result.display_name == "New Name"
+
+    @pytest.mark.asyncio
+    async def test_update_sets_metadata_when_provided(self):
+        session = AsyncMock()
+        session.add = MagicMock()
+        schedule = make_schedule()
+        session.get = AsyncMock(return_value=schedule)
+        session.refresh = AsyncMock()
+        repo = ScheduleRepository(session)
+
+        result = await repo.update(
+            "sched-1",
+            "mock_user_id",
+            display_name="New Name",
+            trigger={},
+            kwargs={},
+            metadata={"tenant": "hcscd"},
+        )
+
+        assert result is not None
+        assert schedule.schedule_metadata == {"tenant": "hcscd"}
+
+    @pytest.mark.asyncio
+    async def test_update_leaves_metadata_unchanged_when_omitted(self):
+        session = AsyncMock()
+        session.add = MagicMock()
+        schedule = make_schedule()
+        schedule.schedule_metadata = {"tenant": "keep"}
+        session.get = AsyncMock(return_value=schedule)
+        session.refresh = AsyncMock()
+        repo = ScheduleRepository(session)
+
+        await repo.update(
+            "sched-1",
+            "mock_user_id",
+            display_name="New Name",
+            trigger={},
+            kwargs={},
+        )
+
+        assert schedule.schedule_metadata == {"tenant": "keep"}
 
     @pytest.mark.asyncio
     async def test_update_returns_none_for_missing_id(self):
@@ -182,6 +224,60 @@ class TestScheduleRepositoryList:
         assert len(rows) == 1
         assert rows[0][0] is schedule
         assert rows[0][1] is not None
+
+    @staticmethod
+    def _compiled_statements(session) -> list[str]:
+        dialect = postgresql.dialect()
+        return [str(call.args[0].compile(dialect=dialect)) for call in session.execute.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_list_applies_metadata_containment_filter(self):
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+
+        repo = ScheduleRepository(session)
+        await repo.list("mock_user_id", limit=10, offset=0, metadata_filter={"tenant": "hcscd"})
+
+        # Both the count and page statements must carry the JSONB containment predicate.
+        statements = self._compiled_statements(session)
+        assert len(statements) == 2
+        for stmt in statements:
+            assert "@>" in stmt
+            assert "metadata" in stmt
+
+    @pytest.mark.asyncio
+    async def test_list_without_filter_has_no_containment(self):
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+
+        repo = ScheduleRepository(session)
+        await repo.list("mock_user_id", limit=10, offset=0)
+
+        for stmt in self._compiled_statements(session):
+            assert "@>" not in stmt
+
+    @pytest.mark.asyncio
+    async def test_list_empty_filter_has_no_containment(self):
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+
+        repo = ScheduleRepository(session)
+        await repo.list("mock_user_id", limit=10, offset=0, metadata_filter={})
+
+        for stmt in self._compiled_statements(session):
+            assert "@>" not in stmt
 
     @pytest.mark.asyncio
     async def test_list_next_run_time_none_when_no_job(self):

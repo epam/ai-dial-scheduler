@@ -4,6 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, HTTPException
 
 from src.api.dependencies.auth import get_user_id
+from src.api.dependencies.metadata_filter import parse_metadata_filter
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
 from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
@@ -16,6 +17,7 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 ScheduleServiceDep = Annotated[ScheduleService, Depends(get_schedule_service)]
 PaginationDep = Annotated[Pagination, Depends()]
+MetadataFilterDep = Annotated[dict[str, str], Depends(parse_metadata_filter)]
 
 _SCHEDULE_EXAMPLES = {
     "chat_completion": {
@@ -121,10 +123,16 @@ router.routes[-1].description += "\n\n" + _EXAMPLES_DOC  # type: ignore[union-at
 async def list_schedules(
     service: ScheduleServiceDep,
     pagination: PaginationDep,
+    metadata_filter: MetadataFilterDep,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> Page[ScheduleListItem]:
-    """Return a paginated, owner-scoped list of schedules."""
-    return await service.list(user_id, pagination.paginator("/schedules"))
+    """Return a paginated, owner-scoped list of schedules.
+
+    Supports filtering by metadata via repeated `metadata__<key>=<value>` query
+    parameters; only schedules whose metadata contains every supplied key with a
+    matching string value are returned.
+    """
+    return await service.list(user_id, pagination.paginator("/schedules"), metadata_filter)
 
 
 @router.get("/{schedule_id}", response_model=ScheduleResponse)

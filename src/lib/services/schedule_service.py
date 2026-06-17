@@ -50,6 +50,7 @@ class ScheduleService:
             next_run_time=next_run_time,
             trigger=schedule.trigger,
             properties=schedule.kwargs,
+            metadata=schedule.schedule_metadata,
             created_by=schedule.created_by,
             created_at=schedule.created_at,
             updated_at=schedule.updated_at,
@@ -71,6 +72,7 @@ class ScheduleService:
             created_by=created_by,
             trigger=trigger_dict,
             kwargs=properties_dict,
+            schedule_metadata=request.metadata,
         )
         await self._repo.create(schedule)
         logger.info("Schedule persisted", schedule_id=schedule_id)
@@ -104,6 +106,7 @@ class ScheduleService:
         prior_display_name = prior_schedule.display_name
         prior_trigger = prior_schedule.trigger
         prior_kwargs = prior_schedule.kwargs
+        prior_metadata = prior_schedule.schedule_metadata
         prior_updated_at = prior_schedule.updated_at
 
         # mode="json" ensures datetime fields are ISO strings, safe for JSONB serialization
@@ -116,6 +119,7 @@ class ScheduleService:
             display_name=request.display_name,
             trigger=new_trigger_dict,
             kwargs=new_properties_dict,
+            metadata=request.metadata,
         )
         if updated is None:
             raise ScheduleNotFoundError(schedule_id)
@@ -138,6 +142,7 @@ class ScheduleService:
                     display_name=prior_display_name,
                     trigger=prior_trigger,
                     kwargs=prior_kwargs,
+                    metadata=prior_metadata,
                     updated_at=prior_updated_at,
                 )
             except Exception as restore_exc:
@@ -152,9 +157,20 @@ class ScheduleService:
         schedule, next_run_time = row  # type: ignore[misc]
         return self._to_response(schedule, next_run_time)
 
-    async def list(self, created_by: str, paginator: Paginator) -> Page[ScheduleListItem]:
-        """Return a paginated, owner-scoped list of schedule summaries."""
-        total, rows = await self._repo.list(created_by, paginator.limit, paginator.offset)
+    async def list(
+        self,
+        created_by: str,
+        paginator: Paginator,
+        metadata_filter: dict[str, str] | None = None,
+    ) -> Page[ScheduleListItem]:
+        """Return a paginated, owner-scoped list of schedule summaries.
+
+        When ``metadata_filter`` is provided, results are limited to schedules whose
+        metadata contains all the given key/value pairs as string values.
+        """
+        total, rows = await self._repo.list(
+            created_by, paginator.limit, paginator.offset, metadata_filter=metadata_filter
+        )
 
         results = []
         for schedule, next_run_time in rows:
