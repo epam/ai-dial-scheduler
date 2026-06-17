@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 from pydantic import ValidationError
 import pytest
@@ -9,8 +9,21 @@ from src.lib.schemas.schedule import (
     CronTriggerSpec,
     ScheduleProperties,
     ScheduleRequest,
+    ScheduleResponse,
     ScheduleTrigger,
 )
+
+
+def _valid_request_kwargs() -> dict:
+    return {
+        "display_name": "Test Schedule",
+        "trigger": ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
+        "properties": ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://example.com/api",
+            api_version="2025-01-01-preview",
+        ),
+    }
 
 
 class TestScheduleTrigger:
@@ -154,6 +167,49 @@ class TestScheduleProperties:
                 method=HttpMethod.POST,
                 api_version="2024-02-01",
             )
+
+
+class TestScheduleMetadata:
+    def test_request_metadata_defaults_to_empty_dict(self):
+        req = ScheduleRequest(**_valid_request_kwargs())
+        assert req.metadata == {}
+
+    def test_request_accepts_metadata(self):
+        req = ScheduleRequest(**_valid_request_kwargs(), metadata={"tenant": "hcscd", "env": "prod"})
+        assert req.metadata == {"tenant": "hcscd", "env": "prod"}
+
+    def test_request_metadata_allows_non_string_values(self):
+        req = ScheduleRequest(**_valid_request_kwargs(), metadata={"count": 5, "active": True})
+        assert req.metadata == {"count": 5, "active": True}
+
+    def test_response_includes_metadata(self):
+        now = datetime.now(UTC)
+        resp = ScheduleResponse(
+            id="x",
+            display_name="x",
+            next_run_time=None,
+            trigger={},
+            properties={},
+            metadata={"tenant": "hcscd"},
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert resp.metadata == {"tenant": "hcscd"}
+
+    def test_response_metadata_defaults_to_empty_dict(self):
+        now = datetime.now(UTC)
+        resp = ScheduleResponse(
+            id="x",
+            display_name="x",
+            next_run_time=None,
+            trigger={},
+            properties={},
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert resp.metadata == {}
 
 
 class TestScheduleRequest:

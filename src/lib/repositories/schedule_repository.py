@@ -63,10 +63,12 @@ class ScheduleRepository:
         display_name: str,
         trigger: dict[str, Any],
         kwargs: dict[str, Any],
+        metadata: dict[str, Any] | None = None,
         updated_at: datetime | None = None,
     ) -> Schedule | None:
         """Update an owned schedule row and commit; returns None if not found/owned.
 
+        Pass `metadata` to replace the stored metadata; omit it to leave it unchanged.
         Pass `updated_at` to explicitly restore a prior timestamp (compensating transaction).
         """
         schedule = await self._session.get(Schedule, schedule_id)
@@ -75,6 +77,8 @@ class ScheduleRepository:
         schedule.display_name = display_name
         schedule.trigger = trigger
         schedule.kwargs = kwargs
+        if metadata is not None:
+            schedule.schedule_metadata = metadata
         if updated_at is not None:
             schedule.updated_at = updated_at
             # Force SQLAlchemy to include updated_at in the SET clause even when
@@ -90,22 +94,39 @@ class ScheduleRepository:
         return await self._get_with_next_run_time(schedule_id, created_by)
 
     async def list(
-        self, created_by: str, limit: int, offset: int
+        self,
+        created_by: str,
+        limit: int,
+        offset: int,
+        *,
+        metadata_filter: dict[str, str] | None = None,
     ) -> tuple[int, list[tuple[Schedule, datetime | None]]]:
-        """Return total count and a page of owned schedules with next_run_times."""
+        """Return total count and a page of owned schedules with next_run_times.
+
+        When ``metadata_filter`` is non-empty, only schedules whose ``metadata`` JSONB
+        contains all the given key/value pairs as strings are returned (``@>`` containment,
+        which matches string values only and composes the pairs with AND).
+        """
         schedules_table = Schedule.__table__  # type: ignore[attr-defined]
         id_col: Column = schedules_table.c.id  # type: ignore[assignment]
         created_by_col: Column = schedules_table.c.created_by  # type: ignore[assignment]
         created_at_col: Column = schedules_table.c.created_at  # type: ignore[assignment]
+        metadata_col: Column = schedules_table.c["metadata"]  # type: ignore[assignment]
 
-        count_stmt = select(func.count()).select_from(schedules_table).where(created_by_col == created_by)
+        conditions = [created_by_col == created_by]
+        if metadata_filter:
+            # JSONB containment (@>) — type-aware, so a string filter matches only
+            # string-valued entries, and multiple keys compose with AND.
+            conditions.append(metadata_col.contains(dict(metadata_filter)))
+
+        count_stmt = select(func.count()).select_from(schedules_table).where(*conditions)
         count_result = await self._session.execute(count_stmt)
         total = count_result.scalar_one()
 
         page_stmt = (
             select(Schedule, apscheduler_jobs.c.next_run_time)
             .select_from(outerjoin(schedules_table, apscheduler_jobs, id_col == apscheduler_jobs.c.id))
-            .where(created_by_col == created_by)
+            .where(*conditions)
             .order_by(created_at_col.desc())
             .limit(limit)
             .offset(offset)

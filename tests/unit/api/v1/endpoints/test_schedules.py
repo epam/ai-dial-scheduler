@@ -27,7 +27,7 @@ VALID_REQUEST = {
 }
 
 
-def make_response(schedule_id: str = "test-uuid") -> ScheduleResponse:
+def make_response(schedule_id: str = "test-uuid", metadata: dict | None = None) -> ScheduleResponse:
     now = datetime.now(UTC)
     return ScheduleResponse(
         id=schedule_id,
@@ -35,6 +35,7 @@ def make_response(schedule_id: str = "test-uuid") -> ScheduleResponse:
         next_run_time=now,
         trigger={"cron": {"fields": {"hour": 9}}},
         properties={"target_type": "chat_completion", "url": "https://example.com"},
+        metadata=metadata if metadata is not None else {},
         created_by=TEST_USER_ID,
         created_at=now,
         updated_at=now,
@@ -165,7 +166,18 @@ class TestGetSchedules:
 
         client.get("/v1/schedules/")
 
-        mock_service.list.assert_awaited_once_with(TEST_USER_ID, Paginator(limit=20, offset=0, base_path="/schedules"))
+        mock_service.list.assert_awaited_once_with(
+            TEST_USER_ID, Paginator(limit=20, offset=0, base_path="/schedules"), {}
+        )
+
+    def test_list_passes_metadata_filter_to_service(self, client, mock_service):
+        mock_service.list.return_value = empty_page()
+
+        client.get("/v1/schedules/?metadata__tenant=hcscd&metadata__env=prod")
+
+        mock_service.list.assert_awaited_once()
+        _, _, metadata_filter = mock_service.list.call_args.args
+        assert metadata_filter == {"tenant": "hcscd", "env": "prod"}
 
 
 class TestGetScheduleDetail:
@@ -181,6 +193,12 @@ class TestGetScheduleDetail:
         client.get("/v1/schedules/test-uuid")
 
         mock_service.get.assert_awaited_once_with("test-uuid", TEST_USER_ID)
+
+    def test_get_returns_metadata_in_body(self, client, mock_service):
+        mock_service.get.return_value = make_response("test-uuid", metadata={"tenant": "hcscd"})
+        response = client.get("/v1/schedules/test-uuid")
+        assert response.status_code == 200
+        assert response.json()["metadata"] == {"tenant": "hcscd"}
 
     def test_get_unknown_id_returns_404(self, client, mock_service):
         mock_service.get.side_effect = ScheduleNotFoundError("nonexistent")

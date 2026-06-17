@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/017-observability-improvements/plan.md` (Observability Improvements)
+- Current plan: `specs/019-schedule-metadata-filtering/plan.md` (Schedule Metadata & Filtering)
 <!-- SPECKIT END -->
