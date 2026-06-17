@@ -181,3 +181,49 @@ class TestRestExecutorFailurePath:
 
         assert exc_info.value.run_id == RUN_ID
         assert exc_info.value.schedule_id == SCHEDULE_ID
+
+    async def test_http_status_error_captures_status_code(self, mock_client, mocker):
+        response = mocker.MagicMock(spec=httpx.Response)
+        response.status_code = 502
+        mock_client.request.return_value.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "502", request=mocker.MagicMock(), response=response
+        )
+        props = make_properties()
+        executor = RestExecutor()
+
+        with pytest.raises(ScheduleRunError) as exc_info:
+            await executor.execute(CTX, props)
+
+        assert exc_info.value.status_code == 502
+
+    async def test_transport_error_has_no_status_code(self, mock_client):
+        mock_client.request.side_effect = httpx.TransportError("connection failed")
+        props = make_properties()
+        executor = RestExecutor()
+
+        with pytest.raises(ScheduleRunError) as exc_info:
+            await executor.execute(CTX, props)
+
+        assert exc_info.value.status_code is None
+
+
+class TestRestExecutorTimeout:
+    async def test_effective_timeout_passed_through_when_set(self, mock_client):
+        ctx = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, effective_timeout=15.0)
+        props = make_properties()
+        executor = RestExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(ctx, props)
+
+        assert "timeout" in mock_client.request.call_args.kwargs
+        assert mock_client.request.call_args.kwargs["timeout"] == httpx.Timeout(15.0)
+
+    async def test_no_timeout_kwarg_when_absent(self, mock_client):
+        props = make_properties()
+        executor = RestExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(CTX, props)
+
+        assert "timeout" not in mock_client.request.call_args.kwargs

@@ -496,6 +496,115 @@ class TestExecuteScheduledJobPersistence:
         assert any(log.get("event") == "run_record_missing" for log in logs)
 
 
+class TestExecuteScheduledJobTimeoutAndRetry:
+    @pytest.fixture
+    def no_sleep(self, mocker):
+        return mocker.patch("src.worker.retry.asyncio.sleep", new=mocker.AsyncMock())
+
+    async def test_success_persists_plain_result_without_attempts(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        exec_result = {"status_code": 200, "body": {}}
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value=exec_result)
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        # mark_success receives only (run_id, result) — no attempt history persisted.
+        call = mock_run_repo.mark_success.call_args
+        assert call.args[1] == exec_result
+        assert len(call.args) == 2
+
+    async def test_retry_then_success(self, mocker, mock_run_repo, no_sleep):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=[
+                ScheduleRunError("500", schedule_id=SCHEDULE_ID, run_id="r", status_code=500),
+                {"status_code": 200, "body": {}},
+            ]
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+                retry={"interval_sequence": [2], "retryable_errors": [500]},
+            )
+
+        assert mock_executor.execute.await_count == 2
+        mock_run_repo.mark_success.assert_awaited_once()
+        # Attempts are reflected in logs, not the DB.
+        assert any(log.get("event") == "retry_scheduled" for log in logs)
+        assert any(log.get("event") == "run_complete" and log.get("attempts") == 2 for log in logs)
+
+    async def test_exhausted_retries_marks_error_and_raises(self, mocker, mock_run_repo, no_sleep):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("500", schedule_id=SCHEDULE_ID, run_id="r", status_code=500)
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                    retry={"interval_sequence": [1, 1], "retryable_errors": [500]},
+                )
+
+        assert mock_executor.execute.await_count == 3
+        mock_run_repo.mark_error.assert_awaited_once()
+        # mark_error receives only (run_id, error_text) — no attempt history persisted.
+        assert len(mock_run_repo.mark_error.call_args.args) == 2
+        assert any(log.get("event") == "last_retry_failed" for log in logs)
+        assert any(log.get("event") == "run_failed" and log.get("attempts") == 3 for log in logs)
+
+    async def test_legacy_kwargs_without_timeout_retry_single_attempt(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("500", schedule_id=SCHEDULE_ID, run_id="r", status_code=500)
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        assert mock_executor.execute.await_count == 1
+        mock_run_repo.mark_error.assert_awaited_once()
+
+
 class TestHeartbeatHandler:
     async def test_logs_job_name_and_executed_at(self):
         from src.worker.jobs import heartbeat

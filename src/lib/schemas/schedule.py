@@ -51,6 +51,37 @@ class ScheduleTrigger(BaseModel):
         return TriggerType.CRON if self.cron is not None else TriggerType.DATE
 
 
+class RetryPolicy(BaseModel):
+    """Per-schedule retry policy.
+
+    Attributes:
+        interval_sequence: Ordered list of seconds to wait before each successive retry.
+            Its length defines the number of retries (total attempts = 1 + len).
+        retryable_errors: HTTP status codes that make a failed attempt eligible for retry.
+    """
+
+    interval_sequence: list[float]
+    retryable_errors: list[int]
+
+    @field_validator("interval_sequence")
+    @classmethod
+    def validate_interval_sequence(cls, v: list[float]) -> list[float]:
+        if not v:
+            raise ValueError("interval_sequence must not be empty")
+        if any(interval <= 0 for interval in v):
+            raise ValueError("interval_sequence entries must be positive numbers")
+        return v
+
+    @field_validator("retryable_errors")
+    @classmethod
+    def validate_retryable_errors(cls, v: list[int]) -> list[int]:
+        if not v:
+            raise ValueError("retryable_errors must not be empty")
+        if any(not (100 <= code <= 599) for code in v):
+            raise ValueError("retryable_errors entries must be valid HTTP status codes (100-599)")
+        return v
+
+
 class ScheduleProperties(BaseModel):
     """Target call properties; validation rules depend on target_type."""
 
@@ -60,11 +91,20 @@ class ScheduleProperties(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     extra_headers: dict[str, str] = Field(default_factory=dict)
     api_version: str | None = None
+    timeout: float | None = None
+    retry: RetryPolicy | None = None
 
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
         _HTTP_URL.validate_python(v)
+        return v
+
+    @field_validator("timeout")
+    @classmethod
+    def validate_timeout(cls, v: float | None) -> float | None:
+        if v is not None and v <= 0:
+            raise ValueError("timeout must be a positive number (seconds)")
         return v
 
     @model_validator(mode="after")

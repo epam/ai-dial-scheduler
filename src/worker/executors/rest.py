@@ -18,15 +18,26 @@ class RestExecutor:
         headers = {API_KEY_HEADER: settings.dial_api_key.get_secret_value(), **properties.extra_headers}
         client = HttpClientProvider().client
 
+        request_kwargs: dict[str, Any] = {
+            "method": properties.method.value,  # type: ignore[union-attr]
+            "url": properties.url,
+            "json": properties.payload,
+            "headers": headers,
+        }
+        if ctx.effective_timeout is not None:
+            request_kwargs["timeout"] = httpx.Timeout(ctx.effective_timeout)
+
         try:
-            response = await client.request(
-                method=properties.method.value,  # type: ignore[union-attr]
-                url=properties.url,
-                json=properties.payload,
-                headers=headers,
-            )
+            response = await client.request(**request_kwargs)
             response.raise_for_status()
-        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+        except httpx.HTTPStatusError as exc:
+            raise ScheduleRunError(
+                str(exc),
+                schedule_id=ctx.schedule_id,
+                run_id=ctx.run_id,
+                status_code=exc.response.status_code,
+            ) from exc
+        except httpx.TransportError as exc:
             raise ScheduleRunError(str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id) from exc
 
         try:
