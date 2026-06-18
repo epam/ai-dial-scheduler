@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/019-schedule-metadata-filtering/plan.md` (Schedule Metadata & Filtering)
+- Current plan: `specs/020-schedule-timeout-retry/plan.md` (Schedule Timeout & Retry)
 <!-- SPECKIT END -->

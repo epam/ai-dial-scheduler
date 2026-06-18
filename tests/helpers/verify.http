@@ -129,6 +129,31 @@ Api-Key: {{authValue}}
 
 ###
 
+# @name create_echo_rest_retry
+### REST echo — retries on 500/502/503 after 2, 5, 10, 20 s (fires every 60 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Api-Key: {{authValue}}
+
+{
+  "display_name": "Echo REST with retry",
+  "trigger": {
+    "cron": {"fields": {"minute": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true},
+    "retry": {
+      "interval_sequence": [2, 5, 10, 20],
+      "retryable_errors": [500, 502, 503]
+    }
+  }
+}
+
+###
+
 # @name create_with_metadata
 ### REST echo with business metadata — filterable by metadata__tenant=hcscd
 POST {{baseUrl}}/v1/schedules/

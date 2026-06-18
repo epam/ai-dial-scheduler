@@ -10,6 +10,7 @@ from src.lib.db.enums import ScheduleRunStatus
 class RunContext(BaseModel):
     run_id: str
     schedule_id: str
+    effective_timeout: float | None = None
 
 
 class RunListItem(BaseModel):

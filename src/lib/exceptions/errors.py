@@ -15,12 +15,19 @@ class ScheduleRunNotFoundError(SchedulerError):
 
 
 class ScheduleRunError(SchedulerError):
-    """Raised when a scheduled run fails; carries schedule_id and run_id for correlation."""
+    """Raised when a scheduled run fails; carries schedule_id and run_id for correlation.
 
-    def __init__(self, message: str, schedule_id: str, run_id: str) -> None:
+    Attributes:
+        status_code: HTTP status code returned by the target, when known. Used by the
+            retry orchestrator to decide whether a failed attempt is retryable. ``None``
+            for transport-level failures and timeouts, which carry no status code.
+    """
+
+    def __init__(self, message: str, schedule_id: str, run_id: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.schedule_id = schedule_id
         self.run_id = run_id
+        self.status_code = status_code
 
 
 class DialServiceError(SchedulerError):

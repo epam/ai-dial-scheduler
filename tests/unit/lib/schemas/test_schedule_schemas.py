@@ -7,6 +7,7 @@ from src.lib.db.enums import HttpMethod, TargetType, TriggerType
 from src.lib.schemas.schedule import (
     CronFields,
     CronTriggerSpec,
+    RetryPolicy,
     ScheduleProperties,
     ScheduleRequest,
     ScheduleResponse,
@@ -167,6 +168,113 @@ class TestScheduleProperties:
                 method=HttpMethod.POST,
                 api_version="2024-02-01",
             )
+
+
+class TestScheduleTimeout:
+    def test_timeout_defaults_to_none(self):
+        props = ScheduleProperties(target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST)
+        assert props.timeout is None
+
+    def test_positive_timeout_accepted(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST, timeout=30
+        )
+        assert props.timeout == 30
+
+    def test_zero_timeout_raises(self):
+        with pytest.raises(ValidationError, match="timeout must be a positive number"):
+            ScheduleProperties(
+                target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST, timeout=0
+            )
+
+    def test_negative_timeout_raises(self):
+        with pytest.raises(ValidationError, match="timeout must be a positive number"):
+            ScheduleProperties(
+                target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST, timeout=-5
+            )
+
+
+class TestRetryPolicy:
+    def test_valid_retry_accepted(self):
+        policy = RetryPolicy(interval_sequence=[2, 5, 8], retryable_errors=[500, 502])
+        assert policy.interval_sequence == [2, 5, 8]
+        assert policy.retryable_errors == [500, 502]
+
+    def test_retry_defaults_to_none_on_properties(self):
+        props = ScheduleProperties(target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST)
+        assert props.retry is None
+
+    def test_retry_accepted_on_properties(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            retry=RetryPolicy(interval_sequence=[1], retryable_errors=[500]),
+        )
+        assert props.retry is not None
+        assert props.retry.interval_sequence == [1]
+
+    def test_retry_accepts_nested_dict(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            retry={"interval_sequence": [2, 5], "retryable_errors": [500]},
+        )
+        assert props.retry is not None
+        assert props.retry.retryable_errors == [500]
+
+    def test_empty_interval_sequence_raises(self):
+        with pytest.raises(ValidationError, match="interval_sequence must not be empty"):
+            RetryPolicy(interval_sequence=[], retryable_errors=[500])
+
+    def test_non_positive_interval_raises(self):
+        with pytest.raises(ValidationError, match="interval_sequence entries must be positive"):
+            RetryPolicy(interval_sequence=[2, 0], retryable_errors=[500])
+
+    def test_empty_retryable_errors_raises(self):
+        with pytest.raises(ValidationError, match="retryable_errors must not be empty"):
+            RetryPolicy(interval_sequence=[2], retryable_errors=[])
+
+    def test_out_of_range_retryable_error_raises(self):
+        with pytest.raises(ValidationError, match="valid HTTP status codes"):
+            RetryPolicy(interval_sequence=[2], retryable_errors=[999])
+
+    def test_properties_roundtrip_through_kwargs_and_response(self):
+        """timeout/retry survive the request -> kwargs -> worker -> response path (FR-014)."""
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            timeout=30,
+            retry=RetryPolicy(interval_sequence=[2, 5], retryable_errors=[500, 502]),
+        )
+
+        # Service stores properties as JSON (Schedule.kwargs).
+        dumped = props.model_dump(mode="json")
+        assert dumped["timeout"] == 30
+        assert dumped["retry"] == {"interval_sequence": [2, 5], "retryable_errors": [500, 502]}
+
+        # Worker reconstructs ScheduleProperties(**kwargs).
+        rebuilt = ScheduleProperties(**dumped)
+        assert rebuilt.timeout == 30
+        assert rebuilt.retry is not None
+        assert rebuilt.retry.interval_sequence == [2, 5]
+
+        # Response echoes stored properties verbatim.
+        now = datetime.now(UTC)
+        resp = ScheduleResponse(
+            id="x",
+            display_name="x",
+            next_run_time=None,
+            trigger={},
+            properties=dumped,
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert resp.properties["timeout"] == 30
+        assert resp.properties["retry"]["retryable_errors"] == [500, 502]
 
 
 class TestScheduleMetadata:

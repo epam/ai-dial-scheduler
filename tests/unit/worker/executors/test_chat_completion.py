@@ -1,10 +1,12 @@
 import httpx
+import openai
 from openai.types.chat import ChatCompletion
 import pytest
 from structlog.contextvars import bind_contextvars, clear_contextvars
 import structlog.testing
 
 from src.lib.db.enums import TargetType
+from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.worker.executors.chat_completion import ChatCompletionExecutor
@@ -234,3 +236,87 @@ class TestChatCompletionExecutorHappyPath:
 
         for log in logs:
             assert "super-secret-cc" not in str(log)
+
+
+class TestChatCompletionExecutorFailurePath:
+    async def test_api_status_error_captures_status_code(self, mocker):
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.AsyncMock()
+        mock_client_cls.return_value = mock_instance
+        response = mocker.MagicMock()
+        response.status_code = 500
+        api_error = openai.APIStatusError("server error", response=response, body=None)
+        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=api_error)
+
+        mocker.patch(
+            "src.worker.executors.chat_completion.get_settings",
+            return_value=mocker.MagicMock(dial_api_key=mocker.MagicMock(get_secret_value=lambda: "key")),
+        )
+
+        props = make_properties()
+        executor = ChatCompletionExecutor()
+
+        with pytest.raises(ScheduleRunError) as exc_info:
+            await executor.execute(CTX, props)
+
+        assert exc_info.value.status_code == 500
+
+    async def test_generic_error_has_no_status_code(self, mocker):
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.AsyncMock()
+        mock_client_cls.return_value = mock_instance
+        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=ValueError("bad payload"))
+
+        mocker.patch(
+            "src.worker.executors.chat_completion.get_settings",
+            return_value=mocker.MagicMock(dial_api_key=mocker.MagicMock(get_secret_value=lambda: "key")),
+        )
+
+        props = make_properties()
+        executor = ChatCompletionExecutor()
+
+        with pytest.raises(ScheduleRunError) as exc_info:
+            await executor.execute(CTX, props)
+
+        assert exc_info.value.status_code is None
+
+
+class TestChatCompletionExecutorTimeout:
+    async def test_effective_timeout_passed_through_when_set(self, mocker):
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.AsyncMock()
+        mock_client_cls.return_value = mock_instance
+        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=mocker.MagicMock(spec=ChatCompletion))
+
+        mocker.patch(
+            "src.worker.executors.chat_completion.get_settings",
+            return_value=mocker.MagicMock(dial_api_key=mocker.MagicMock(get_secret_value=lambda: "key")),
+        )
+
+        ctx = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, effective_timeout=25.0)
+        props = make_properties()
+        executor = ChatCompletionExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(ctx, props)
+
+        assert mock_instance.chat.completions.create.call_args.kwargs["timeout"] == 25.0
+
+    async def test_no_timeout_kwarg_when_absent(self, mocker):
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.AsyncMock()
+        mock_client_cls.return_value = mock_instance
+        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=mocker.MagicMock(spec=ChatCompletion))
+
+        mocker.patch(
+            "src.worker.executors.chat_completion.get_settings",
+            return_value=mocker.MagicMock(dial_api_key=mocker.MagicMock(get_secret_value=lambda: "key")),
+        )
+
+        props = make_properties()
+        executor = ChatCompletionExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(CTX, props)
+
+        assert "timeout" not in mock_instance.chat.completions.create.call_args.kwargs

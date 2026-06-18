@@ -14,6 +14,7 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
 from src.worker.dispatcher import resolve_executor
+from src.worker.retry import execute_with_policy
 
 
 _tracer = trace.get_tracer(__name__)
@@ -69,20 +70,34 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
         return
 
     try:
-        properties = ScheduleProperties(**kwargs)
+        try:
+            properties = ScheduleProperties(**kwargs)
+        except ValidationError as exc:
+            err = ScheduleRunError(str(exc), schedule_id=schedule_id, run_id=run_id)
+            logger.error("run_failed", run_id=run_id, schedule_id=schedule_id, error=str(err))
+            await _persist_error(run_id, schedule_id, str(err))
+            raise err from exc
+
         executor = resolve_executor(properties.target_type)
         ctx = RunContext(run_id=run_id, schedule_id=schedule_id)
-        result = await executor.execute(ctx, properties)
-        await _persist_success(run_id, schedule_id, result)
-    except ScheduleRunError as exc:
-        logger.error("run_failed", run_id=run_id, schedule_id=schedule_id, error=str(exc))
-        await _persist_error(run_id, schedule_id, str(exc))
+        outcome = await execute_with_policy(ctx, properties, executor)
+
+        if outcome.succeeded:
+            await _persist_success(run_id, schedule_id, outcome.result or {})
+            logger.info("run_complete", run_id=run_id, schedule_id=schedule_id, attempts=outcome.attempt_count)
+        else:
+            error = outcome.error or ScheduleRunError("run failed", schedule_id=schedule_id, run_id=run_id)
+            logger.error(
+                "run_failed",
+                run_id=run_id,
+                schedule_id=schedule_id,
+                error=str(error),
+                attempts=outcome.attempt_count,
+            )
+            await _persist_error(run_id, schedule_id, str(error))
+            raise error
+    except ScheduleRunError:
         raise
-    except ValidationError as exc:
-        err = ScheduleRunError(str(exc), schedule_id=schedule_id, run_id=run_id)
-        logger.error("run_failed", run_id=run_id, schedule_id=schedule_id, error=str(err))
-        await _persist_error(run_id, schedule_id, str(err))
-        raise err from exc
     except Exception as exc:
         err = ScheduleRunError(str(exc), schedule_id=schedule_id, run_id=run_id)
         logger.error("run_failed", run_id=run_id, schedule_id=schedule_id, error=str(err))

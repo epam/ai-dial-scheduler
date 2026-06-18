@@ -243,3 +243,69 @@ class TestSseExecutorFailurePath:
 
         assert exc_info.value.run_id == RUN_ID
         assert exc_info.value.schedule_id == SCHEDULE_ID
+
+    async def test_http_status_error_captures_status_code(self, mock_client, mocker):
+        response = mocker.MagicMock(status_code=503)
+        event_source = mocker.MagicMock()
+        bad_response = mocker.MagicMock(status_code=503)
+        bad_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "503", request=mocker.MagicMock(), response=response
+        )
+        event_source.response = bad_response
+        event_source.__aenter__ = mocker.AsyncMock(return_value=event_source)
+        event_source.__aexit__ = mocker.AsyncMock(return_value=False)
+
+        mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
+
+        props = make_properties()
+        executor = SseExecutor()
+
+        with pytest.raises(ScheduleRunError) as exc_info:
+            await executor.execute(CTX, props)
+
+        assert exc_info.value.status_code == 503
+
+
+class TestSseExecutorTimeout:
+    async def test_effective_timeout_passed_through_when_set(self, mock_client, mocker):
+        async def async_iter():
+            return
+            yield
+
+        event_source = mocker.MagicMock()
+        event_source.response = mocker.MagicMock(status_code=200)
+        event_source.aiter_sse = async_iter
+        event_source.__aenter__ = mocker.AsyncMock(return_value=event_source)
+        event_source.__aexit__ = mocker.AsyncMock(return_value=False)
+
+        mock_connect = mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
+
+        ctx = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, effective_timeout=20.0)
+        props = make_properties()
+        executor = SseExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(ctx, props)
+
+        assert mock_connect.call_args.kwargs["timeout"] == httpx.Timeout(20.0)
+
+    async def test_no_timeout_kwarg_when_absent(self, mock_client, mocker):
+        async def async_iter():
+            return
+            yield
+
+        event_source = mocker.MagicMock()
+        event_source.response = mocker.MagicMock(status_code=200)
+        event_source.aiter_sse = async_iter
+        event_source.__aenter__ = mocker.AsyncMock(return_value=event_source)
+        event_source.__aexit__ = mocker.AsyncMock(return_value=False)
+
+        mock_connect = mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
+
+        props = make_properties()
+        executor = SseExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(CTX, props)
+
+        assert "timeout" not in mock_connect.call_args.kwargs

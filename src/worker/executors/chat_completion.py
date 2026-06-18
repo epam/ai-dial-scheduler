@@ -1,7 +1,7 @@
 from typing import Any
 from urllib.parse import urlsplit
 
-from openai import AsyncAzureOpenAI
+from openai import APIStatusError, AsyncAzureOpenAI
 from openai.types.chat import ChatCompletion
 
 from src.lib.exceptions.errors import ScheduleRunError
@@ -37,10 +37,10 @@ class ChatCompletionExecutor:
                 azure_deployment=azure_deployment,
                 http_client=HttpClientProvider().client,
             )
-            response = await client.chat.completions.create(
-                **properties.payload,
-                extra_headers=properties.extra_headers,
-            )
+            create_kwargs: dict[str, Any] = {**properties.payload, "extra_headers": properties.extra_headers}
+            if ctx.effective_timeout is not None:
+                create_kwargs["timeout"] = ctx.effective_timeout
+            response = await client.chat.completions.create(**create_kwargs)
             if isinstance(response, ChatCompletion):
                 logger.info("run_result", run_id=ctx.run_id, result=str(response))
                 return {"result": response.model_dump()}
@@ -50,5 +50,9 @@ class ChatCompletionExecutor:
                     logger.info("stream_chunk", run_id=ctx.run_id, chunk=str(chunk))
                     chunks.append(chunk.model_dump())
                 return {"chunks": chunks}
+        except APIStatusError as exc:
+            raise ScheduleRunError(
+                str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id, status_code=exc.status_code
+            ) from exc
         except Exception as exc:
             raise ScheduleRunError(str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id) from exc
