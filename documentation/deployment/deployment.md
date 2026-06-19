@@ -36,7 +36,7 @@ Build the Docker image from [Dockerfile](/Dockerfile).
 - Deploy the image with `SERVICE=api`.
 - **Verification:** logs show the application started:
 
-  ![Api Start Logs](Api%20Logs.png)
+  ![Api Start Logs](API%20Logs.png)
 
 - Health and readiness probes are available:
   - `GET /health` — liveness check, returns `{"status":"ok"}`
