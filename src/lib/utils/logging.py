@@ -12,6 +12,19 @@ from structlog.stdlib import ProcessorFormatter
 from src.lib.settings import get_settings
 
 
+class _HealthCheckFilter(logging.Filter):
+    _FILTERED_PATHS = ("/ready", "/health")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # uvicorn.access args: (client_addr, method, full_path, http_version, status_code)
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3:
+            path = args[2]
+            if isinstance(path, str):
+                return not any(path.startswith(p) for p in self._FILTERED_PATHS)
+        return True
+
+
 def _add_trace_span_ids(_: Any, __: str, event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     """Inject trace_id and span_id when a valid OTel span is active."""
     ctx = trace.get_current_span().get_span_context()
@@ -68,6 +81,11 @@ class LoggingConfig:
                     ],
                 },
             },
+            "filters": {
+                "health_check": {
+                    "()": _HealthCheckFilter,
+                },
+            },
             "handlers": {
                 "console": {
                     "class": "logging.StreamHandler",
@@ -82,7 +100,7 @@ class LoggingConfig:
                 settings.app_name: {"level": log_level, "propagate": True},
                 "uvicorn": {"level": log_level, "propagate": True},
                 "uvicorn.error": {"level": log_level, "propagate": True},
-                "uvicorn.access": {"level": log_level, "propagate": True},
+                "uvicorn.access": {"level": log_level, "propagate": True, "filters": ["health_check"]},
                 "httpx": {"level": log_level, "propagate": True},
                 "httpcore": {"level": log_level, "propagate": True},
                 "opentelemetry": {"level": otel_log_level, "propagate": True},
