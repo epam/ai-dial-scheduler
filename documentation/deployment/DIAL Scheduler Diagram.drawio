@@ -1,0 +1,93 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.0.9 Chrome/128.0.6613.186 Electron/32.2.5 Safari/537.36" version="26.0.9">
+  <diagram name="Page-1" id="vrnII3FQ2xt-r8q5epjU">
+    <mxGraphModel dx="1900" dy="717" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-11" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="WiWUZgOgM1BnnXdxWKIu-2" target="Lju8UioTe4BjEh7RBT4X-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="WiWUZgOgM1BnnXdxWKIu-2" value="&lt;b&gt;Scheduler API&lt;/b&gt;&lt;div&gt;REST API&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="220" y="170" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="WiWUZgOgM1BnnXdxWKIu-3" target="Lju8UioTe4BjEh7RBT4X-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-19" value="Pull tasks" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="Lju8UioTe4BjEh7RBT4X-12">
+          <mxGeometry x="0.1714" y="2" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="WiWUZgOgM1BnnXdxWKIu-3" value="&lt;b&gt;Scheduler Worker&lt;/b&gt;&lt;div&gt;Background worker&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="490" y="170" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="WiWUZgOgM1BnnXdxWKIu-4" target="Lju8UioTe4BjEh7RBT4X-8">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="WiWUZgOgM1BnnXdxWKIu-4" value="&lt;b&gt;Scheduler Migrations&lt;/b&gt;&lt;div&gt;one time job&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" parent="1" vertex="1">
+          <mxGeometry x="-10" y="172" width="182" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-18" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="Lju8UioTe4BjEh7RBT4X-3" target="WiWUZgOgM1BnnXdxWKIu-2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-3" value="&lt;div&gt;&lt;b&gt;dial_scheduler&amp;nbsp;&lt;/b&gt;&lt;/div&gt;&lt;div&gt;application&amp;nbsp;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;(&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;Route/&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;MCP&lt;/span&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;)&lt;/span&gt;&lt;/div&gt;" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="220" y="270" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-5" value="DIAL Core" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="220" y="360" width="410" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-7" value="API Client" style="rounded=1;whiteSpace=wrap;html=1;fontStyle=1" vertex="1" parent="1">
+          <mxGeometry x="221" y="490" width="210" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-9" value="" style="group" vertex="1" connectable="0" parent="1">
+          <mxGeometry x="220" y="80" width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-8" value="Postgress DB" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="Lju8UioTe4BjEh7RBT4X-9">
+          <mxGeometry width="220" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="WiWUZgOgM1BnnXdxWKIu-1" value="" style="sketch=0;shadow=0;dashed=0;html=1;strokeColor=none;labelPosition=center;verticalLabelPosition=bottom;verticalAlign=top;outlineConnect=0;align=center;shape=mxgraph.office.databases.database_mini_2;fillColor=#2072B8;" parent="Lju8UioTe4BjEh7RBT4X-9" vertex="1">
+          <mxGeometry x="10" y="9" width="35" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.807;entryY=0.013;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="WiWUZgOgM1BnnXdxWKIu-3" target="Lju8UioTe4BjEh7RBT4X-5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-20" value="Scheduled API Calls" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="Lju8UioTe4BjEh7RBT4X-14">
+          <mxGeometry x="-0.195" relative="1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.184;entryY=1.013;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="Lju8UioTe4BjEh7RBT4X-7">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="326.44000000000005" y="420.78" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-21" value="Schedules/Runs CRUD" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="Lju8UioTe4BjEh7RBT4X-16">
+          <mxGeometry x="-0.0303" y="2" relative="1" as="geometry">
+            <mxPoint x="-1" y="2" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.933;entryY=1.02;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="329" y="360" as="sourcePoint" />
+            <mxPoint x="329.26" y="331.20000000000005" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-22" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry y="430" width="160" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-23" value="Legend" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry y="430" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-24" value="Scheduler" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry y="460" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-25" value="DIAL&amp;nbsp;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry y="490" width="160" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="Lju8UioTe4BjEh7RBT4X-26" value="DIAL Application" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry y="520" width="160" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

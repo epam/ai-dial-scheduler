@@ -156,6 +156,105 @@ crash the services — export failures are handled silently by background batch 
 
 See `.env.example` for a commented reference of all supported variables.
 
+## Deployment Env Setup — Migrations
+
+The `migrations` service runs `alembic upgrade head` and exits. It only requires database connection variables.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `SERVICE` | — | Yes | Must be `migrations` |
+| `DB_HOST` | `localhost` | No | PostgreSQL host |
+| `DB_PORT` | `5432` | No | PostgreSQL port |
+| `DB_NAME` | `app` | No | Database name |
+| `DB_USER` | `app` | Yes | Database username |
+| `DB_AUTH_MODE` | `password` | No | Auth mode: `password` or `connection-string` |
+| `DB_PASSWORD` | — | Yes | Database password |
+| `DB_URL` | — | Yes | Full SQLAlchemy connection string |
+| `DB_DRIVER` | `postgresql+asyncpg` | No | SQLAlchemy driver dialect |
+| `DIAL_URL` | `stub` | No | Not used by migrations; any non-empty value is accepted |
+| `DIAL_API_KEY` | `stub` | No | Not used by migrations; any non-empty value is accepted |
+
+## Deployment Env Setup — Api
+
+The `api` service runs the FastAPI application.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `SERVICE` | — | Yes | Must be `api` |
+| `DIAL_URL` | — | Yes | Base URL of the DIAL platform |
+| `DIAL_API_KEY` | — | Yes | API key for authenticating with DIAL |
+| `PORT` | `5000` | No | HTTP port to listen on |
+| `LOG_LEVEL` | `INFO` | No | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `APP_NAME` | `aidial-scheduler` | No | Application name reported in traces and logs |
+| `ECHO_ENDPOINTS` | `false` | No | Log all incoming HTTP requests and responses |
+| `MCP_ENABLED` | `true` | No | Enable the MCP endpoint |
+| `MCP_PATH` | `/mcp` | No | URL path for the MCP endpoint |
+| `USER_ID_PATH_LIST` | `["userClaims.email.0","userClaims.preferred_username","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `READINESS_DB_TIMEOUT_SECONDS` | `2.0` | No | Timeout for the database check on `GET /ready` |
+| **Database** | | | |
+| `DB_HOST` | `localhost` | No | PostgreSQL host |
+| `DB_PORT` | `5432` | No | PostgreSQL port |
+| `DB_NAME` | `app` | No | Database name |
+| `DB_USER` | `app` | Yes | Database username |
+| `DB_AUTH_MODE` | `password` | No | Auth mode: `password` or `connection-string` |
+| `DB_PASSWORD` | — | Yes | Database password |
+| `DB_URL` | — | Yes | Full SQLAlchemy connection string |
+| `DB_DRIVER` | `postgresql+asyncpg` | No | SQLAlchemy driver dialect |
+| `DB_POOL_SIZE` | `10` | No | Connection pool size |
+| `DB_MAX_OVERFLOW` | `20` | No | Max overflow connections above pool size |
+| `DB_POOL_RECYCLE_SECONDS` | `1800` | No | Recycle connections older than this many seconds |
+| `DB_POOL_TIMEOUT_SECONDS` | `30` | No | Timeout waiting to acquire a connection from the pool |
+| `DB_POOL_PRE_PING` | `true` | No | Test connections with a ping before use |
+| `DB_ECHO` | `false` | No | Log all SQL statements |
+| **HTTP Client** | | | |
+| `API_HTTP_TIMEOUT_SECONDS` | `60.0` | No | Overall outbound request timeout |
+| `API_HTTP_CONNECT_TIMEOUT_SECONDS` | `5.0` | No | TCP connection timeout |
+| `API_HTTP_READ_TIMEOUT_SECONDS` | `60.0` | No | Socket read timeout |
+| `API_HTTP_WRITE_TIMEOUT_SECONDS` | `60.0` | No | Socket write timeout |
+| `API_HTTP_POOL_TIMEOUT_SECONDS` | `5.0` | No | Timeout waiting for a pooled connection |
+| `API_HTTP_MAX_CONNECTIONS` | `200` | No | Max total HTTP connections |
+| `API_HTTP_MAX_KEEPALIVE_CONNECTIONS` | `20` | No | Max keep-alive connections |
+
+## Deployment Env Setup — Worker
+
+The `worker` service runs the APScheduler background process that executes scheduled jobs.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `SERVICE` | — | Yes | Must be `worker` |
+| `DIAL_URL` | — | Yes | Base URL of the DIAL platform |
+| `DIAL_API_KEY` | — | Yes | API key for authenticating with DIAL |
+| `LOG_LEVEL` | `INFO` | No | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |
+| `APP_NAME` | `aidial-scheduler` | No | Application name reported in traces and logs |
+| `NOOP_INTERVAL_SECONDS` | `60` | No | Interval in seconds between scheduler heartbeat no-ops |
+| `JOB_COALESCE` | `false` | No | Merge multiple queued misfired runs into one |
+| `JOB_MAX_INSTANCES` | `1` | No | Max concurrent instances of the same job |
+| `JOB_MISFIRE_GRACE_TIME` | `60` | No | Seconds after scheduled time a job is still allowed to run |
+| `USER_ID_PATH_LIST` | `["userClaims.email.0","userClaims.preferred_username","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| **Database** | | | |
+| `DB_HOST` | `localhost` | No | PostgreSQL host |
+| `DB_PORT` | `5432` | No | PostgreSQL port |
+| `DB_NAME` | `app` | No | Database name |
+| `DB_USER` | `app` | Yes | Database username |
+| `DB_AUTH_MODE` | `password` | No | Auth mode: `password` or `connection-string` |
+| `DB_PASSWORD` | — | Yes | Database password |
+| `DB_URL` | — | Yes | Full SQLAlchemy connection string |
+| `DB_DRIVER` | `postgresql+asyncpg` | No | SQLAlchemy driver dialect |
+| `DB_POOL_SIZE` | `10` | No | Connection pool size |
+| `DB_MAX_OVERFLOW` | `20` | No | Max overflow connections above pool size |
+| `DB_POOL_RECYCLE_SECONDS` | `1800` | No | Recycle connections older than this many seconds |
+| `DB_POOL_TIMEOUT_SECONDS` | `30` | No | Timeout waiting to acquire a connection from the pool |
+| `DB_POOL_PRE_PING` | `true` | No | Test connections with a ping before use |
+| `DB_ECHO` | `false` | No | Log all SQL statements |
+| **HTTP Client** | | | |
+| `WORKER_HTTP_TIMEOUT_SECONDS` | `60.0` | No | Overall outbound request timeout |
+| `WORKER_HTTP_CONNECT_TIMEOUT_SECONDS` | `5.0` | No | TCP connection timeout |
+| `WORKER_HTTP_READ_TIMEOUT_SECONDS` | `60.0` | No | Socket read timeout |
+| `WORKER_HTTP_WRITE_TIMEOUT_SECONDS` | `60.0` | No | Socket write timeout |
+| `WORKER_HTTP_POOL_TIMEOUT_SECONDS` | `5.0` | No | Timeout waiting for a pooled connection |
+| `WORKER_HTTP_MAX_CONNECTIONS` | `200` | No | Max total HTTP connections |
+| `WORKER_HTTP_MAX_KEEPALIVE_CONNECTIONS` | `20` | No | Max keep-alive connections |
+
 ## Quality Gates
 
 ```bash
