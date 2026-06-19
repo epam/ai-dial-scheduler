@@ -75,7 +75,7 @@ class TestUserIdPathList:
 
         s = Settings()
 
-        assert s.user_id_path_list == ["userClaims.email.0", "userClaims.preferred_username", "project"]
+        assert s.user_id_path_list == ["userClaims.email.0", "userClaims.preferred_username.0", "project"]
 
     def test_user_id_path_list_override(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
