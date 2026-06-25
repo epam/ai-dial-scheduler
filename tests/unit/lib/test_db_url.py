@@ -1,8 +1,8 @@
 import pytest
 
 from src.lib.db.enums import DbDriver
-from src.lib.db.url import build_database_url
-from src.lib.settings import Settings
+from src.lib.db.url import build_azure_entra_sync_url, build_database_url
+from src.lib.settings import DatabaseSettings, Settings
 
 
 @pytest.fixture
@@ -57,3 +57,21 @@ class TestBuildDatabaseUrl:
     def test_hide_password_omits_password_value(self, password_settings):
         url = build_database_url(password_settings.db, hide_password=True)
         assert "testpass" not in url
+
+
+class TestBuildAzureEntraSyncUrl:
+    def test_builds_passwordless_psycopg2_url_with_entra_user(self, monkeypatch):
+        monkeypatch.delenv("DB_PASSWORD", raising=False)
+        monkeypatch.delenv("DB_URL", raising=False)
+        monkeypatch.setenv("DB_AUTH_MODE", "azure_entra")
+        monkeypatch.setenv("DB_AZURE_ENTRA_USER", "scheduler-identity")
+        monkeypatch.setenv("DB_HOST", "srv.postgres.database.azure.com")
+        monkeypatch.setenv("DB_PORT", "5432")
+        monkeypatch.setenv("DB_NAME", "scheddb")
+        db_settings = DatabaseSettings(_env_file=None)
+
+        url = build_azure_entra_sync_url(db_settings)
+
+        assert url.startswith("postgresql+psycopg2://")
+        assert "scheduler-identity@srv.postgres.database.azure.com" in url
+        assert "scheddb" in url

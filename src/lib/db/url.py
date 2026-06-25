@@ -27,3 +27,19 @@ def build_database_url(
         database=db_settings.db_name,
     )
     return url.render_as_string(hide_password=hide_password)
+
+
+def build_azure_entra_sync_url(db_settings: DatabaseSettings) -> str:
+    """Build a synchronous (psycopg2) URL for Azure Entra auth without a password.
+
+    The Entra principal is used as the username; the short-lived access token is injected
+    as the password per connection by a ``do_connect`` listener, never baked into the URL.
+    """
+    url = URL.create(
+        drivername=DbDriver.SYNC.value,
+        username=db_settings.db_azure_entra_user,
+        host=db_settings.db_host,
+        port=db_settings.db_port,
+        database=db_settings.db_name,
+    )
+    return url.render_as_string(hide_password=False)

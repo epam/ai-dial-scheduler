@@ -31,7 +31,7 @@ def mock_settings(mocker) -> Settings:
 @pytest.fixture
 def patched_create_worker(mocker, mock_settings):
     mocker.patch("src.worker.app.get_settings", return_value=mock_settings)
-    mocker.patch("src.worker.app.SQLAlchemyJobStore", return_value=mocker.MagicMock(spec=SQLAlchemyJobStore))
+    mocker.patch("src.worker.app.build_jobstore", return_value=mocker.MagicMock(spec=SQLAlchemyJobStore))
     return mock_settings
 
 

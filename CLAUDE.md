@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/020-schedule-timeout-retry/plan.md` (Schedule Timeout & Retry)
+- Current plan: `specs/022-db-workload-identity-auth/plan.md` (Workload-Identity Database Authentication)
 <!-- SPECKIT END -->

@@ -21,6 +21,7 @@ class DatabaseSettings(BaseSettings):
     db_port: int = 5432
     db_name: str = "app"
     db_user: str = "app"
+    db_schema: str | None = None
     db_pool_size: int = 10
     db_max_overflow: int = 20
     db_pool_recycle_seconds: int = 1800
@@ -32,17 +33,41 @@ class DatabaseSettings(BaseSettings):
     db_password: str | None = None
     db_url: str | None = None
 
+    # GCP Cloud SQL IAM workload-identity auth
+    db_gcp_instance_connection_name: str | None = None
+    db_gcp_iam_user: str | None = None
+    db_gcp_private_ip: bool = False
+
+    # Azure Database for PostgreSQL Microsoft Entra workload-identity auth
+    db_azure_entra_user: str | None = None
+    db_azure_managed_identity_client_id: str | None = None
+
     @model_validator(mode="after")
     def validate_auth_requirements(self) -> "DatabaseSettings":
         required_fields_by_mode: dict[DbAuthMode, tuple[str, ...]] = {
             DbAuthMode.PASSWORD: ("db_password",),
             DbAuthMode.CONNECTION_STRING: ("db_url",),
+            DbAuthMode.GCP_IAM: ("db_gcp_instance_connection_name", "db_gcp_iam_user"),
+            DbAuthMode.AZURE_ENTRA: ("db_azure_entra_user",),
         }
+        # Workload-identity modes are secretless: a configured password/URL is contradictory and
+        # must be rejected (see contracts/db-auth-config.md "Must NOT be set").
+        forbidden_fields_by_mode: dict[DbAuthMode, tuple[str, ...]] = {
+            DbAuthMode.GCP_IAM: ("db_password", "db_url"),
+            DbAuthMode.AZURE_ENTRA: ("db_password", "db_url"),
+        }
+
         required_fields = required_fields_by_mode.get(self.db_auth_mode, ())
         missing = [field for field in required_fields if getattr(self, field) is None]
         if missing:
             fields_label = ", ".join(missing)
             raise ValueError(f"DB auth mode '{self.db_auth_mode.value}' requires: {fields_label}.")
+
+        forbidden_fields = forbidden_fields_by_mode.get(self.db_auth_mode, ())
+        present = [field for field in forbidden_fields if getattr(self, field) is not None]
+        if present:
+            fields_label = ", ".join(present)
+            raise ValueError(f"DB auth mode '{self.db_auth_mode.value}' must not set: {fields_label}.")
         return self
 
 
