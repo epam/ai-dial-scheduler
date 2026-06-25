@@ -4,6 +4,8 @@ from enum import StrEnum
 class DbAuthMode(StrEnum):
     PASSWORD = "password"
     CONNECTION_STRING = "connection-string"
+    GCP_IAM = "gcp_iam"
+    AZURE_ENTRA = "azure_entra"
 
 
 class DbDriver(StrEnum):

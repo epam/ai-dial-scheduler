@@ -2,13 +2,11 @@ import asyncio
 import contextlib
 import signal
 
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from src.lib.constants import HEARTBEAT_JOB_ID, HEARTBEAT_JOB_NAME
-from src.lib.db.enums import DbDriver
-from src.lib.db.url import build_database_url
+from src.lib.db.jobstore import build_jobstore
 from src.lib.settings import get_settings
 from src.lib.utils.logging import configure_logging, logger
 from src.worker.clients import HttpClientProvider
@@ -17,10 +15,9 @@ from src.worker.jobs import heartbeat
 
 def create_worker() -> AsyncIOScheduler:
     settings = get_settings()
-    sync_url = build_database_url(settings.db, driver=DbDriver.SYNC)
     return AsyncIOScheduler(
         jobstores={
-            "default": SQLAlchemyJobStore(url=sync_url),
+            "default": build_jobstore(settings.db),
         },
         job_defaults={
             "coalesce": settings.job_coalesce,

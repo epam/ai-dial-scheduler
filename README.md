@@ -123,6 +123,40 @@ uv run pytest tests/integration/ -v
 uv run pytest --cov=src --cov-report=term-missing
 ```
 
+## Database authentication
+
+The database connection (async engine, the APScheduler job store, and Alembic) authenticates
+according to `DB_AUTH_MODE`. Four modes are supported; `password` is the default. See
+`specs/022-db-workload-identity-auth/contracts/db-auth-config.md` for the full contract.
+
+| Mode | Required env | Notes |
+|------|--------------|-------|
+| `password` *(default)* | `DB_PASSWORD` (+ `DB_HOST`/`DB_PORT`/`DB_NAME`/`DB_USER`) | Static credentials. |
+| `connection-string` | `DB_URL` | Verbatim SQLAlchemy URL. |
+| `gcp_iam` | `DB_GCP_INSTANCE_CONNECTION_NAME`, `DB_GCP_IAM_USER` | Cloud SQL IAM via the workload's Google service account. Optional `DB_GCP_PRIVATE_IP=true`. No password stored. |
+| `azure_entra` | `DB_AZURE_ENTRA_USER` | Microsoft Entra token via the workload's managed identity. Uses `DB_HOST`/`DB_NAME`/`DB_PORT` (shared defaults). Optional `DB_AZURE_MANAGED_IDENTITY_CLIENT_ID` for a user-assigned identity. No password stored. |
+
+For `gcp_iam` and `azure_entra` the service uses the platform-provided workload identity to obtain
+short-lived credentials that are refreshed automatically for new connections — no database password
+is configured or stored. Missing required variables for the selected mode cause a fail-fast startup
+error naming every missing field.
+
+```dotenv
+# GCP Cloud SQL IAM
+DB_AUTH_MODE=gcp_iam
+DB_GCP_INSTANCE_CONNECTION_NAME=my-proj:europe-west1:scheduler-pg
+DB_GCP_IAM_USER=scheduler-sa@my-proj.iam
+DB_GCP_PRIVATE_IP=true
+DB_NAME=scheduler
+
+# Azure Database for PostgreSQL — Microsoft Entra
+DB_AUTH_MODE=azure_entra
+DB_HOST=scheduler-pg.postgres.database.azure.com
+DB_NAME=scheduler
+DB_AZURE_ENTRA_USER=scheduler-identity
+# DB_AZURE_MANAGED_IDENTITY_CLIENT_ID=<user-assigned-mi-client-id>  # optional
+```
+
 ## Observability / OTLP
 
 Both the API service and the background worker emit distributed traces, metrics, and structured
