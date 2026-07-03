@@ -1,10 +1,12 @@
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import pytest
 
+from src.lib.constants import HEARTBEAT_JOB_ID
 from src.lib.db.enums import DbAuthMode
 from src.lib.settings import DatabaseSettings, Settings
-from src.worker.app import create_worker
+from src.worker.app import _run, create_worker
 
 
 @pytest.fixture
@@ -64,3 +66,41 @@ class TestHeartbeatJobRegistration:
         scheduler = create_worker()
         assert "default" in scheduler._jobstores
         assert isinstance(scheduler._jobstores["default"], SQLAlchemyJobStore)
+
+
+@pytest.fixture
+def patched_run(mocker, patched_create_worker):
+    """Patch everything `_run` touches besides scheduler/jobstore so it returns immediately."""
+    mock_scheduler = mocker.MagicMock(spec=AsyncIOScheduler)
+    mock_jobstore = mocker.MagicMock(spec=SQLAlchemyJobStore)
+    mock_scheduler._jobstores = {"default": mock_jobstore}
+    mocker.patch("src.worker.app.create_worker", return_value=mock_scheduler)
+    mock_http_provider = mocker.MagicMock()
+    mock_http_provider.aclose = mocker.AsyncMock()
+    mocker.patch("src.worker.app.HttpClientProvider", return_value=mock_http_provider)
+    mocker.patch("asyncio.Event.wait", new=mocker.AsyncMock(return_value=None))
+    mocker.patch("signal.signal")
+    return mock_scheduler, mock_jobstore
+
+
+class TestHeartbeatJobReplacement:
+    """SQLAlchemyJobStore.add_job silently drops replace_existing under pg8000 (see
+    src/worker/app.py), so `_run` must delete any stale heartbeat row up front."""
+
+    async def test_removes_stale_heartbeat_job_before_adding(self, patched_run):
+        mock_scheduler, mock_jobstore = patched_run
+
+        await _run()
+
+        mock_jobstore.remove_job.assert_called_once_with(HEARTBEAT_JOB_ID)
+        mock_scheduler.add_job.assert_called_once()
+        assert mock_scheduler.add_job.call_args.kwargs["id"] == HEARTBEAT_JOB_ID
+        assert mock_scheduler.add_job.call_args.kwargs["replace_existing"] is True
+
+    async def test_missing_heartbeat_job_does_not_block_registration(self, patched_run):
+        mock_scheduler, mock_jobstore = patched_run
+        mock_jobstore.remove_job.side_effect = JobLookupError(HEARTBEAT_JOB_ID)
+
+        await _run()
+
+        mock_scheduler.add_job.assert_called_once()

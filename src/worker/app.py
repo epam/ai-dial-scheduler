@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import signal
 
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -58,6 +59,13 @@ async def _run() -> None:
             loop.add_signal_handler(sig, _request_stop)
         except NotImplementedError:  # Windows
             signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop_event.set))
+
+    # SQLAlchemyJobStore.add_job only converts a failed insert into a replace when the DBAPI
+    # driver raises IntegrityError; pg8000 (used in gcp_iam mode) doesn't implement that DBAPI
+    # exception class, so a stale row from a previous run surfaces as an unhandled DatabaseError
+    # instead of triggering replace_existing. Delete any stale row up front to sidestep that path.
+    with contextlib.suppress(JobLookupError):
+        scheduler._jobstores["default"].remove_job(HEARTBEAT_JOB_ID)
 
     scheduler.add_job(
         heartbeat,
