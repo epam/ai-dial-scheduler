@@ -1,28 +1,12 @@
 include:
   - project: GitLab/ci
-    ref: 3.2.2
-    file: docker/docker-generic.gitlab-ci.yml
-
+    ref: 3.3.0
+    file: docker/docker-application-generic.gitlab-ci.yml
+    inputs:
+      docker-path: "dial-scheduler/images/dial-scheduler"
 
 variables:
-  DOCKER_PATH: dial-scheduler/images/dial-scheduler
   PYTHON_IMAGE: "dockerhub.deltixhub.com/python:3.13"
-  TRIVY_VERSION: 0.69.1
-  TRIVY_DISABLE_VEX_NOTICE: "true"
-
-
-stages:
-  - test
-  - build
-  - scan
-  - publish
-  - deploy
-
-
-"Tag branch":
-  stage: build
-  rules:
-    - if: "$CI_COMMIT_REF_SLUG =~ /^release-/ && $CI_COMMIT_MESSAGE !~ /^RobotBuild/"
 
 test:
   image: ${PYTHON_IMAGE}
@@ -74,25 +58,15 @@ lint:
       - .cache/pip
       - venv/
   tags:
+    - AWS
     - DockerExecutor
-    - aws-large
   rules:
     - if: "$CI_PIPELINE_SOURCE == 'merge_request_event'"
     - if: "$CI_COMMIT_BRANCH == 'development'"
     - if: '$CI_COMMIT_TAG'
-    - if: '$CI_COMMIT_BRANCH =~ /feature|hotfix/'
-
-build:
-  rules:
-    - if: $CI_COMMIT_TAG
-      variables:
-        DOCKER_ADDITIONAL_TAGS: "latest"
-    - if: "$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH"
-      variables:
-        DOCKER_ADDITIONAL_TAGS: "development"
 
 trigger_deploy_migrations:
-  stage: deploy
+  stage: promote
   inherit:
     variables: false
   trigger:
@@ -102,7 +76,7 @@ trigger_deploy_migrations:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 trigger_deploy_api:
-  stage: deploy
+  stage: promote
   inherit:
     variables: false
   trigger:
@@ -113,7 +87,7 @@ trigger_deploy_api:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 trigger_deploy_worker:
-  stage: deploy
+  stage: promote
   inherit:
     variables: false
   trigger:
