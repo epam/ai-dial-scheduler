@@ -27,7 +27,7 @@ class TestReadinessEndpointReady:
         mock_ctx.__aexit__ = mocker.AsyncMock(return_value=False)
 
         mock_sessionmaker = mocker.MagicMock(return_value=mock_ctx)
-        mocker.patch("src.api.v1.endpoints.health.Database").return_value.sessionmaker = mock_sessionmaker
+        mocker.patch("src.lib.services.health_check.Database").return_value.sessionmaker = mock_sessionmaker
 
         response = client.get("/ready")
 
@@ -42,7 +42,7 @@ class TestReadinessEndpointReady:
         mock_ctx.__aexit__ = mocker.AsyncMock(return_value=False)
 
         mock_sessionmaker = mocker.MagicMock(return_value=mock_ctx)
-        mocker.patch("src.api.v1.endpoints.health.Database").return_value.sessionmaker = mock_sessionmaker
+        mocker.patch("src.lib.services.health_check.Database").return_value.sessionmaker = mock_sessionmaker
 
         response = client.get("/ready")
 
@@ -58,7 +58,7 @@ class TestReadinessEndpointNotReady:
         mock_ctx.__aexit__ = mocker.AsyncMock(return_value=False)
 
         mock_sessionmaker = mocker.MagicMock(return_value=mock_ctx)
-        mocker.patch("src.api.v1.endpoints.health.Database").return_value.sessionmaker = mock_sessionmaker
+        mocker.patch("src.lib.services.health_check.Database").return_value.sessionmaker = mock_sessionmaker
 
         response = client.get("/ready")
 
@@ -70,7 +70,7 @@ class TestReadinessEndpointNotReady:
         mock_ctx.__aexit__ = mocker.AsyncMock(return_value=False)
 
         mock_sessionmaker = mocker.MagicMock(return_value=mock_ctx)
-        mocker.patch("src.api.v1.endpoints.health.Database").return_value.sessionmaker = mock_sessionmaker
+        mocker.patch("src.lib.services.health_check.Database").return_value.sessionmaker = mock_sessionmaker
 
         response = client.get("/ready")
 
@@ -90,7 +90,7 @@ class TestReadinessEndpointNotReady:
         mock_ctx.__aexit__ = mocker.AsyncMock(return_value=False)
 
         mock_sessionmaker = mocker.MagicMock(return_value=mock_ctx)
-        mocker.patch("src.api.v1.endpoints.health.Database").return_value.sessionmaker = mock_sessionmaker
+        mocker.patch("src.lib.services.health_check.Database").return_value.sessionmaker = mock_sessionmaker
         mocker.patch("src.api.v1.endpoints.health.get_settings").return_value.readiness_db_timeout_seconds = 0.01
 
         response = client.get("/ready")
@@ -103,7 +103,7 @@ class TestReadinessEndpointNotReady:
         mock_ctx.__aexit__ = mocker.AsyncMock(return_value=False)
 
         mock_sessionmaker = mocker.MagicMock(return_value=mock_ctx)
-        mocker.patch("src.api.v1.endpoints.health.Database").return_value.sessionmaker = mock_sessionmaker
+        mocker.patch("src.lib.services.health_check.Database").return_value.sessionmaker = mock_sessionmaker
 
         response = client.get("/ready")
 

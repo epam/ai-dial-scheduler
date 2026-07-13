@@ -642,3 +642,12 @@ class TestHeartbeatHandler:
         log = logs[0]
         assert "run_id" not in log
         assert "schedule_id" not in log
+
+    async def test_touches_heartbeat_marker(self, mocker):
+        from src.worker.jobs import heartbeat
+
+        mock_touch = mocker.patch("src.worker.jobs.touch_heartbeat")
+
+        await heartbeat()
+
+        mock_touch.assert_called_once()

@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/022-db-workload-identity-auth/plan.md` (Workload-Identity Database Authentication)
+- Current plan: `specs/025-k8s-worker-probes/plan.md` (Kubernetes Probes for Worker Service)
 <!-- SPECKIT END -->
