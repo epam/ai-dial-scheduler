@@ -265,6 +265,9 @@ The `worker` service runs the APScheduler background process that executes sched
 | `JOB_MAX_INSTANCES` | `1` | No | Max concurrent instances of the same job |
 | `JOB_MISFIRE_GRACE_TIME` | `60` | No | Seconds after scheduled time a job is still allowed to run |
 | `USER_ID_PATH_LIST` | `["userClaims.email.0","userClaims.preferred_username","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `WORKER_HEALTH_DIR` | `/tmp` | No | Directory holding the `started`/`heartbeat`/`ready` marker files used by Kubernetes `exec` probes |
+| `WORKER_LIVENESS_STALENESS_SECONDS` | `180.0` | No | Max age of the `heartbeat` marker before the worker is considered hung |
+| `WORKER_READINESS_CHECK_INTERVAL_SECONDS` | `15.0` | No | How often the worker polls database connectivity to maintain the `ready` marker |
 | **Database** | | | |
 | `DB_HOST` | `localhost` | No | PostgreSQL host |
 | `DB_PORT` | `5432` | No | PostgreSQL port |

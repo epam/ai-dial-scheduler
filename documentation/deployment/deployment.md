@@ -50,6 +50,44 @@ Build the Docker image from [Dockerfile](/Dockerfile).
 
   ![Worker Start Logs](Worker%20Logs.png)
 
+- The worker exposes no HTTP/TCP listener; Kubernetes health is observed via three filesystem
+  marker files under `WORKER_HEALTH_DIR` (default `/tmp`), checked with `exec` probes:
+  - `started` — created once the scheduler has started and the heartbeat job is registered
+  - `heartbeat` — updated on every heartbeat job tick; stale beyond `WORKER_LIVENESS_STALENESS_SECONDS` (default `180s`) means the worker is hung
+  - `ready` — present only while the worker has started and the database was reachable as of the most recent check, run every `WORKER_READINESS_CHECK_INTERVAL_SECONDS` (default `15s`)
+
+  Configure the following probes on the worker container in its Kubernetes Deployment/Helm
+  chart (adjust the `180` in the liveness command if `WORKER_LIVENESS_STALENESS_SECONDS` is
+  overridden, and the paths if `WORKER_HEALTH_DIR` is overridden):
+
+  ```yaml
+  startupProbe:
+    exec:
+      command: ["/bin/sh", "-c", "test -f /tmp/started"]
+    periodSeconds: 10
+    failureThreshold: 30   # up to 5 minutes to complete startup before being killed
+
+  livenessProbe:
+    exec:
+      command:
+        - /bin/sh
+        - -c
+        - '[ $(( $(date +%s) - $(stat -c %Y /tmp/heartbeat) )) -lt 180 ]'
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    exec:
+      command: ["/bin/sh", "-c", "test -f /tmp/ready"]
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 2
+  ```
+
+  These commands rely on a POSIX shell and BusyBox `stat`/`test`/`date`, already present in the
+  worker's Alpine-based image — no extra packages are needed.
+
 ## Configure the App in DIAL Admin
 
 ### App Definition

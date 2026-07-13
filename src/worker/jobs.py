@@ -14,6 +14,7 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
 from src.worker.dispatcher import resolve_executor
+from src.worker.health import touch_heartbeat
 from src.worker.retry import execute_with_policy
 
 
@@ -111,3 +112,4 @@ async def heartbeat() -> None:
     with _tracer.start_as_current_span("job:heartbeat"):
         clear_contextvars()
         logger.info("heartbeat", job_name=HEARTBEAT_JOB_NAME, executed_at=datetime.now(UTC).isoformat())
+        await touch_heartbeat()

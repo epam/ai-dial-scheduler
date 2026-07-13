@@ -108,6 +108,31 @@ class TestWorkerSettings:
 
         assert s.noop_interval_seconds == 120
 
+    def test_worker_health_settings_defaults(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+
+        s = Settings()
+
+        assert s.worker_health_dir == "/tmp"
+        assert s.worker_liveness_staleness_seconds == 180.0
+        assert s.worker_readiness_check_interval_seconds == 15.0
+
+    def test_worker_health_settings_override(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+        monkeypatch.setenv("WORKER_HEALTH_DIR", "/var/run/worker-health")
+        monkeypatch.setenv("WORKER_LIVENESS_STALENESS_SECONDS", "90")
+        monkeypatch.setenv("WORKER_READINESS_CHECK_INTERVAL_SECONDS", "5")
+
+        s = Settings()
+
+        assert s.worker_health_dir == "/var/run/worker-health"
+        assert s.worker_liveness_staleness_seconds == 90.0
+        assert s.worker_readiness_check_interval_seconds == 5.0
+
 
 class TestApiHttpSettings:
     def test_defaults(self):
