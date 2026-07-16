@@ -48,12 +48,12 @@ class ChatCompletionExecutor:
                 create_kwargs["timeout"] = ctx.effective_timeout
             response = await client.chat.completions.create(**create_kwargs)
             if isinstance(response, ChatCompletion):
-                logger.info("run_result", run_id=ctx.run_id, result=str(response))
+                logger.debug("run_result", run_id=ctx.run_id, result=str(response))
                 return {"result": response.model_dump()}
             else:
                 chunks = []
                 async for chunk in response:
-                    logger.info("stream_chunk", run_id=ctx.run_id, chunk=str(chunk))
+                    logger.debug("stream_chunk", run_id=ctx.run_id, chunk=str(chunk))
                     chunks.append(chunk.model_dump())
                 return {"chunks": chunks}
         except APIStatusError as exc:
