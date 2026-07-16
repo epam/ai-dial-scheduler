@@ -32,3 +32,22 @@ class ScheduleRunError(SchedulerError):
 
 class DialServiceError(SchedulerError):
     """Raised when the DIAL service is unreachable or returns an unexpected non-2xx response."""
+
+
+class OboCredentialsError(SchedulerError):
+    """Raised when on-behalf-of credentials cannot be obtained for a schedule's owner.
+
+    Carries the DIAL response (status code and body) so the worker can persist a
+    diagnosable, credentials-stage run error without leaking any issued secret.
+
+    Attributes:
+        status_code: The DIAL HTTP status code, when the failure was an HTTP response.
+            ``None`` for transport-level failures.
+        response_body: The DIAL response body (parsed JSON or raw text) describing the
+            failure. Never contains issued credentials.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None, response_body: object = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.response_body = response_body

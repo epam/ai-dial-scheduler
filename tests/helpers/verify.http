@@ -1,14 +1,20 @@
 ### Variables
 # Switch between direct and DIAL-routed access by toggling the active @baseUrl line.
 #@baseUrl = http://localhost:5000
-@baseUrl = http://127.0.0.1:8080/v1/deployments/dial_scheduler/route
+@baseUrl = http://127.0.0.1:8081/v1/deployments/dial_scheduler/route
 
-@dialUrl = http://127.0.0.1:8080
+@dialUrl = http://127.0.0.1:8081
 
 # Auth — credential value is centralised here; header name is fixed as Api-Key.
 # To switch to Bearer: find-replace  "Api-Key: {{authValue}}"
 #                               with  "Authorization: Bearer {{authValue}}"
-@authValue = dial_api_key
+@authValue = "dial-chat-token"
+
+# service_id is required on every create/update body. It selects the external service
+# (registered in application/external-services) whose per-user on-behalf-of credentials
+# authenticate the schedule's execution — "dial-oauth" (OAUTH) or "dial-api-key" (API_KEY).
+# The requesting user must have signed in to that external service (see scripts/dial_sign_in.py)
+# or the run will fail with a credentials-stage error.
 
 # Paste the id returned by a Create request before running Update / Detail requests.
 @scheduleId = bb16ca12-1cff-4c1c-bd36-83c02d41ef19
@@ -20,14 +26,40 @@
 ### CREATE
 ### ============================================================
 
-# @name create_real_dial_streaming_job
+# @name create_real_dial_streaming_job_oauth_service
 ### Streaming chat_completion against real DIAL gpt-4.1-mini (fires every 30 s)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Real DIAL streaming smoke test",
+  "service_id": "dial-oauth",
+  "trigger": {
+    "cron": {"fields": {"second": "*/30"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dialUrl}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+###
+# @name create_real_dial_streaming_job_api_key_service
+### Streaming chat_completion against real DIAL gpt-4.1-mini (fires every 30 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Real DIAL streaming smoke test with api key",
+  "service_id": "dial-api-key",
   "trigger": {
     "cron": {"fields": {"second": "*/30"}}
   },
@@ -49,10 +81,11 @@ Api-Key: {{authValue}}
 ### REST echo — success (fires every second)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST success",
+  "service_id": "dial-oauth",
   "trigger": {
     "cron": {"fields": {"second": "*"}}
   },
@@ -70,10 +103,11 @@ Api-Key: {{authValue}}
 ### REST echo — always returns 500 (fires every 10 s)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST error",
+  "service_id": "dial-oauth",
   "trigger": {
     "cron": {"fields": {"second": "*/10"}}
   },
@@ -91,10 +125,11 @@ Api-Key: {{authValue}}
 ### SSE echo — streams 5 events (fires every 5 s)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo SSE success",
+  "service_id": "dial-oauth",
   "trigger": {
     "cron": {"fields": {"second": "*/5"}}
   },
@@ -112,10 +147,11 @@ Api-Key: {{authValue}}
 ### SSE echo — 500 error before stream starts (fires every 10 s)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo SSE error",
+  "service_id": "dial-oauth",
   "trigger": {
     "cron": {"fields": {"second": "*/10"}}
   },
@@ -133,10 +169,11 @@ Api-Key: {{authValue}}
 ### REST echo — retries on 500/502/503 after 2, 5, 10, 20 s (fires every 60 s)
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST with retry",
+  "service_id": "dial-api-key",
   "trigger": {
     "cron": {"fields": {"minute": "*"}}
   },
@@ -158,10 +195,11 @@ Api-Key: {{authValue}}
 ### REST echo with business metadata — filterable by metadata__tenant=hcscd
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST with metadata",
+  "service_id": "dial-oauth",
   "trigger": {
     "cron": {"fields": {"day": "1"}}
   },
@@ -182,13 +220,13 @@ Api-Key: {{authValue}}
 ###
 
 GET {{baseUrl}}/v1/schedules/
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 ###
 
 ### Filter by metadata — only schedules whose metadata.tenant is the string "hcscd"
 GET {{baseUrl}}/v1/schedules/?metadata__tenant=hcscd
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 
 ### ============================================================
@@ -198,7 +236,7 @@ Api-Key: {{authValue}}
 ###
 
 GET {{baseUrl}}/v1/schedules/{{scheduleId}}
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 
 ### ============================================================
@@ -209,10 +247,11 @@ Api-Key: {{authValue}}
 
 PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
 Content-Type: application/json
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Updated schedule",
+  "service_id": "dial-oauth",
   "trigger": {
     "cron": {"fields": {"minute": "*"}}
   },
@@ -232,7 +271,7 @@ Api-Key: {{authValue}}
 ###
 
 POST {{baseUrl}}/v1/schedules/{{scheduleId}}/pause
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 
 ### ============================================================
@@ -242,7 +281,7 @@ Api-Key: {{authValue}}
 ###
 
 POST {{baseUrl}}/v1/schedules/{{scheduleId}}/resume
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 
 ### ============================================================
@@ -252,7 +291,7 @@ Api-Key: {{authValue}}
 ###
 
 GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}
 
 
 ### ============================================================
@@ -262,4 +301,4 @@ Api-Key: {{authValue}}
 ###
 
 GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/{{runId}}
-Api-Key: {{authValue}}
+Authorization: Bearer {{authValue}}

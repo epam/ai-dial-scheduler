@@ -75,7 +75,7 @@ class TestUserIdPathList:
 
         s = Settings()
 
-        assert s.user_id_path_list == ["userClaims.email.0", "userClaims.preferred_username.0", "project"]
+        assert s.user_id_path_list == ["sub", "userClaims.sub.0", "project"]
 
     def test_user_id_path_list_override(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
@@ -86,6 +86,27 @@ class TestUserIdPathList:
         s = Settings()
 
         assert s.user_id_path_list == ["project", "sub"]
+
+
+class TestSchedulerAppId:
+    def test_default_scheduler_app_id(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+
+        s = Settings()
+
+        assert s.scheduler_app_id == "dial_scheduler"
+
+    def test_scheduler_app_id_override(self, monkeypatch):
+        monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
+        monkeypatch.setenv("DIAL_API_KEY", "key")
+        monkeypatch.setenv("DB_PASSWORD", "pass")
+        monkeypatch.setenv("SCHEDULER_APP_ID", "custom_app")
+
+        s = Settings()
+
+        assert s.scheduler_app_id == "custom_app"
 
 
 class TestWorkerSettings:

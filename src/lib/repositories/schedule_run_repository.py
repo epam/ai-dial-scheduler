@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.lib.db.enums import ScheduleRunStatus
 from src.lib.models.schedule_run import ScheduleRun
+from src.lib.schemas.credentials import RunError
 
 
 class ScheduleRunRepository:
@@ -43,6 +44,22 @@ class ScheduleRunRepository:
         row.status = ScheduleRunStatus.ERROR.value
         row.end_time = datetime.now(UTC)
         row.result = {"error_text": error_text}
+        await self._session.commit()
+        return row
+
+    async def mark_credentials_error(self, run_id: str, error: RunError) -> ScheduleRun | None:
+        """Mark a run as error from a credentials-retrieval failure.
+
+        Stores the structured :class:`RunError` (``stage="credentials"`` plus the DIAL
+        lookup response) so the failure is distinguishable from a target-request error
+        (which keeps the plain ``{"error_text": ...}`` shape via :meth:`mark_error`).
+        """
+        row = await self._session.get(ScheduleRun, uuid.UUID(run_id))
+        if row is None:
+            return None
+        row.status = ScheduleRunStatus.ERROR.value
+        row.end_time = datetime.now(UTC)
+        row.result = error.model_dump()
         await self._session.commit()
         return row
 

@@ -61,6 +61,7 @@ class ScheduleRepository:
         created_by: str,
         *,
         display_name: str,
+        service_id: str,
         trigger: dict[str, Any],
         kwargs: dict[str, Any],
         metadata: dict[str, Any] | None = None,
@@ -75,6 +76,7 @@ class ScheduleRepository:
         if schedule is None or schedule.created_by != created_by:
             return None
         schedule.display_name = display_name
+        schedule.service_id = service_id
         schedule.trigger = trigger
         schedule.kwargs = kwargs
         if metadata is not None:
@@ -92,6 +94,16 @@ class ScheduleRepository:
     async def get(self, schedule_id: str, created_by: str) -> tuple[Schedule, datetime | None] | None:
         """Return an owned schedule with its next_run_time, or None."""
         return await self._get_with_next_run_time(schedule_id, created_by)
+
+    async def get_by_id(self, schedule_id: str) -> Schedule | None:
+        """Return a schedule by primary key regardless of owner, or None.
+
+        Used by the worker at execution time to resolve the owner (``created_by``)
+        and ``service_id`` for the on-behalf-of credentials lookup. This is
+        authoritative for both new and pre-existing (migrated) schedules, unlike
+        APScheduler job kwargs which predate this feature.
+        """
+        return await self._session.get(Schedule, schedule_id)
 
     async def list(
         self,

@@ -24,6 +24,7 @@ _SCHEDULE_EXAMPLES = {
         "summary": "Chat completion (DIAL model)",
         "value": {
             "display_name": "Daily GPT-4o summary",
+            "service_id": "dial-oauth",
             "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
             "properties": {
                 "target_type": "chat_completion",
@@ -41,6 +42,7 @@ _SCHEDULE_EXAMPLES = {
         "summary": "REST POST call",
         "value": {
             "display_name": "Hourly REST ping",
+            "service_id": "dial-oauth",
             "trigger": {"cron": {"fields": {"minute": 0}}},
             "properties": {
                 "target_type": "rest",
@@ -54,6 +56,7 @@ _SCHEDULE_EXAMPLES = {
         "summary": "SSE streaming call",
         "value": {
             "display_name": "Every-5-min SSE stream",
+            "service_id": "dial-oauth",
             "trigger": {"cron": {"fields": {"minute": "*/5"}}},
             "properties": {
                 "target_type": "sse",
@@ -90,6 +93,10 @@ async def create_schedule(
     - `chat_completion` — calls a DIAL chat-completions endpoint; set `api_version` if required.
     - `rest` — plain HTTP request; `method` is required.
     - `sse` — Server-Sent Events stream; `method` is required.
+
+    `service_id` identifies the external service whose on-behalf-of credentials are used
+    to authenticate each run. Use `service_id: "dial-oauth"` unless a different external
+    service is required.
     """
     try:
         return await service.create(request, user_id)
@@ -107,7 +114,11 @@ async def update_schedule(
     service: ScheduleServiceDep,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> ScheduleResponse:
-    """Replace all fields of an existing schedule and re-register it with the job scheduler."""
+    """Replace all fields of an existing schedule and re-register it with the job scheduler.
+
+    `service_id` is required, same as on create; use `"dial-oauth"` unless a different
+    external service is required.
+    """
     try:
         return await service.update(schedule_id, request, user_id)
     except ScheduleNotFoundError as exc:

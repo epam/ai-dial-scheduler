@@ -14,6 +14,7 @@ TEST_USER_ID = "alice@example.com"
 
 VALID_REQUEST = {
     "display_name": "Test Schedule",
+    "service_id": "dial-oauth",
     "trigger": {
         "cron": {
             "fields": {"hour": 9, "minute": 0},
@@ -27,11 +28,14 @@ VALID_REQUEST = {
 }
 
 
-def make_response(schedule_id: str = "test-uuid", metadata: dict | None = None) -> ScheduleResponse:
+def make_response(
+    schedule_id: str = "test-uuid", metadata: dict | None = None, service_id: str = "dial-oauth"
+) -> ScheduleResponse:
     now = datetime.now(UTC)
     return ScheduleResponse(
         id=schedule_id,
         display_name="Test Schedule",
+        service_id=service_id,
         next_run_time=now,
         trigger={"cron": {"fields": {"hour": 9}}},
         properties={"target_type": "chat_completion", "url": "https://example.com"},
@@ -75,7 +79,14 @@ class TestPostSchedule:
         body = response.json()
         assert "id" in body
         assert body["display_name"] == "Test Schedule"
+        assert body["service_id"] == "dial-oauth"
         assert body["created_by"] == TEST_USER_ID
+
+    def test_create_missing_service_id_returns_422(self, client, mock_service):
+        bad_request = {k: v for k, v in VALID_REQUEST.items() if k != "service_id"}
+        response = client.post("/v1/schedules/", json=bad_request)
+        assert response.status_code == 422
+        mock_service.create.assert_not_awaited()
 
     def test_create_passes_resolved_user_id_to_service(self, client, mock_service):
         mock_service.create.return_value = make_response()
@@ -119,6 +130,12 @@ class TestPutSchedule:
 
         assert response.status_code == 200
         assert response.json()["id"] == "test-uuid"
+
+    def test_update_missing_service_id_returns_422(self, client, mock_service):
+        bad_request = {k: v for k, v in VALID_REQUEST.items() if k != "service_id"}
+        response = client.put("/v1/schedules/test-uuid", json=bad_request)
+        assert response.status_code == 422
+        mock_service.update.assert_not_awaited()
 
     def test_update_passes_resolved_user_id_to_service(self, client, mock_service):
         mock_service.update.return_value = make_response()
@@ -182,10 +199,11 @@ class TestGetSchedules:
 
 class TestGetScheduleDetail:
     def test_get_returns_200(self, client, mock_service):
-        mock_service.get.return_value = make_response("test-uuid")
+        mock_service.get.return_value = make_response("test-uuid", service_id="dial-api-key")
         response = client.get("/v1/schedules/test-uuid")
         assert response.status_code == 200
         assert response.json()["id"] == "test-uuid"
+        assert response.json()["service_id"] == "dial-api-key"
 
     def test_get_passes_resolved_user_id_to_service(self, client, mock_service):
         mock_service.get.return_value = make_response("test-uuid")

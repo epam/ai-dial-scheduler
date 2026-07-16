@@ -6,12 +6,14 @@ from apscheduler.jobstores.memory import MemoryJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
 import httpx
+from pydantic import SecretStr
 import pytest
 from structlog.contextvars import clear_contextvars
 import structlog.testing
 
 from src.lib.constants import EXECUTE_SCHEDULED_JOB_REF
 from src.lib.db.enums import HttpMethod, TargetType
+from src.lib.schemas.credentials import OboCredentials
 
 
 @pytest.fixture(autouse=True)
@@ -42,6 +44,17 @@ async def test_rest_job_fires_end_to_end(scheduler, mocker):
     mock_repo.mark_success = mocker.AsyncMock(return_value=mocker.MagicMock())
     mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
     mocker.patch("src.worker.jobs.Database")
+
+    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1")
+    schedule_repo = mocker.MagicMock()
+    schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
+    mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)
+
+    creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
+    obo_dial_client = mocker.MagicMock()
+    obo_dial_client.get_obo_credentials = mocker.AsyncMock(return_value=creds)
+    mocker.patch("src.worker.jobs.DialClient", return_value=obo_dial_client)
+    mocker.patch("src.worker.jobs.HttpClientProvider")
 
     mock_response = mocker.MagicMock(spec=httpx.Response)
     mock_response.status_code = 200

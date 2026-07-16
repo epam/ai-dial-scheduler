@@ -157,6 +157,43 @@ DB_AZURE_ENTRA_USER=scheduler-identity
 # DB_AZURE_MANAGED_IDENTITY_CLIENT_ID=<user-assigned-mi-client-id>  # optional
 ```
 
+## Per-User Credentials (external-service sign-in)
+
+Each schedule executes using the credentials of the user who created it, not a shared service
+key. Every schedule carries a `service_id` identifying which DIAL external service (registered
+in `application/external-services`, e.g. `dial-oauth` or `dial-api-key`) supplies those
+credentials. Before each run, the worker requests on-behalf-of (OBO) credentials for the
+schedule's owner and `service_id` from DIAL
+(`POST /v1/ops/external-service/obo-credentials`) and applies the returned header to the outgoing
+request — the shared `DIAL_API_KEY` is never sent to the target.
+
+- **`service_id` is required** on `POST /v1/schedules/` and `PUT /v1/schedules/{id}`; requests
+  without it are rejected with `422`. Use `"dial-oauth"` unless a different external service is
+  required (this is also what MCP clients are instructed to use by default).
+- **If the owner has not signed in** to the requested external service (or DIAL rejects the OBO
+  lookup), the run is recorded as `error` with the credentials-lookup response in the result —
+  the target request is never sent, and this does not consume the schedule's retry budget.
+- Schedules that existed before this feature were backfilled with `service_id = "dial-oauth"` by
+  migration `add_service_id_to_schedules`.
+
+### Testing against a real DIAL sign-in (`scripts/dial_sign_in.py`)
+
+To exercise a schedule end-to-end with real OBO credentials, a user must first sign in to the
+`dial-oauth` external service. `scripts/dial_sign_in.py` automates this against the local
+`dial/docker-compose.yml` stack (Keycloak + DIAL core): it obtains a Keycloak user token,
+drives the login form to get an authorization code, and calls DIAL's
+`POST /v1/ops/external-service/signin` for
+`applications/dial_scheduler/external_services/dial-oauth`.
+
+```bash
+uv run python scripts/dial_sign_in.py
+# uv run python scripts/dial_sign_in.py --dial-url http://localhost:8081 --keycloak-url http://localhost:8900
+```
+
+The script prints the token's `sub` claim — create a schedule whose owner resolves to that same
+`sub` (via `USER_ID_PATH_LIST`) so the worker's OBO fetch can find the sign-in and resolve
+credentials.
+
 ## Observability / OTLP
 
 Both the API service and the background worker emit distributed traces, metrics, and structured
@@ -223,7 +260,8 @@ The `api` service runs the FastAPI application.
 | `ECHO_ENDPOINTS` | `false` | No | Log all incoming HTTP requests and responses |
 | `MCP_ENABLED` | `true` | No | Enable the MCP endpoint |
 | `MCP_PATH` | `/mcp` | No | URL path for the MCP endpoint |
-| `USER_ID_PATH_LIST` | `["userClaims.email.0","userClaims.preferred_username","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `USER_ID_PATH_LIST` | `["sub","userClaims.sub.0","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `SCHEDULER_APP_ID` | `dial_scheduler` | No | This app's DIAL application id, used to build the on-behalf-of credentials request (`applications/{SCHEDULER_APP_ID}/external_services/{service_id}`) |
 | `READINESS_DB_TIMEOUT_SECONDS` | `2.0` | No | Timeout for the database check on `GET /ready` |
 | **Database** | | | |
 | `DB_HOST` | `localhost` | No | PostgreSQL host |
@@ -264,7 +302,8 @@ The `worker` service runs the APScheduler background process that executes sched
 | `JOB_COALESCE` | `false` | No | Merge multiple queued misfired runs into one |
 | `JOB_MAX_INSTANCES` | `1` | No | Max concurrent instances of the same job |
 | `JOB_MISFIRE_GRACE_TIME` | `60` | No | Seconds after scheduled time a job is still allowed to run |
-| `USER_ID_PATH_LIST` | `["userClaims.email.0","userClaims.preferred_username","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `USER_ID_PATH_LIST` | `["sub","userClaims.sub.0","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `SCHEDULER_APP_ID` | `dial_scheduler` | No | This app's DIAL application id, used to build the on-behalf-of credentials request (`applications/{SCHEDULER_APP_ID}/external_services/{service_id}`) |
 | `WORKER_HEALTH_DIR` | `/tmp` | No | Directory holding the `started`/`heartbeat`/`ready` marker files used by Kubernetes `exec` probes |
 | `WORKER_LIVENESS_STALENESS_SECONDS` | `180.0` | No | Max age of the `heartbeat` marker before the worker is considered hung |
 | `WORKER_READINESS_CHECK_INTERVAL_SECONDS` | `15.0` | No | How often the worker polls database connectivity to maintain the `ready` marker |

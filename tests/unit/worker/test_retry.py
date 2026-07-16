@@ -1,5 +1,6 @@
 import asyncio
 
+from pydantic import SecretStr
 import pytest
 from structlog.contextvars import clear_contextvars
 import structlog.testing
@@ -11,7 +12,7 @@ from src.lib.schemas.schedule import RetryPolicy, ScheduleProperties
 from src.worker.retry import execute_with_policy
 
 
-CTX = RunContext(run_id="run-1", schedule_id="sched-1")
+CTX = RunContext(run_id="run-1", schedule_id="sched-1", auth_header_name="Api-Key", auth_header_value=SecretStr("t"))
 
 
 def make_properties(**kwargs) -> ScheduleProperties:
@@ -173,7 +174,9 @@ class TestTimeout:
 
 class TestEffectiveTimeoutThreading:
     async def test_sets_ctx_effective_timeout_from_properties(self):
-        ctx = RunContext(run_id="run-2", schedule_id="sched-2")
+        ctx = RunContext(
+            run_id="run-2", schedule_id="sched-2", auth_header_name="Api-Key", auth_header_value=SecretStr("t")
+        )
         executor = ScriptedExecutor({"status_code": 200, "body": {}})
         props = make_properties(timeout=42)
 
@@ -187,7 +190,9 @@ class TestEffectiveTimeoutThreading:
             "src.worker.retry.get_settings",
             return_value=mocker.MagicMock(worker_http=mocker.MagicMock(timeout_seconds=45.0)),
         )
-        ctx = RunContext(run_id="run-3", schedule_id="sched-3")
+        ctx = RunContext(
+            run_id="run-3", schedule_id="sched-3", auth_header_name="Api-Key", auth_header_value=SecretStr("t")
+        )
         executor = ScriptedExecutor({"status_code": 200, "body": {}})
         props = make_properties()
 

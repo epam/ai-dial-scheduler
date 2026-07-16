@@ -128,6 +128,7 @@ class ScheduleRequest(BaseModel):
     """Request body for Create and Update schedule endpoints."""
 
     display_name: str
+    service_id: str
     trigger: ScheduleTrigger
     properties: ScheduleProperties
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -145,6 +146,7 @@ class ScheduleResponse(BaseModel):
 
     id: str
     display_name: str
+    service_id: str
     next_run_time: datetime | None
     trigger: dict[str, Any]
     properties: dict[str, Any]
@@ -159,6 +161,7 @@ class ScheduleListItem(BaseModel):
 
     id: str
     display_name: str
+    service_id: str
     next_run_time: datetime | None
     trigger_type: TriggerType
     created_by: str

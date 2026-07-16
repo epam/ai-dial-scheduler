@@ -10,14 +10,40 @@ from src.lib.repositories.schedule_repository import ScheduleRepository
 def make_schedule(
     schedule_id: str = "sched-1",
     created_by: str = "mock_user_id",
+    service_id: str = "dial-oauth",
 ) -> Schedule:
     return Schedule(
         id=schedule_id,
         display_name="Test Schedule",
         created_by=created_by,
+        service_id=service_id,
         trigger={"cron": {"fields": {"hour": 9}}},
         kwargs={"target_type": "chat_completion", "url": "https://example.com"},
     )
+
+
+class TestScheduleRepositoryGetById:
+    @pytest.mark.asyncio
+    async def test_returns_schedule_regardless_of_owner(self):
+        session = AsyncMock()
+        schedule = make_schedule(created_by="someone-else", service_id="dial-api-key")
+        session.get = AsyncMock(return_value=schedule)
+        repo = ScheduleRepository(session)
+
+        result = await repo.get_by_id("sched-1")
+
+        assert result is schedule
+        assert result.service_id == "dial-api-key"
+        assert result.created_by == "someone-else"
+        session.get.assert_awaited_once_with(Schedule, "sched-1")
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_absent(self):
+        session = AsyncMock()
+        session.get = AsyncMock(return_value=None)
+        repo = ScheduleRepository(session)
+
+        assert await repo.get_by_id("missing") is None
 
 
 class TestScheduleRepositoryCreate:
@@ -72,6 +98,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
+            service_id="dial-oauth",
             trigger={"date": "2026-06-12T09:00:00Z"},
             kwargs={"target_type": "rest", "url": "https://example.com", "method": "POST"},
         )
@@ -79,6 +106,7 @@ class TestScheduleRepositoryUpdate:
         session.commit.assert_awaited_once()
         assert result is not None
         assert result.display_name == "New Name"
+        assert result.service_id == "dial-oauth"
 
     @pytest.mark.asyncio
     async def test_update_sets_metadata_when_provided(self):
@@ -93,6 +121,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
             metadata={"tenant": "hcscd"},
@@ -115,6 +144,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
         )
@@ -131,6 +161,7 @@ class TestScheduleRepositoryUpdate:
             "nonexistent",
             "mock_user_id",
             display_name="New Name",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
         )
@@ -148,6 +179,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
         )

@@ -6,7 +6,8 @@ import httpx
 import pytest
 
 from src.lib.clients.dial_client import DialClient
-from src.lib.exceptions.errors import DialServiceError
+from src.lib.exceptions.errors import DialServiceError, OboCredentialsError
+from src.lib.schemas.credentials import OboCredentialsRequest
 
 
 _DUMMY_REQUEST = httpx.Request("GET", "https://dial.example.com/v1/user/info")
@@ -136,3 +137,90 @@ class TestDialClientErrorMapping:
         client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
         with pytest.raises(DialServiceError):
             await client.get_user_info("key")
+
+
+_OBO_REQUEST = OboCredentialsRequest(
+    url="applications/dial_scheduler/external_services/dial-oauth",
+    owner_sub="user-sub-123",
+)
+
+
+class TestGetOboCredentialsSuccess:
+    async def test_posts_to_obo_endpoint_with_service_key_and_body(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = make_response(200, {"header_name": "Api-Key", "header_value": "tok"})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        await client.get_obo_credentials("service-key", _OBO_REQUEST)
+
+        call = mock_http_client.post.call_args
+        assert call.args[0] == "https://dial.example.com/v1/ops/external-service/obo-credentials"
+        assert call.kwargs["headers"]["Api-Key"] == "service-key"
+        assert call.kwargs["json"] == {
+            "url": "applications/dial_scheduler/external_services/dial-oauth",
+            "owner_sub": "user-sub-123",
+        }
+        assert call.kwargs["timeout"] == 20.0
+
+    async def test_api_key_type_service_returns_api_key_header(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = make_response(200, {"header_name": "Api-Key", "header_value": "raw-key"})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        creds = await client.get_obo_credentials("service-key", _OBO_REQUEST)
+
+        assert creds.header_name == "Api-Key"
+        assert creds.header_value.get_secret_value() == "raw-key"
+
+    async def test_oauth_type_service_returns_bearer_authorization_header(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = make_response(
+            200, {"header_name": "Authorization", "header_value": "Bearer abc.def.ghi"}
+        )
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        creds = await client.get_obo_credentials("service-key", _OBO_REQUEST)
+
+        assert creds.header_name == "Authorization"
+        assert creds.header_value.get_secret_value() == "Bearer abc.def.ghi"
+
+
+class TestGetOboCredentialsFailure:
+    async def test_404_raises_obo_error_with_response(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = make_response(404, {"error": "no credentials"})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        with pytest.raises(OboCredentialsError) as exc_info:
+            await client.get_obo_credentials("service-key", _OBO_REQUEST)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.response_body == {"error": "no credentials"}
+
+    async def test_missing_fields_raises_obo_error(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.post.return_value = make_response(200, {"header_name": "Api-Key"})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        with pytest.raises(OboCredentialsError):
+            await client.get_obo_credentials("service-key", _OBO_REQUEST)
+
+    async def test_transport_error_raises_obo_error(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.post.side_effect = httpx.TransportError("connection refused")
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        with pytest.raises(OboCredentialsError) as exc_info:
+            await client.get_obo_credentials("service-key", _OBO_REQUEST)
+
+        assert exc_info.value.status_code is None
+
+    async def test_non_transport_http_error_raises_obo_error(self):
+        """Any httpx.HTTPError subclass (not just TransportError) is mapped to a credentials
+        failure, so it is never mistakenly recorded as a target-stage error by the caller."""
+        mock_http_client = AsyncMock()
+        mock_http_client.post.side_effect = httpx.TooManyRedirects("too many redirects")
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        with pytest.raises(OboCredentialsError):
+            await client.get_obo_credentials("service-key", _OBO_REQUEST)

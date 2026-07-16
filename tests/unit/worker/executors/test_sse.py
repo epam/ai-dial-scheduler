@@ -1,4 +1,5 @@
 import httpx
+from pydantic import SecretStr
 import pytest
 from structlog.contextvars import bind_contextvars, clear_contextvars
 import structlog.testing
@@ -12,7 +13,18 @@ from src.worker.executors.sse import SseExecutor
 
 RUN_ID = "run-sse-001"
 SCHEDULE_ID = "sched-sse-001"
-CTX = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID)
+CTX = RunContext(
+    run_id=RUN_ID,
+    schedule_id=SCHEDULE_ID,
+    auth_header_name="Api-Key",
+    auth_header_value=SecretStr("obo-token"),
+)
+
+# (header_name, header_value) shapes for both external-service auth types.
+AUTH_TYPE_CASES = [
+    ("Api-Key", "user-api-key"),
+    ("Authorization", "Bearer user.oauth.token"),
+]
 
 
 def make_properties(**kwargs) -> ScheduleProperties:
@@ -68,14 +80,8 @@ class TestSseExecutorHappyPath:
         assert call_kwargs.args[1] == "POST"
         assert call_kwargs.args[2] == "https://example.com/stream"
 
-    async def test_injects_api_key_header(self, mock_client, mocker):
-        mocker.patch(
-            "src.worker.executors.sse.get_settings",
-            return_value=mocker.MagicMock(
-                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "sse-key"),
-            ),
-        )
-
+    @pytest.mark.parametrize("header_name, header_value", AUTH_TYPE_CASES)
+    async def test_injects_obo_header_and_no_shared_key(self, mock_client, mocker, header_name, header_value):
         async def async_iter():
             return
             yield
@@ -88,14 +94,21 @@ class TestSseExecutorHappyPath:
 
         mock_connect = mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
 
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name=header_name,
+            auth_header_value=SecretStr(header_value),
+        )
         props = make_properties()
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(ctx, props)
 
         headers = mock_connect.call_args.kwargs["headers"]
-        assert headers["Api-Key"] == "sse-key"
+        assert headers[header_name] == header_value
+        assert set(headers) == {header_name}
 
     async def test_logs_per_event(self, mock_client, mocker):
         events = [
@@ -143,14 +156,7 @@ class TestSseExecutorHappyPath:
         with structlog.testing.capture_logs():
             await executor.execute(CTX, props)
 
-    async def test_dial_api_key_not_in_logs(self, mock_client, mocker):
-        mocker.patch(
-            "src.worker.executors.sse.get_settings",
-            return_value=mocker.MagicMock(
-                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "my-sse-secret"),
-            ),
-        )
-
+    async def test_obo_secret_not_in_logs(self, mock_client, mocker):
         async def async_iter():
             return
             yield
@@ -163,11 +169,17 @@ class TestSseExecutorHappyPath:
 
         mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
 
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name="Api-Key",
+            auth_header_value=SecretStr("my-sse-secret"),
+        )
         props = make_properties()
         executor = SseExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(CTX, props)
+            await executor.execute(ctx, props)
 
         for log in logs:
             assert "my-sse-secret" not in str(log)
@@ -280,7 +292,13 @@ class TestSseExecutorTimeout:
 
         mock_connect = mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
 
-        ctx = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, effective_timeout=20.0)
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name="Api-Key",
+            auth_header_value=SecretStr("obo-token"),
+            effective_timeout=20.0,
+        )
         props = make_properties()
         executor = SseExecutor()
 

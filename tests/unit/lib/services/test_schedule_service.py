@@ -21,6 +21,7 @@ from src.lib.services.schedule_service import ScheduleService
 def make_request() -> ScheduleRequest:
     return ScheduleRequest(
         display_name="Test Schedule",
+        service_id="dial-oauth",
         trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -35,6 +36,7 @@ def make_schedule(schedule_id: str = "test-uuid") -> Schedule:
         id=schedule_id,
         display_name="Test Schedule",
         created_by="mock_user_id",
+        service_id="dial-oauth",
         trigger={"cron": {"fields": {"hour": 9}}},
         kwargs={"target_type": "chat_completion", "url": "https://example.com"},
     )
@@ -43,6 +45,7 @@ def make_schedule(schedule_id: str = "test-uuid") -> Schedule:
 def make_request_with_metadata(metadata: dict) -> ScheduleRequest:
     return ScheduleRequest(
         display_name="Test Schedule",
+        service_id="dial-oauth",
         trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -59,6 +62,7 @@ def make_date_request() -> ScheduleRequest:
 
     return ScheduleRequest(
         display_name="Date Schedule",
+        service_id="dial-oauth",
         trigger=ScheduleTrigger(date=datetime(2026, 6, 12, 9, 0, tzinfo=timezone.utc)),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -126,6 +130,104 @@ class TestScheduleServiceCreate:
                 await service.create(make_request(), "mock_user_id")
 
         repo.delete.assert_awaited_once()
+
+
+class TestScheduleServiceServiceId:
+    @pytest.mark.asyncio
+    async def test_create_persists_service_id(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.create(make_request(), "mock_user_id")
+
+        persisted: Schedule = repo.create.await_args[0][0]
+        assert persisted.service_id == "dial-oauth"
+
+    @pytest.mark.asyncio
+    async def test_create_response_includes_service_id(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.service_id = "dial-api-key"
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.create(make_request(), "mock_user_id")
+
+        assert result.service_id == "dial-api-key"
+
+    @pytest.mark.asyncio
+    async def test_update_passes_service_id_to_repo(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+        repo.update.return_value = schedule
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.update("test-uuid", make_request(), "mock_user_id")
+
+        assert repo.update.await_args.kwargs["service_id"] == "dial-oauth"
+
+    @pytest.mark.asyncio
+    async def test_update_restores_prior_service_id_on_job_failure(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.service_id = "old-service"
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+        repo.update.return_value = schedule
+
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=Exception("add_job failed")),
+        ):
+            with pytest.raises(JobRegistrationError):
+                await service.update("test-uuid", make_request(), "mock_user_id")
+
+        restore_kwargs = repo.update.await_args_list[1].kwargs
+        assert restore_kwargs["service_id"] == "old-service"
+
+    @pytest.mark.asyncio
+    async def test_list_includes_service_id(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.service_id = "dial-api-key"
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = ScheduleService(repo, scheduler)
+        result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
+
+        assert result.results[0].service_id == "dial-api-key"
 
 
 class TestScheduleServiceUpdate:

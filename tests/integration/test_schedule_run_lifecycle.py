@@ -1,5 +1,6 @@
 """Integration tests for the full schedule run lifecycle (in_progress → success/error)."""
 
+from pydantic import SecretStr
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
@@ -10,6 +11,7 @@ import structlog.testing
 from src.lib.db.enums import HttpMethod, ScheduleRunStatus, TargetType
 from src.lib.models.schedule import Schedule
 from src.lib.models.schedule_run import ScheduleRun
+from src.lib.schemas.credentials import OboCredentials
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -17,6 +19,16 @@ pytestmark = pytest.mark.asyncio(loop_scope="module")
 
 SCHEDULE_ID = "sched-lifecycle-001"
 FAIL_SCHEDULE_ID = "sched-lifecycle-fail-001"
+
+
+@pytest.fixture(autouse=True)
+def mock_obo_credentials(mocker):
+    """Stub the DIAL OBO credentials call so these tests never hit a real DIAL instance."""
+    creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
+    dial_client = mocker.MagicMock()
+    dial_client.get_obo_credentials = mocker.AsyncMock(return_value=creds)
+    mocker.patch("src.worker.jobs.DialClient", return_value=dial_client)
+    mocker.patch("src.worker.jobs.HttpClientProvider")
 
 
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
@@ -27,6 +39,7 @@ async def seeded_schedules(engine):
             id=SCHEDULE_ID,
             display_name="Lifecycle test schedule",
             created_by="test",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
         ),
@@ -34,6 +47,7 @@ async def seeded_schedules(engine):
             id=FAIL_SCHEDULE_ID,
             display_name="Lifecycle fail schedule",
             created_by="test",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
         ),

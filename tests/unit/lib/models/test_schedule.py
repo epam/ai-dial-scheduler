@@ -25,6 +25,9 @@ class TestScheduleModel:
     def test_created_by_not_nullable(self) -> None:
         assert not Schedule.__table__.c.created_by.nullable
 
+    def test_service_id_not_nullable(self) -> None:
+        assert not Schedule.__table__.c.service_id.nullable
+
     def test_trigger_is_jsonb(self) -> None:
         assert isinstance(Schedule.__table__.c.trigger.type, JSONB)
 
@@ -59,6 +62,7 @@ class TestScheduleModel:
             id="x",
             display_name="x",
             created_by="u",
+            service_id="dial-oauth",
             trigger={},
             kwargs={},
         )

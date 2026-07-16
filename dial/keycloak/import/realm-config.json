@@ -23,20 +23,6 @@
           "composite": false,
           "clientRole": true
         }
-      ],
-      "dial-admin-console": [
-        {
-          "name": "admin",
-          "description": "AI DIAL web-console admin user role",
-          "composite": false,
-          "clientRole": true
-        },
-        {
-          "name": "ConfigAdmin",
-          "description": "AI DIAL web-console admin user role",
-          "composite": false,
-          "clientRole": true
-        }
       ]
     }
   },
@@ -81,30 +67,6 @@
       "clientRoles": {
         "dial-chat": [
           "user"
-        ]
-      },
-      "realmRoles": [
-        "offline_access"
-      ]
-    },
-    {
-      "username": "dial-admin",
-      "enabled": true,
-      "emailVerified": true,
-      "requiredActions": [],
-      "email": "no-reply-dial-admin@example.com",
-      "firstName": "Console",
-      "lastName": "Admin User",
-      "credentials": [
-        {
-          "type": "password",
-          "value": "dial"
-        }
-      ],
-      "clientRoles": {
-        "dial-admin-console": [
-          "ConfigAdmin",
-          "admin"
         ]
       },
       "realmRoles": [
@@ -743,156 +705,6 @@
         "offline_access",
         "microprofile-jwt"
       ]
-    },
-    {
-      "clientId": "dial-admin-console",
-      "name": "dial-admin-console",
-      "description": "AI DIAL WebConsole admin",
-      "rootUrl": "http://localhost:3102/",
-      "adminUrl": "http://localhost:3102/",
-      "baseUrl": "http://localhost:3102/",
-      "surrogateAuthRequired": false,
-      "enabled": true,
-      "alwaysDisplayInConsole": false,
-      "clientAuthenticatorType": "client-secret",
-      "secret": "keycloak_secret",
-      "redirectUris": [
-        "http://localhost:3102/*"
-      ],
-      "webOrigins": [
-        "http://localhost:3102/"
-      ],
-      "notBefore": 0,
-      "bearerOnly": false,
-      "consentRequired": false,
-      "standardFlowEnabled": true,
-      "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": true,
-      "serviceAccountsEnabled": false,
-      "publicClient": false,
-      "frontchannelLogout": true,
-      "protocol": "openid-connect",
-      "attributes": {
-        "standard.token.exchange.enabled": "false",
-        "post.logout.redirect.uris": "+",
-        "frontchannel.logout.session.required": "true",
-        "oauth2.device.authorization.grant.enabled": "false",
-        "backchannel.logout.revoke.offline.tokens": "false",
-        "use.refresh.tokens": "true",
-        "realm_client": "false",
-        "oidc.ciba.grant.enabled": "false",
-        "backchannel.logout.session.required": "true",
-        "client_credentials.use_refresh_token": "false",
-        "tls.client.certificate.bound.access.tokens": "false",
-        "acr.loa.map": "{}",
-        "display.on.consent.screen": "false",
-        "token.response.type.bearer.lower-case": "false"
-      },
-      "authenticationFlowBindingOverrides": {},
-      "fullScopeAllowed": true,
-      "nodeReRegistrationTimeout": -1,
-      "protocolMappers": [
-        {
-          "id": "aee57d45-cdbd-45c3-ab65-082088758d99",
-          "name": "Client Roles",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-usermodel-client-role-mapper",
-          "consentRequired": false,
-          "config": {
-            "introspection.token.claim": "true",
-            "multivalued": "true",
-            "userinfo.token.claim": "true",
-            "id.token.claim": "true",
-            "lightweight.claim": "false",
-            "access.token.claim": "true",
-            "claim.name": "roles",
-            "jsonType.label": "String",
-            "usermodel.clientRoleMapping.clientId": "dial-admin-console"
-          }
-        },
-        {
-          "id": "61f26395-a34c-4d44-a338-cfac35b39e8a",
-          "name": "Audience",
-          "protocol": "openid-connect",
-          "protocolMapper": "oidc-audience-mapper",
-          "consentRequired": false,
-          "config": {
-            "included.client.audience": "dial-admin-console",
-            "id.token.claim": "false",
-            "lightweight.claim": "false",
-            "access.token.claim": "true",
-            "introspection.token.claim": "true"
-          }
-        }
-      ],
-      "defaultClientScopes": [
-        "basic",
-        "web-origins",
-        "acr",
-        "profile",
-        "roles",
-        "email"
-      ],
-      "optionalClientScopes": [
-        "address",
-        "phone",
-        "offline_access",
-        "microprofile-jwt"
-      ]
-    },
-    {
-      "clientId": "super-rag",
-      "name": "super-rag",
-      "description": "",
-      "rootUrl": "http://localhost:3301",
-      "adminUrl": "http://localhost:3301",
-      "baseUrl": "http://localhost:3301",
-      "surrogateAuthRequired": false,
-      "enabled": true,
-      "alwaysDisplayInConsole": false,
-      "clientAuthenticatorType": "client-secret",
-      "secret": "keycloak_secret",
-      "redirectUris": [
-        "http://localhost:3301/*"
-      ],
-      "webOrigins": [
-        "http://localhost:3301"
-      ],
-      "notBefore": 0,
-      "bearerOnly": false,
-      "consentRequired": false,
-      "standardFlowEnabled": true,
-      "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
-      "serviceAccountsEnabled": false,
-      "publicClient": false,
-      "frontchannelLogout": true,
-      "protocol": "openid-connect",
-      "attributes": {
-        "realm_client": "false",
-        "oidc.ciba.grant.enabled": "false",
-        "client.secret.creation.time": "1777981136",
-        "backchannel.logout.session.required": "true",
-        "standard.token.exchange.enabled": "false",
-        "post.logout.redirect.uris": "http://localhost:3301",
-        "oauth2.device.authorization.grant.enabled": "false",
-        "backchannel.logout.revoke.offline.tokens": "false"
-      },
-      "authenticationFlowBindingOverrides": {},
-      "fullScopeAllowed": true,
-      "nodeReRegistrationTimeout": -1,
-      "defaultClientScopes": [
-        "offline_access",
-        "profile",
-        "basic",
-        "email"
-      ],
-      "optionalClientScopes": [],
-      "access": {
-        "view": true,
-        "configure": true,
-        "manage": true
-      }
     }
   ]
 }

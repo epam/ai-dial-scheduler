@@ -1,4 +1,5 @@
 import httpx
+from pydantic import SecretStr
 import pytest
 from structlog.contextvars import bind_contextvars, clear_contextvars
 import structlog.testing
@@ -12,7 +13,18 @@ from src.worker.executors.rest import RestExecutor
 
 RUN_ID = "run-001"
 SCHEDULE_ID = "sched-001"
-CTX = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID)
+CTX = RunContext(
+    run_id=RUN_ID,
+    schedule_id=SCHEDULE_ID,
+    auth_header_name="Api-Key",
+    auth_header_value=SecretStr("obo-token"),
+)
+
+# (header_name, header_value) shapes for both external-service auth types.
+AUTH_TYPE_CASES = [
+    ("Api-Key", "user-api-key"),
+    ("Authorization", "Bearer user.oauth.token"),
+]
 
 
 def make_properties(**kwargs) -> ScheduleProperties:
@@ -65,38 +77,40 @@ class TestRestExecutorHappyPath:
         assert call_kwargs.kwargs["url"] == "https://example.com/api"
         assert call_kwargs.kwargs["json"] == {"key": "value"}
 
-    async def test_injects_api_key_header(self, mock_client, mocker):
-        mocker.patch(
-            "src.worker.executors.rest.get_settings",
-            return_value=mocker.MagicMock(
-                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "secret-key"),
-            ),
+    @pytest.mark.parametrize("header_name, header_value", AUTH_TYPE_CASES)
+    async def test_injects_obo_header_and_no_shared_key(self, mock_client, header_name, header_value):
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name=header_name,
+            auth_header_value=SecretStr(header_value),
         )
         props = make_properties()
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(ctx, props)
 
-        call_kwargs = mock_client.request.call_args
-        assert call_kwargs.kwargs["headers"]["Api-Key"] == "secret-key"
+        headers = mock_client.request.call_args.kwargs["headers"]
+        assert headers[header_name] == header_value
+        # The shared service key path is gone: only the caller's extra headers plus the OBO header.
+        assert set(headers) == {header_name}
 
-    async def test_extra_headers_win_on_collision(self, mock_client, mocker):
-        mocker.patch(
-            "src.worker.executors.rest.get_settings",
-            return_value=mocker.MagicMock(
-                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "default-key"),
-            ),
+    async def test_obo_header_overrides_same_named_extra_header(self, mock_client):
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name="Api-Key",
+            auth_header_value=SecretStr("obo-wins"),
         )
-        props = make_properties(extra_headers={"Api-Key": "override-key", "X-Custom": "val"})
+        props = make_properties(extra_headers={"Api-Key": "stale", "X-Custom": "val"})
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(ctx, props)
 
-        call_kwargs = mock_client.request.call_args
-        headers = call_kwargs.kwargs["headers"]
-        assert headers["Api-Key"] == "override-key"
+        headers = mock_client.request.call_args.kwargs["headers"]
+        assert headers["Api-Key"] == "obo-wins"
         assert headers["X-Custom"] == "val"
 
     async def test_logs_one_record_on_success(self, mock_client):
@@ -110,18 +124,18 @@ class TestRestExecutorHappyPath:
         assert len(result_logs) == 1
         assert result_logs[0]["run_id"] == RUN_ID
 
-    async def test_dial_api_key_not_in_logs(self, mock_client, mocker):
-        mocker.patch(
-            "src.worker.executors.rest.get_settings",
-            return_value=mocker.MagicMock(
-                dial_api_key=mocker.MagicMock(get_secret_value=lambda: "my-secret-key"),
-            ),
+    async def test_obo_secret_not_in_logs(self, mock_client):
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name="Api-Key",
+            auth_header_value=SecretStr("my-secret-key"),
         )
         props = make_properties()
         executor = RestExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(CTX, props)
+            await executor.execute(ctx, props)
 
         for log in logs:
             assert "my-secret-key" not in str(log)
@@ -209,7 +223,13 @@ class TestRestExecutorFailurePath:
 
 class TestRestExecutorTimeout:
     async def test_effective_timeout_passed_through_when_set(self, mock_client):
-        ctx = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, effective_timeout=15.0)
+        ctx = RunContext(
+            run_id=RUN_ID,
+            schedule_id=SCHEDULE_ID,
+            auth_header_name="Api-Key",
+            auth_header_value=SecretStr("obo-token"),
+            effective_timeout=15.0,
+        )
         props = make_properties()
         executor = RestExecutor()
 

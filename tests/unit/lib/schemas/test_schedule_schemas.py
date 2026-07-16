@@ -18,6 +18,7 @@ from src.lib.schemas.schedule import (
 def _valid_request_kwargs() -> dict:
     return {
         "display_name": "Test Schedule",
+        "service_id": "dial-oauth",
         "trigger": ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         "properties": ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -266,6 +267,7 @@ class TestRetryPolicy:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
+            service_id="dial-oauth",
             next_run_time=None,
             trigger={},
             properties=dumped,
@@ -295,6 +297,7 @@ class TestScheduleMetadata:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
+            service_id="dial-oauth",
             next_run_time=None,
             trigger={},
             properties={},
@@ -310,6 +313,7 @@ class TestScheduleMetadata:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
+            service_id="dial-oauth",
             next_run_time=None,
             trigger={},
             properties={},
@@ -325,6 +329,7 @@ class TestScheduleRequest:
         with pytest.raises(ValidationError, match="display_name must not be empty"):
             ScheduleRequest(
                 display_name="   ",
+                service_id="dial-oauth",
                 trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
                 properties=ScheduleProperties(
                     target_type=TargetType.CHAT_COMPLETION,
@@ -332,3 +337,13 @@ class TestScheduleRequest:
                     api_version="2025-01-01-preview",
                 ),
             )
+
+    def test_missing_service_id_raises(self):
+        kwargs = _valid_request_kwargs()
+        del kwargs["service_id"]
+        with pytest.raises(ValidationError, match="service_id"):
+            ScheduleRequest(**kwargs)
+
+    def test_service_id_persisted(self):
+        req = ScheduleRequest(**{**_valid_request_kwargs(), "service_id": "dial-api-key"})
+        assert req.service_id == "dial-api-key"

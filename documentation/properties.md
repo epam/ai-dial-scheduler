@@ -18,7 +18,10 @@ occur; it is not enforced by the database.
 - `method` — type: nullable enum, one of the values listed above. Not used for  chat completion.
 - `url` — type: str. For chat completion, must be a valid OpenAI-compatible deployment URL.
 - `payload` — type: json. For chat completion, the "stream" field is extracted if present, defaulting to false.
-- `extra_headers` — type: dict[str, str]. If any injected headers are present, `extra_headers` overrides them.
+- `extra_headers` — type: dict[str, str]. The injected per-user auth header (resolved from the
+  schedule's `service_id` via DIAL's on-behalf-of credentials, applied as `header_name:
+  header_value`) always overrides any same-named entry in `extra_headers` — callers cannot use
+  `extra_headers` to override or bypass the authenticated identity a schedule runs as.
 - `api_version` — type: nullable str. Used only for chat completion.
 
 Has a corresponding Pydantic model and is validated before each run start.

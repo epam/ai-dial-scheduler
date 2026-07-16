@@ -15,6 +15,7 @@ import socket
 from aidial_sdk import DIALApp
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient as _RealAsyncClient
+from pydantic import SecretStr
 import pytest
 import structlog.testing
 import uvicorn
@@ -68,11 +69,12 @@ def _make_asgi_client_factory(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture
-def mock_settings(mocker):
-    return mocker.MagicMock(
-        dial_api_key=mocker.MagicMock(get_secret_value=lambda: "test-key"),
-        api_version=None,
+def _make_ctx(run_id: str, schedule_id: str = "s1") -> RunContext:
+    return RunContext(
+        run_id=run_id,
+        schedule_id=schedule_id,
+        auth_header_name="Api-Key",
+        auth_header_value=SecretStr("test-key"),
     )
 
 
@@ -99,8 +101,7 @@ async def dial_server():
 
 class TestRestExecutorWithEchoEndpoint:
     @pytest.fixture(autouse=True)
-    def patch_rest(self, mocker, mock_settings):
-        mocker.patch("src.worker.executors.rest.get_settings", return_value=mock_settings)
+    def patch_rest(self, mocker):
         mocker.patch(
             "src.worker.executors.rest.httpx.AsyncClient",
             side_effect=_make_asgi_client_factory(_rest_sse_app()),
@@ -109,7 +110,7 @@ class TestRestExecutorWithEchoEndpoint:
     async def test_success_logs_run_result(self) -> None:
         from src.worker.executors.rest import RestExecutor
 
-        ctx = RunContext(run_id="r1", schedule_id="s1")
+        ctx = _make_ctx("r1")
         props = ScheduleProperties(
             target_type=TargetType.REST,
             method=HttpMethod.POST,
@@ -127,7 +128,7 @@ class TestRestExecutorWithEchoEndpoint:
     async def test_error_response_raises_schedule_run_error(self) -> None:
         from src.worker.executors.rest import RestExecutor
 
-        ctx = RunContext(run_id="r2", schedule_id="s1")
+        ctx = _make_ctx("r2")
         props = ScheduleProperties(
             target_type=TargetType.REST,
             method=HttpMethod.POST,
@@ -144,7 +145,7 @@ class TestRestExecutorWithEchoEndpoint:
     async def test_sleep_payload_is_respected(self) -> None:
         from src.worker.executors.rest import RestExecutor
 
-        ctx = RunContext(run_id="r3", schedule_id="s1")
+        ctx = _make_ctx("r3")
         props = ScheduleProperties(
             target_type=TargetType.REST,
             method=HttpMethod.POST,
@@ -163,8 +164,7 @@ class TestRestExecutorWithEchoEndpoint:
 
 class TestSseExecutorWithEchoEndpoint:
     @pytest.fixture(autouse=True)
-    def patch_sse(self, mocker, mock_settings):
-        mocker.patch("src.worker.executors.sse.get_settings", return_value=mock_settings)
+    def patch_sse(self, mocker):
         mocker.patch(
             "src.worker.executors.sse.httpx.AsyncClient",
             side_effect=_make_asgi_client_factory(_rest_sse_app()),
@@ -173,7 +173,7 @@ class TestSseExecutorWithEchoEndpoint:
     async def test_streams_one_log_per_event(self) -> None:
         from src.worker.executors.sse import SseExecutor
 
-        ctx = RunContext(run_id="r4", schedule_id="s1")
+        ctx = _make_ctx("r4")
         props = ScheduleProperties(
             target_type=TargetType.SSE,
             method=HttpMethod.POST,
@@ -190,7 +190,7 @@ class TestSseExecutorWithEchoEndpoint:
     async def test_error_response_raises_schedule_run_error(self) -> None:
         from src.worker.executors.sse import SseExecutor
 
-        ctx = RunContext(run_id="r5", schedule_id="s1")
+        ctx = _make_ctx("r5")
         props = ScheduleProperties(
             target_type=TargetType.SSE,
             method=HttpMethod.POST,
@@ -206,7 +206,7 @@ class TestSseExecutorWithEchoEndpoint:
     async def test_zero_chunk_stream_succeeds_with_no_logs(self) -> None:
         from src.worker.executors.sse import SseExecutor
 
-        ctx = RunContext(run_id="r6", schedule_id="s1")
+        ctx = _make_ctx("r6")
         props = ScheduleProperties(
             target_type=TargetType.SSE,
             method=HttpMethod.POST,
@@ -227,8 +227,7 @@ class TestSseExecutorWithEchoEndpoint:
 
 class TestChatCompletionExecutorWithEchoEndpoint:
     @pytest.fixture(autouse=True)
-    async def patch_chat(self, mocker, mock_settings):
-        mocker.patch("src.worker.executors.chat_completion.get_settings", return_value=mock_settings)
+    async def patch_chat(self, mocker):
         async with _RealAsyncClient() as real_client:
             provider = mocker.MagicMock()
             provider.client = real_client
@@ -238,7 +237,7 @@ class TestChatCompletionExecutorWithEchoEndpoint:
     async def test_streaming_logs_one_entry_per_chunk(self, dial_server: str) -> None:
         from src.worker.executors.chat_completion import ChatCompletionExecutor
 
-        ctx = RunContext(run_id="r7", schedule_id="s1")
+        ctx = _make_ctx("r7")
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url=f"{dial_server}/openai/deployments/echo/chat/completions",
@@ -259,7 +258,7 @@ class TestChatCompletionExecutorWithEchoEndpoint:
     async def test_non_streaming_logs_single_result(self, dial_server: str) -> None:
         from src.worker.executors.chat_completion import ChatCompletionExecutor
 
-        ctx = RunContext(run_id="r8", schedule_id="s1")
+        ctx = _make_ctx("r8")
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url=f"{dial_server}/openai/deployments/echo/chat/completions",

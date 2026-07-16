@@ -1,11 +1,13 @@
 import uuid
 
+from pydantic import SecretStr
 import pytest
 from structlog.contextvars import clear_contextvars, get_contextvars
 import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
-from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.exceptions.errors import OboCredentialsError, ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 
 
 SCHEDULE_ID = "sched-jobs-001"
@@ -16,6 +18,36 @@ def reset_context():
     clear_contextvars()
     yield
     clear_contextvars()
+
+
+@pytest.fixture(autouse=True)
+def mock_credentials(mocker):
+    """Provide working OBO credential resolution for all job tests.
+
+    Patches the schedule lookup and DialClient so ``_resolve_credentials`` returns a
+    valid header by default. Individual tests override ``get_obo_credentials`` /
+    ``get_by_id`` to exercise credential-failure paths.
+    """
+    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1")
+    schedule_repo = mocker.MagicMock()
+    schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
+    mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)
+
+    creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
+    dial_client = mocker.MagicMock()
+    dial_client.get_obo_credentials = mocker.AsyncMock(return_value=creds)
+    mocker.patch("src.worker.jobs.DialClient", return_value=dial_client)
+    mocker.patch("src.worker.jobs.HttpClientProvider")
+    mocker.patch(
+        "src.worker.jobs.get_settings",
+        return_value=mocker.MagicMock(
+            scheduler_app_id="dial_scheduler",
+            dial_url="https://dial.example.com",
+            dial_api_key=mocker.MagicMock(get_secret_value=lambda: "svc-key"),
+            worker_http=mocker.MagicMock(timeout_seconds=60.0),
+        ),
+    )
+    return mocker.MagicMock(schedule=schedule, schedule_repo=schedule_repo, dial_client=dial_client, creds=creds)
 
 
 @pytest.fixture
@@ -603,6 +635,197 @@ class TestExecuteScheduledJobTimeoutAndRetry:
 
         assert mock_executor.execute.await_count == 1
         mock_run_repo.mark_error.assert_awaited_once()
+
+
+class TestExecuteScheduledJobCredentials:
+    async def test_injects_obo_header_into_run_context(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        ctx = mock_executor.execute.call_args.args[0]
+        assert ctx.auth_header_name == "Api-Key"
+        assert ctx.auth_header_value.get_secret_value() == "obo-token"
+
+    async def test_requests_credentials_for_owner_and_service(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        call = mock_credentials.dial_client.get_obo_credentials.call_args
+        assert call.args[0] == "svc-key"
+        request = call.args[1]
+        assert request.owner_sub == "user-sub-1"
+        assert request.url == "applications/dial_scheduler/external_services/dial-oauth"
+
+    async def test_logs_credentials_fetch_lifecycle(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(
+                schedule_id=SCHEDULE_ID,
+                target_type=TargetType.REST,
+                method=HttpMethod.POST,
+                url="https://example.com",
+                payload={},
+                extra_headers={},
+            )
+
+        events = {log.get("event") for log in logs}
+        assert "credentials_fetch_start" in events
+        assert "credentials_fetch_succeeded" in events
+        # The OBO secret must never be logged.
+        for log in logs:
+            assert "obo-token" not in str(log)
+
+
+class TestExecuteScheduledJobCredentialFailure:
+    async def test_obo_failure_marks_credentials_error_and_skips_target(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.dial_client.get_obo_credentials = mocker.AsyncMock(
+            side_effect=OboCredentialsError("no credentials", status_code=404, response_body={"error": "not signed in"})
+        )
+        mock_executor = mocker.AsyncMock()
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        # Target request never sent, and the target-stage persistence path is not used.
+        mock_executor.execute.assert_not_awaited()
+        mock_run_repo.mark_error.assert_not_awaited()
+
+        mock_run_repo.mark_credentials_error.assert_awaited_once()
+        run_error = mock_run_repo.mark_credentials_error.call_args.args[1]
+        assert run_error.stage == "credentials"
+        assert run_error.credentials_response == {"status": 404, "body": {"error": "not signed in"}}
+        assert any(log.get("event") == "credentials_fetch_failed" for log in logs)
+
+    async def test_missing_schedule_marks_credentials_error(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(return_value=None)
+        mock_executor = mocker.AsyncMock()
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        mock_executor.execute.assert_not_awaited()
+        mock_run_repo.mark_credentials_error.assert_awaited_once()
+        assert mock_run_repo.mark_credentials_error.call_args.args[1].stage == "credentials"
+
+    async def test_schedule_lookup_exception_marks_credentials_error(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(side_effect=RuntimeError("db down"))
+        mock_executor = mocker.AsyncMock()
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        mock_executor.execute.assert_not_awaited()
+        mock_run_repo.mark_credentials_error.assert_awaited_once()
+        assert mock_run_repo.mark_credentials_error.call_args.args[1].stage == "credentials"
+        assert any(log.get("event") == "credentials_fetch_failed" for log in logs)
+
+    async def test_credentials_error_persist_failure_is_logged(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.dial_client.get_obo_credentials = mocker.AsyncMock(
+            side_effect=OboCredentialsError("no credentials", status_code=404, response_body={})
+        )
+        mock_run_repo.mark_credentials_error = mocker.AsyncMock(side_effect=Exception("DB gone"))
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mocker.AsyncMock())
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        assert any(log.get("event") == "run_persist_failed" for log in logs)
+
+    async def test_credential_failure_does_not_consume_retry_policy(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.dial_client.get_obo_credentials = mocker.AsyncMock(
+            side_effect=OboCredentialsError("no credentials", status_code=404, response_body={})
+        )
+        exec_with_policy = mocker.patch("src.worker.jobs.execute_with_policy")
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                    retry={"interval_sequence": [1, 1], "retryable_errors": [500]},
+                )
+
+        exec_with_policy.assert_not_called()
 
 
 class TestHeartbeatHandler:
