@@ -73,7 +73,7 @@ def create_api() -> DIALApp:
         dial_url=settings.dial_url,
         title=settings.app_name,
         add_healthcheck=True,
-        telemetry_config=TelemetryConfig(service_name=settings.app_name),
+        telemetry_config=TelemetryConfig(),
         lifespan=lifespan,
         redirect_slashes=False,
     )

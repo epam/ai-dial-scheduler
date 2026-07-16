@@ -17,6 +17,17 @@ DIAL Scheduler requires a PostgreSQL database as persistent storage.
 
 ## Deployment Steps
 
+### 0. Create app api key in DIAL
+Scheduler app will use api key attributed to its application for getting user credentials for current schedule execution.
+Open DIAL Admin -> Access Management -> Keys -> Create:
+- ID: scheduler_api_key
+- Display Name: Scheduler Api Key
+- Project: Dial Scheduler
+- Generate Value
+
+On key details page:
+Open Roles Tab, add `scheduler` role (role with access to `dial_scheduler` app).
+
 ### 1. Build the image
 
 Build the Docker image from [Dockerfile](/Dockerfile).
@@ -96,8 +107,6 @@ Build the Docker image from [Dockerfile](/Dockerfile).
 {
   "name": "dial_scheduler",
   "display_name": "DIAL Scheduler",
-  "description": "",
-  "forward_auth_token": false,
   "app_identity": "<sha256-hash-of-the-app's-dial-api-key>",
   "allow_user_external_services": true,
   "external_services": {
@@ -121,26 +130,6 @@ Build the Docker image from [Dockerfile](/Dockerfile).
       }
     }
   },
-  "features": {
-    "system_prompt_supported": true,
-    "tools_supported": false,
-    "seed_supported": false,
-    "url_attachments_supported": false,
-    "folder_attachments_supported": false,
-    "allow_resume": true,
-    "accessible_by_per_request_key": true,
-    "content_parts_supported": false,
-    "temperature_supported": true,
-    "parallel_tool_calls_supported": true,
-    "assistant_attachments_in_request_supported": false
-  },
-  "defaults": {},
-  "responses_defaults": {},
-  "interceptors": [],
-  "description_keywords": [],
-  "max_retry_attempts": 1,
-  "dependencies": [],
-  "application_properties": {},
   "mcp": {
     "endpoint": "http://dial-scheduler-api.dial-scheduler/mcp",
     "transport": "http",

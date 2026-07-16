@@ -31,7 +31,7 @@ class SseExecutor:
                 if not (200 <= event_source.response.status_code < 300):
                     event_source.response.raise_for_status()
                 async for event in event_source.aiter_sse():
-                    logger.info("sse_event", run_id=ctx.run_id, **{event.event: event.data})
+                    logger.debug("sse_event", run_id=ctx.run_id, **{event.event: event.data})
                     events.append({"event": event.event, "data": event.data})
         except httpx.HTTPStatusError as exc:
             raise ScheduleRunError(

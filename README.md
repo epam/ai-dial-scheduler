@@ -231,19 +231,21 @@ See `.env.example` for a commented reference of all supported variables.
 
 The `migrations` service runs `alembic upgrade head` and exits. It only requires database connection variables.
 
+Alternatively, the `api` and `worker` services can apply migrations themselves on boot by setting `RUN_MIGRATIONS_ON_START=true` (off by default), removing the need for a separate `migrations` service in environments where an init/job container is inconvenient.
+
 | Variable | Default | Required | Description |
-|---|---|---|---|
-| `SERVICE` | — | Yes | Must be `migrations` |
-| `DB_HOST` | `localhost` | No | PostgreSQL host |
-| `DB_PORT` | `5432` | No | PostgreSQL port |
-| `DB_NAME` | `app` | No | Database name |
-| `DB_USER` | `app` | Yes | Database username |
-| `DB_AUTH_MODE` | `password` | No | Auth mode: `password` or `connection-string` |
-| `DB_PASSWORD` | — | Yes | Database password |
-| `DB_URL` | — | Yes | Full SQLAlchemy connection string |
-| `DB_DRIVER` | `postgresql+asyncpg` | No | SQLAlchemy driver dialect |
-| `DIAL_URL` | `stub` | No | Not used by migrations; any non-empty value is accepted |
-| `DIAL_API_KEY` | `stub` | No | Not used by migrations; any non-empty value is accepted |
+|---|---|----------|---|
+| `SERVICE` | — | Yes      | Must be `migrations` |
+| `DB_HOST` | `localhost` | No       | PostgreSQL host |
+| `DB_PORT` | `5432` | No       | PostgreSQL port |
+| `DB_NAME` | `app` | No       | Database name |
+| `DB_USER` | `app` | Yes      | Database username |
+| `DB_AUTH_MODE` | `password` | No       | Auth mode: `password` or `connection-string` |
+| `DB_PASSWORD` | — | Yes      | Database password |
+| `DB_URL` | — | Yes      | Full SQLAlchemy connection string |
+| `DB_DRIVER` | `postgresql+asyncpg` | No       | SQLAlchemy driver dialect |
+| `DIAL_URL` | `stub` | Yes      | Not used by migrations; any non-empty value is accepted |
+| `DIAL_API_KEY` | `stub` | Yes      | Not used by migrations; any non-empty value is accepted |
 
 ## Deployment Env Setup — Api
 
@@ -252,6 +254,7 @@ The `api` service runs the FastAPI application.
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `SERVICE` | — | Yes | Must be `api` |
+| `RUN_MIGRATIONS_ON_START` | `false` | No | When truthy (`true`/`1`), run `alembic upgrade head` before the api starts; aborts startup on failure. Alternative to the standalone `migrations` service |
 | `DIAL_URL` | — | Yes | Base URL of the DIAL platform |
 | `DIAL_API_KEY` | — | Yes | API key for authenticating with DIAL |
 | `PORT` | `5000` | No | HTTP port to listen on |
@@ -294,6 +297,7 @@ The `worker` service runs the APScheduler background process that executes sched
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `SERVICE` | — | Yes | Must be `worker` |
+| `RUN_MIGRATIONS_ON_START` | `false` | No | When truthy (`true`/`1`), run `alembic upgrade head` before the worker starts; aborts startup on failure. Alternative to the standalone `migrations` service |
 | `DIAL_URL` | — | Yes | Base URL of the DIAL platform |
 | `DIAL_API_KEY` | — | Yes | API key for authenticating with DIAL |
 | `LOG_LEVEL` | `INFO` | No | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |

@@ -42,5 +42,5 @@ class RestExecutor:
         except ValueError:
             body = response.text
 
-        logger.info("run_result", run_id=ctx.run_id, status=response.status_code, result=response.text)
+        logger.debug("run_result", run_id=ctx.run_id, status=response.status_code, result=response.text)
         return {"status_code": response.status_code, "body": body}
