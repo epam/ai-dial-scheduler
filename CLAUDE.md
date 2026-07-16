@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/025-k8s-worker-probes/plan.md` (Kubernetes Probes for Worker Service)
+- Current plan: `specs/026-add-user-credentials-usage/plan.md` (Execute Schedules with Per-User Credentials)
 <!-- SPECKIT END -->

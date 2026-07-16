@@ -17,6 +17,7 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
             No FK to apscheduler_jobs — that table is engine-owned.
         display_name: Human-readable schedule name.
         created_by: Identity of the schedule creator/owner.
+        service_id: External service whose on-behalf-of credentials the run uses.
         trigger: Structured trigger definition stored as JSONB.
         kwargs: Structured call arguments stored as JSONB.
         schedule_metadata: Business tags stored in the JSONB ``metadata`` column.
@@ -30,6 +31,7 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
     )
     display_name: str
     created_by: str
+    service_id: str
     trigger: dict[str, Any] = Field(
         sa_type=JSONB(),  # type: ignore[call-overload]
         sa_column_kwargs={"nullable": False},

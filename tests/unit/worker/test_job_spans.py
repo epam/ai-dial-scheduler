@@ -1,9 +1,11 @@
 """Tests verifying execute_scheduled_job runs within an OTel span."""
 
+from pydantic import SecretStr
 import pytest
 import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
+from src.lib.schemas.credentials import OboCredentials
 
 
 SCHEDULE_ID = "sched-span-001"
@@ -22,6 +24,29 @@ def mock_run_repo(mocker):
     mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
     mocker.patch("src.worker.jobs.Database")
     return mock_repo
+
+
+@pytest.fixture(autouse=True)
+def mock_credentials(mocker):
+    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1")
+    schedule_repo = mocker.MagicMock()
+    schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
+    mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)
+
+    creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
+    dial_client = mocker.MagicMock()
+    dial_client.get_obo_credentials = mocker.AsyncMock(return_value=creds)
+    mocker.patch("src.worker.jobs.DialClient", return_value=dial_client)
+    mocker.patch("src.worker.jobs.HttpClientProvider")
+    mocker.patch(
+        "src.worker.jobs.get_settings",
+        return_value=mocker.MagicMock(
+            scheduler_app_id="dial_scheduler",
+            dial_url="https://dial.example.com",
+            dial_api_key=mocker.MagicMock(get_secret_value=lambda: "svc-key"),
+            worker_http=mocker.MagicMock(timeout_seconds=60.0),
+        ),
+    )
 
 
 class TestHeartbeatSpan:

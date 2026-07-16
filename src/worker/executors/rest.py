@@ -3,19 +3,16 @@ from typing import Any
 
 import httpx
 
-from src.lib.constants import API_KEY_HEADER
 from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
-from src.lib.settings import get_settings
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
 
 
 class RestExecutor:
     async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> dict[str, Any]:
-        settings = get_settings()
-        headers = {API_KEY_HEADER: settings.dial_api_key.get_secret_value(), **properties.extra_headers}
+        headers = {**properties.extra_headers, ctx.auth_header_name: ctx.auth_header_value.get_secret_value()}
         client = HttpClientProvider().client
 
         request_kwargs: dict[str, Any] = {

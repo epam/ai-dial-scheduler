@@ -4,6 +4,9 @@
 - updated_at: datetime
 - display_name: str
 - created_by: str
+- service_id: str <- external service (DIAL external-service sign-in) whose on-behalf-of
+  credentials authenticate this schedule's execution, e.g. "dial-oauth"; required on create,
+  backfilled to "dial-oauth" for schedules that existed before this column was added
 - trigger: json
 - kwargs: json
 

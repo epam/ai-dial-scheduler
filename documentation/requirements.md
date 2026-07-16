@@ -1,7 +1,7 @@
-# DIAL Scheduler Engine — 
+# DIAL Scheduler Engine —
 
-**Status:** Draft  
-**Date:** 2026-05-15  
+**Status:** Draft
+**Date:** 2026-05-15
 **Context:** Standalone scheduling engine designed to integrate with [EPAM DIAL](https://dialx.ai/), providing dynamic trigger scheduling with pluggable action dispatch.
 
 ---
@@ -35,7 +35,9 @@ DIAL is also deployed in configurations that emulate multi-tenancy, where schedu
 
 - The scheduler does not interpret or validate the business meaning of metadata values.
 - The scheduler does not orchestrate multi-step workflows or maintain state between firings.
-- The scheduler does not manage or verify user identities. Identity context for a fired action (e.g., whose permissions it runs under) is the caller's responsibility — in DIAL deployments, task identity is typically bound to the MCP server rather than carried by the scheduler process.
+- The scheduler does not provision or manage user identities itself; it consumes DIAL's existing
+  external-service sign-in and on-behalf-of (OBO) credentials capability to run each trigger under
+  its owner's identity (see §3.3), but does not implement identity/consent management.
 - Exact-once delivery is not guaranteed; consumers of fired actions must be idempotent where it matters.
 
 ---
@@ -61,6 +63,11 @@ DIAL is also deployed in configurations that emulate multi-tenancy, where schedu
 - Action dispatch MUST be non-blocking with respect to the scheduling loop — a slow action target MUST NOT delay other triggers from firing.
 - At minimum, the scheduler MUST support outbound HTTP calls as the dispatch mechanism, forwarding trigger context to a configured endpoint. This must cover both fire-and-forget patterns (where the target acknowledges immediately and processes asynchronously) and long-running calls (where the scheduler waits for the response, e.g., when invoking a DIAL application that streams its output).
 - The action model MUST be extensible so that new dispatch mechanisms can be added without changes to the core trigger model.
+- Each trigger MUST identify a DIAL external service (`service_id`) whose per-user on-behalf-of
+  (OBO) credentials are resolved immediately before dispatch and applied to the outbound call —
+  every fired action runs authenticated as its owner, not as a shared scheduler-wide credential. If
+  OBO credentials cannot be resolved for the owner/service, the fire MUST fail without dispatching
+  the action and MUST NOT consume the trigger's retry budget.
 
 ### 3.4 Metadata
 

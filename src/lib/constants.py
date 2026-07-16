@@ -11,3 +11,8 @@ API_KEY_HEADER = "Api-Key"
 
 MCP_SERVER_NAME = "aidial-scheduler"
 MCP_BACKING_BASE_URL = "http://scheduler.internal"
+
+# DIAL external-service on-behalf-of (OBO) credentials endpoint and the
+# service-url template used to identify the external service in the request body.
+OBO_CREDENTIALS_PATH = "/v1/ops/external-service/obo-credentials"
+EXTERNAL_SERVICE_URL_TEMPLATE = "applications/{app_id}/external_services/{service_id}"

@@ -88,6 +88,7 @@ async def cleanup(engine: AsyncEngine) -> AsyncGenerator[None, None]:
 
 CRON_REQUEST: dict[str, Any] = {
     "display_name": "Integration Test Schedule",
+    "service_id": "dial-oauth",
     "trigger": {
         "cron": {
             "fields": {"hour": 9, "minute": 0},
@@ -102,6 +103,7 @@ CRON_REQUEST: dict[str, Any] = {
 
 DATE_REQUEST: dict[str, Any] = {
     "display_name": "Date Schedule",
+    "service_id": "dial-oauth",
     "trigger": {"date": "2030-01-01T09:00:00"},
     "properties": {
         "target_type": "rest",
@@ -124,12 +126,18 @@ class TestCreateSchedule:
         body = response.json()
         assert "id" in body
         assert body["display_name"] == "Integration Test Schedule"
+        assert body["service_id"] == "dial-oauth"
         assert body["created_by"] == "mock_user_id"
         assert body["next_run_time"] is None  # no real APScheduler row in test DB
         assert "trigger" in body
         assert "properties" in body
         assert "created_at" in body
         assert "updated_at" in body
+
+    async def test_create_missing_service_id_returns_422(self, client: httpx.AsyncClient) -> None:
+        bad_request = {k: v for k, v in CRON_REQUEST.items() if k != "service_id"}
+        response = await client.post("/v1/schedules/", json=bad_request)
+        assert response.status_code == 422
 
     async def test_create_persists_row_in_db(self, client: httpx.AsyncClient, engine: AsyncEngine) -> None:
         response = await client.post("/v1/schedules/", json=CRON_REQUEST)

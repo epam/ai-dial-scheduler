@@ -4,6 +4,7 @@ Attempt detail is reflected in logs only; the persisted run row stores just the 
 outcome (success payload or error_text), never per-attempt history.
 """
 
+from pydantic import SecretStr
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
@@ -15,9 +16,23 @@ from src.lib.db.enums import HttpMethod, ScheduleRunStatus, TargetType
 from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.models.schedule import Schedule
 from src.lib.models.schedule_run import ScheduleRun
+from src.lib.schemas.credentials import OboCredentials
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
+
+
+@pytest.fixture(autouse=True)
+def mock_obo_credentials(mocker):
+    """Stub the DIAL OBO credentials call so these tests never hit a real DIAL instance.
+
+    Schedule owner/service resolution still goes through the real seeded DB row.
+    """
+    creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
+    dial_client = mocker.MagicMock()
+    dial_client.get_obo_credentials = mocker.AsyncMock(return_value=creds)
+    mocker.patch("src.worker.jobs.DialClient", return_value=dial_client)
+    mocker.patch("src.worker.jobs.HttpClientProvider")
 
 
 RETRY_SUCCESS_ID = "sched-retry-success-001"
@@ -27,8 +42,22 @@ RETRY_EXHAUST_ID = "sched-retry-exhaust-001"
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def seeded_schedules(engine):
     rows = [
-        Schedule(id=RETRY_SUCCESS_ID, display_name="retry success", created_by="test", trigger={}, kwargs={}),
-        Schedule(id=RETRY_EXHAUST_ID, display_name="retry exhaust", created_by="test", trigger={}, kwargs={}),
+        Schedule(
+            id=RETRY_SUCCESS_ID,
+            display_name="retry success",
+            created_by="test",
+            service_id="dial-oauth",
+            trigger={},
+            kwargs={},
+        ),
+        Schedule(
+            id=RETRY_EXHAUST_ID,
+            display_name="retry exhaust",
+            created_by="test",
+            service_id="dial-oauth",
+            trigger={},
+            kwargs={},
+        ),
     ]
     async with AsyncSession(engine, expire_on_commit=False) as session:
         for row in rows:

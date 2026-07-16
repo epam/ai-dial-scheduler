@@ -141,6 +141,7 @@ class TestMcpAuth:
         item_a = ScheduleListItem(
             id="a1",
             display_name="User A Schedule",
+            service_id="dial-oauth",
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             created_by="user-a@example.com",
@@ -150,6 +151,7 @@ class TestMcpAuth:
         item_b = ScheduleListItem(
             id="b1",
             display_name="User B Schedule",
+            service_id="dial-oauth",
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             created_by="user-b@example.com",

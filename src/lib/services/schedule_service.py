@@ -47,6 +47,7 @@ class ScheduleService:
         return ScheduleResponse(
             id=schedule.id,
             display_name=schedule.display_name,
+            service_id=schedule.service_id,
             next_run_time=next_run_time,
             trigger=schedule.trigger,
             properties=schedule.kwargs,
@@ -70,6 +71,7 @@ class ScheduleService:
             id=schedule_id,
             display_name=request.display_name,
             created_by=created_by,
+            service_id=request.service_id,
             trigger=trigger_dict,
             kwargs=properties_dict,
             schedule_metadata=request.metadata,
@@ -104,6 +106,7 @@ class ScheduleService:
         prior_schedule, _ = existing
 
         prior_display_name = prior_schedule.display_name
+        prior_service_id = prior_schedule.service_id
         prior_trigger = prior_schedule.trigger
         prior_kwargs = prior_schedule.kwargs
         prior_metadata = prior_schedule.schedule_metadata
@@ -117,6 +120,7 @@ class ScheduleService:
             schedule_id,
             created_by,
             display_name=request.display_name,
+            service_id=request.service_id,
             trigger=new_trigger_dict,
             kwargs=new_properties_dict,
             metadata=request.metadata,
@@ -140,6 +144,7 @@ class ScheduleService:
                     schedule_id,
                     created_by,
                     display_name=prior_display_name,
+                    service_id=prior_service_id,
                     trigger=prior_trigger,
                     kwargs=prior_kwargs,
                     metadata=prior_metadata,
@@ -179,6 +184,7 @@ class ScheduleService:
                 ScheduleListItem(
                     id=schedule.id,
                     display_name=schedule.display_name,
+                    service_id=schedule.service_id,
                     next_run_time=next_run_time,
                     trigger_type=trigger_type,
                     created_by=schedule.created_by,

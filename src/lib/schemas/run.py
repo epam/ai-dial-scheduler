@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 import uuid
 
-from pydantic import BaseModel
+from pydantic import BaseModel, SecretStr
 
 from src.lib.db.enums import ScheduleRunStatus
 
@@ -10,6 +10,8 @@ from src.lib.db.enums import ScheduleRunStatus
 class RunContext(BaseModel):
     run_id: str
     schedule_id: str
+    auth_header_name: str
+    auth_header_value: SecretStr
     effective_timeout: float | None = None
 
 

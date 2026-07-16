@@ -7,9 +7,11 @@ from openai.types.chat import ChatCompletion
 from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
-from src.lib.settings import get_settings
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
+
+
+_BEARER_PREFIX = "Bearer "
 
 
 def _parse_deployment(url: str) -> tuple[str, str]:
@@ -27,12 +29,16 @@ def _parse_deployment(url: str) -> tuple[str, str]:
 
 class ChatCompletionExecutor:
     async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> dict[str, Any]:
-        settings = get_settings()
+        # AsyncAzureOpenAI emits the auth header from api_key; pass the per-user OBO value,
+        # stripping a leading "Bearer " (OAUTH-type services) so only the raw token is sent.
+        api_key = ctx.auth_header_value.get_secret_value()
+        if api_key.startswith(_BEARER_PREFIX):
+            api_key = api_key[len(_BEARER_PREFIX) :]
         try:
             azure_endpoint, azure_deployment = _parse_deployment(properties.url)
             client = AsyncAzureOpenAI(
                 azure_endpoint=azure_endpoint,
-                api_key=settings.dial_api_key.get_secret_value(),
+                api_key=api_key,
                 api_version=properties.api_version,
                 azure_deployment=azure_deployment,
                 http_client=HttpClientProvider().client,

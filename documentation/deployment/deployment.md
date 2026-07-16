@@ -98,6 +98,29 @@ Build the Docker image from [Dockerfile](/Dockerfile).
   "display_name": "DIAL Scheduler",
   "description": "",
   "forward_auth_token": false,
+  "app_identity": "<sha256-hash-of-the-app's-dial-api-key>",
+  "allow_user_external_services": true,
+  "external_services": {
+    "dial-api-key": {
+      "display_name": "dial-api-key",
+      "auth_settings": {
+        "authentication_type": "API_KEY",
+        "api_key_header": "Api-Key"
+      }
+    },
+    "dial-oauth": {
+      "display_name": "dial-oauth",
+      "auth_settings": {
+        "authentication_type": "OAUTH",
+        "client_id": "<oauth-client-id>",
+        "client_secret": "<oauth-client-secret>",
+        "authorization_endpoint": "<idp-authorization-endpoint>",
+        "token_endpoint": "<idp-token-endpoint>",
+        "redirect_uri": "<oauth-redirect-uri>",
+        "scopes_supported": ["openid", "offline_access"]
+      }
+    }
+  },
   "features": {
     "system_prompt_supported": true,
     "tools_supported": false,
@@ -171,7 +194,23 @@ Build the Docker image from [Dockerfile](/Dockerfile).
    - **MCP Endpoint:** `true`, Endpoint: `http://dial-scheduler-api.dial-scheduler/mcp`
    - Click **Create**.
 3. Open the created application → **JSON Editor → Core Format**.
-4. Paste the App Definition JSON above and save.
+4. Paste the App Definition JSON above (filling in the `external_services.dial-oauth.auth_settings`
+   OAuth client/IdP values for your environment, and setting `app_identity` to
+   `sha256(api_key)` of the DIAL API key issued to this application) and save.
+5. If the application ID differs from `dial_scheduler`, set `SCHEDULER_APP_ID` to match on both the
+   `api` and `worker` services — the worker uses it to build the on-behalf-of credentials request
+   (`applications/{SCHEDULER_APP_ID}/external_services/{service_id}`).
+
+### Per-user credentials
+
+Each schedule executes using the credentials of the user who created it, not a shared service
+key: `POST /schedules/` requires a `service_id` naming one of the app's registered
+`external_services` (e.g. `dial-oauth` above). Before a schedule fires, the worker fetches
+on-behalf-of credentials for the schedule's owner and `service_id` from DIAL; if that owner has
+not signed in to the external service, the run fails with a credentials-stage error and the
+target action is never dispatched (see `documentation/api_contract.md` and
+`documentation/scheduled_job_execution.md`). Users sign in to an external service through DIAL's
+standard external-service sign-in flow before creating schedules that depend on it.
 
 ### API Access
 

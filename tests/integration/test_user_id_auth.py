@@ -40,6 +40,7 @@ BOB_DIAL_RESPONSE = {"userClaims": {"email": [BOB_ID]}}
 
 CRON_REQUEST: dict[str, Any] = {
     "display_name": "Auth Test Schedule",
+    "service_id": "dial-oauth",
     "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
     "properties": {
         "target_type": "chat_completion",

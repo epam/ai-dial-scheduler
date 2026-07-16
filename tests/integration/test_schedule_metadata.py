@@ -31,6 +31,7 @@ INTEGRATION_USER_ID = "mock_user_id"
 
 BASE_REQUEST: dict[str, Any] = {
     "display_name": "Metadata Test Schedule",
+    "service_id": "dial-oauth",
     "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
     "properties": {
         "target_type": "chat_completion",
