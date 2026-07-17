@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
 
 from opentelemetry import trace
 from pydantic import ValidationError
@@ -101,9 +100,7 @@ async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
         owner_sub=schedule.created_by,
     )
     request = OboCredentialsRequest(
-        url=EXTERNAL_SERVICE_URL_TEMPLATE.format(
-            app_id=quote(settings.scheduler_app_id, safe=""), service_id=quote(schedule.service_id, safe="")
-        ),
+        url=EXTERNAL_SERVICE_URL_TEMPLATE.format(app_id=settings.scheduler_app_id, service_id=schedule.service_id),
         owner_sub=schedule.created_by,
     )
     client = DialClient(HttpClientProvider().client, settings.dial_url, settings.worker_http.timeout_seconds)
