@@ -45,7 +45,7 @@ kwargs predate this feature); update settings, schemas, model, endpoints, and MC
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
 - **I. Reliability First**: PASS. Credential-fetch failure is handled explicitly (run marked error, no target request sent). Fetch is a single awaited async call reusing the worker's shared `httpx.AsyncClient`; transport/HTTP errors are caught and mapped to a recorded run error. Credential failure is terminal and deliberately bypasses the target-request retry policy (retries apply to the target only).
-- **II. Observability (NON-NEGOTIABLE)**: PASS. New structured log events (`credentials_fetch_start`, `credentials_fetch_succeeded`, `credentials_fetch_failed`) via `src.lib.utils.logging` `logger`, keyed by `schedule_id`/`run_id`/`service_id`/`owner_sub`. The secret `header_value` is NEVER logged. All runs (success + credential failure) persist to `schedule_runs`.
+- **II. Observability (NON-NEGOTIABLE)**: PASS. New structured log events (`credentials_fetch_start`, `credentials_fetch_succeeded`, `credentials_fetch_failed`) via `src.lib.utils.logging` `logger`, keyed by `schedule_id`/`run_id`/`service_id`/`owner_user_id`. The secret `header_value` is NEVER logged. All runs (success + credential failure) persist to `schedule_runs`.
 - **III. Test-First (NON-NEGOTIABLE)**: PASS (enforced in `/speckit-implement`). Unit tests: OBO request construction, success/failure mapping, header replacement in each executor, owner/service resolution, settings defaults, migration backfill. Integration test: end-to-end run using a stubbed DIAL OBO endpoint.
 - **IV. Contract-Driven API**: PASS. `service_id` added to the versioned request/response schemas (`ScheduleRequest`/`ScheduleResponse`) → auto-published via OpenAPI (also surfaced through MCP). New internal contracts are explicit Pydantic models (`OboCredentialsRequest`, `OboCredentials`) — no ad-hoc dicts across the worker→DIAL boundary. `RunContext` extended with typed credential fields.
 - **V. Simplicity & YAGNI**: PASS. No caching layer (per decision). Reuse existing `DialClient`, `HttpClientProvider`, `RunContext`, and `ScheduleRunRepository`. New parameters grouped in Pydantic models to respect the 2–3 parameter rule.
@@ -112,7 +112,7 @@ tests/                                   # Mirrors src/ — unit + integration c
 
 2. **`service_id` is a top-level `Schedule` column** (sibling of `created_by`), not part of `ScheduleProperties`/`kwargs` — it identifies the credential source, not a target-call property.
 
-3. **`owner_sub` = the schedule's stored `created_by`.** Unattended runs have no incoming token to re-resolve; `created_by` was resolved at create time. `user_id_path_list` becomes `["sub", "project"]` so new schedules store the subject. Legacy schedules (email-based `created_by`) are best-effort and fail per FR-009 if DIAL cannot resolve them. See [research.md](./research.md) §2.
+3. **`owner_user_id` = the schedule's stored `created_by`.** Unattended runs have no incoming token to re-resolve; `created_by` was resolved at create time. `user_id_path_list` becomes `["sub", "project"]` so new schedules store the subject. Legacy schedules (email-based `created_by`) are best-effort and fail per FR-009 if DIAL cannot resolve them. See [research.md](./research.md) §2.
 
 4. **Credential failure is terminal and pre-empts the retry policy.** The OBO call happens in `jobs.py` before `execute_with_policy`, so the target-request retry budget is untouched (spec edge case).
 

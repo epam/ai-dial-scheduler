@@ -141,7 +141,7 @@ class TestDialClientErrorMapping:
 
 _OBO_REQUEST = OboCredentialsRequest(
     url="applications/dial_scheduler/external_services/dial-oauth",
-    owner_sub="user-sub-123",
+    owner_user_id="user-sub-123",
 )
 
 
@@ -158,7 +158,7 @@ class TestGetOboCredentialsSuccess:
         assert call.kwargs["headers"]["Api-Key"] == "service-key"
         assert call.kwargs["json"] == {
             "url": "applications/dial_scheduler/external_services/dial-oauth",
-            "owner_sub": "user-sub-123",
+            "owner_user_id": "user-sub-123",
         }
         assert call.kwargs["timeout"] == 20.0
 

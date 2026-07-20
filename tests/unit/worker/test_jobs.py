@@ -679,7 +679,7 @@ class TestExecuteScheduledJobCredentials:
         call = mock_credentials.dial_client.get_obo_credentials.call_args
         assert call.args[0] == "svc-key"
         request = call.args[1]
-        assert request.owner_sub == "user-sub-1"
+        assert request.owner_user_id == "user-sub-1"
         assert request.url == "applications/dial_scheduler/external_services/dial-oauth"
 
     async def test_logs_credentials_fetch_lifecycle(self, mocker, mock_run_repo):

@@ -1,0 +1,105 @@
+### ============================================================
+### 0. UPSERT DIAL APP
+### ============================================================
+
+# @name upsert_dial_app
+# @no-cookie-jar
+PUT {{dial_url}}/v1/applications/{{app_id}}
+Content-Type: application/json
+Api-Key: {{admin_api_key}}
+
+{{scheduler_app_definition}}
+
+
+### ============================================================
+### 1. GET USER TOKEN (Keycloak password grant)
+### ============================================================
+
+# @name get_user_token
+# @no-cookie-jar
+POST {{keycloak_url}}/realms/{{keycloak_realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id={{keycloak_client_id}}&client_secret={{keycloak_client_secret}}&username={{keycloak_username}}&password={{keycloak_password}}
+
+> {% client.global.set("user_token", response.body["access_token"]) %}
+
+
+### ============================================================
+### 2. START OAUTH FLOW — get Keycloak login form
+### ============================================================
+
+# Keycloak sets AUTH_SESSION_ID with the Secure flag, which cookie jars refuse to
+# replay over plain HTTP. Relay the cookies manually (same approach as dial_sign_in.py).
+
+# @name get_keycloak_login_form
+# @no-cookie-jar
+GET {{keycloak_url}}/realms/{{keycloak_realm}}/protocol/openid-connect/auth?response_type=code&client_id={{keycloak_client_id}}&redirect_uri={{keycloak_redirect_uri}}&scope=openid%20offline_access&state=e2e-test
+
+> {%
+  const formMatch = response.body.match(/action="([^"]+)"/);
+  if (!formMatch) throw new Error("Could not find Keycloak login form (status " + response.status + ")");
+  client.global.set("keycloak_login_url", formMatch[1].replace(/&amp;/g, "&"));
+
+  const setCookies = response.headers.valuesOf("Set-Cookie");
+  const cookieStr = setCookies.map(function(c) { return c.split(";")[0]; }).join("; ");
+  client.global.set("keycloak_session_cookies", cookieStr);
+%}
+
+
+### ============================================================
+### 3. SUBMIT LOGIN FORM — obtain authorization code
+### ============================================================
+
+# @name submit_keycloak_login
+// @no-redirect
+# @no-cookie-jar
+POST {{keycloak_login_url}}
+Content-Type: application/x-www-form-urlencoded
+Cookie: {{keycloak_session_cookies}}
+
+username={{keycloak_username}}&password={{keycloak_password}}
+
+> {%
+  const location = response.headers.valueOf("Location");
+  if (!location) throw new Error("No Location header after login (status " + response.status + "); check credentials");
+  const codeMatch = location.match(/[?&]code=([^&]+)/);
+  if (!codeMatch) throw new Error("No authorization code in redirect: " + location);
+  client.global.set("keycloak_auth_code", codeMatch[1]);
+%}
+
+
+### ============================================================
+### 4. SIGN IN to DIAL dial-oauth external service
+### ============================================================
+
+# @name sign_in_dial_oauth
+# @no-cookie-jar
+POST {{dial_url}}/v1/ops/external-service/signin
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "url": "applications/{{app_id}}/external_services/dial-oauth",
+  "credentials_level": "USER",
+  "authentication_type": "OAUTH",
+  "code": "{{keycloak_auth_code}}",
+  "redirect_uri": "{{keycloak_redirect_uri}}",
+  "offline_usage_consent": true
+}
+
+> {%
+  if (response.status !== 200) throw new Error("Sign-in failed (" + response.status + "): " + JSON.stringify(response.body));
+  client.log("Sign-in successful");
+%}
+
+
+### ============================================================
+### 5. GET DIAL APP (verify registration)
+### ============================================================
+
+# @name get_dial_app
+# @no-cookie-jar
+GET {{dial_url}}/v1/applications/{{app_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}

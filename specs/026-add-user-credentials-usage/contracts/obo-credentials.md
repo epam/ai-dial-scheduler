@@ -11,13 +11,13 @@ Content-Type: application/json
 
 {
   "url": "applications/{scheduler_app_id}/external_services/{service_id}",
-  "owner_sub": "{schedule.created_by}"
+  "owner_user_id": "{schedule.created_by}"
 }
 ```
 
 - `scheduler_app_id` — from `settings.scheduler_app_id` (default `"dial_scheduler"`).
 - `service_id` — from the schedule row (`"dial-oauth"` for migrated/legacy schedules).
-- `owner_sub` — the schedule's stored `created_by` (the user subject for new schedules).
+- `owner_user_id` — the schedule's stored `created_by` (the user subject for new schedules).
 - The `Api-Key` here authenticates the OBO request itself and is **never** forwarded to the target.
 
 ## Response — success (2xx)

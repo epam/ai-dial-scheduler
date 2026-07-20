@@ -46,7 +46,7 @@ call site (executors, retry policy, and all tests) must supply real values.
 ```text
 OboCredentialsRequest:
     url: str            # "applications/{scheduler_app_id}/external_services/{service_id}"
-    owner_sub: str      # the schedule's created_by
+    owner_user_id: str  # the schedule's created_by
 
 OboCredentials:
     header_name: str
@@ -66,7 +66,7 @@ Schedule run lifecycle (worker), credential step inserted before target executio
 create_in_progress (status=in_progress)
         │
         ▼
-resolve owner_sub + service_id  ── schedule row missing/lookup failed ──► mark_credentials_error(
+resolve owner_user_id + service_id  ── schedule row missing/lookup failed ──► mark_credentials_error(
         │                                                                   RunError(stage="credentials", ...))
         │                                                                   [terminal]
         ▼

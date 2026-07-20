@@ -1,6 +1,6 @@
 # Phase 0 Research: Per-User Credentials for Schedule Execution
 
-## §1. Where the worker gets `service_id` and `owner_sub` at run time
+## §1. Where the worker gets `service_id` and `owner_user_id` at run time
 
 **Decision**: Read `service_id` and `created_by` from the `schedules` table (new
 `ScheduleRepository.get_by_id(schedule_id)`), not from APScheduler job kwargs.
@@ -19,19 +19,19 @@ in-progress run), so this adds one indexed PK lookup.
 - *Store `service_id` inside `ScheduleProperties`/`kwargs`* — conflates credential source with
   target-call properties and inherits the same stale-kwargs problem.
 
-## §2. `owner_sub` value and the `user_id_path_list` change
+## §2. `owner_user_id` value and the `user_id_path_list` change
 
-**Decision**: `owner_sub` for the OBO request is the schedule's stored `created_by`.
+**Decision**: `owner_user_id` for the OBO request is the schedule's stored `created_by`.
 `user_id_path_list` default becomes `["sub", "project"]`, so newly created schedules store the
 subject claim as `created_by`.
 
 **Rationale**: Scheduled runs are unattended — there is no incoming `Api-Key`/token in the worker
 to re-resolve identity, so the owner must come from what was stored at create time. DIAL's OBO
-`owner_sub` expects the user subject; `sub` is the correct claim. `extract_user_id` already walks
+`owner_user_id` expects the user subject; `sub` is the correct claim. `extract_user_id` already walks
 the ordered path list against the DIAL `/v1/user/info` body, so only the default list changes.
 
 **Consequence (accepted)**: Schedules created before this change stored an email-style
-`created_by` (from `userClaims.email.0`). Their OBO lookup will pass that email as `owner_sub`;
+`created_by` (from `userClaims.email.0`). Their OBO lookup will pass that email as `owner_user_id`;
 if DIAL cannot resolve it, the run is recorded as a credentials error (spec User Story 2,
 Scenario 3 — best-effort, no bulk backfill of `created_by`).
 
@@ -71,7 +71,7 @@ per-request `extra_headers` is already wired and scoped to the call.
 - Method/URL: `POST {dial_url}/v1/ops/external-service/obo-credentials`
 - Auth: `Api-Key: {settings.dial_api_key}` (the scheduler service key authenticates the OBO
   request itself — this is NOT sent to the target).
-- Body: `{"url": "applications/{scheduler_app_id}/external_services/{service_id}", "owner_sub": "{owner_sub}"}`
+- Body: `{"url": "applications/{scheduler_app_id}/external_services/{service_id}", "owner_user_id": "{owner_user_id}"}`
 - Success (2xx): parse `header_name` and `header_value` from the response body.
 - Failure ("credential not found" / non-2xx / transport error): surfaced to the caller with the
   response status and body so the worker can persist it in the run result.
@@ -158,7 +158,7 @@ that run against a live local DIAL stack (`dial/docker-compose.yml`). The script
 user token (password grant), drives the login form to get an authorization code, and calls DIAL's
 `POST /v1/ops/external-service/signin` for `applications/dial_scheduler/external_services/dial-oauth`
 — after which the scheduler's OBO fetch (`.../obo-credentials`) returns valid credentials for that
-user. The script prints the token's `sub`, which is the `owner_sub`/`created_by` a schedule must
+user. The script prints the token's `sub`, which is the `owner_user_id`/`created_by` a schedule must
 carry for the OBO lookup to resolve.
 
 **Rationale**: OAUTH OBO cannot be exercised end-to-end without a signed-in user; the helper makes
