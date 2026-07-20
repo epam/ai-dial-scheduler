@@ -95,7 +95,7 @@ produce a malformed `url` field. Low risk given expected values (`dial-oauth`), 
   implemented — required non-empty validator on `ScheduleRequest`, migration follows the
   nullable → backfill `dial-oauth` → NOT NULL sequence, endpoint docstrings/examples updated.
 - **FR-005/006/012/013**: OBO request built with `applications/{scheduler_app_id}/external_services/{service_id}`
-  and `owner_sub = created_by`, owner/service read authoritatively from the `schedules` row via the
+  and `owner_user_id = created_by`, owner/service read authoritatively from the `schedules` row via the
   new `get_by_id`. `user_id_path_list` updated to `["sub", "project"]`, `scheduler_app_id` default
   `dial_scheduler`. All correct.
 - **FR-007/008**: OBO header replaces the shared key across REST/SSE generically (verified by the

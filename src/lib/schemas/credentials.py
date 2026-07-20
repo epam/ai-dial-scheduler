@@ -5,7 +5,7 @@ from pydantic import BaseModel, SecretStr
 
 class OboCredentialsRequest(BaseModel):
     url: str
-    owner_sub: str
+    owner_user_id: str
 
 
 class OboCredentials(BaseModel):

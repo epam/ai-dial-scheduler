@@ -43,7 +43,7 @@ Web service + worker with shared library: `src/api/`, `src/worker/`, `src/lib/`;
 
 - [X] T002 [P] Settings test in `tests/unit/lib/test_settings.py`: assert `scheduler_app_id == "dial_scheduler"` and `user_id_path_list == ["sub", "project"]` defaults.
 - [X] T003 [P] Repository test in `tests/unit/lib/repositories/test_schedule_repository.py`: `get_by_id` returns the schedule (incl. `service_id`, `created_by`) regardless of owner, and `None` when absent.
-- [X] T004 [P] DialClient test in `tests/unit/lib/clients/test_dial_client.py`: `get_obo_credentials` POSTs to `/v1/ops/external-service/obo-credentials` with `Api-Key`, body `url=applications/{scheduler_app_id}/external_services/{service_id}` and `owner_sub`; parametrized BOTH external-service auth types per `dial/core/config-template.json` — API_KEY (`header_name="Api-Key"`) and OAUTH (`header_name="Authorization"`, value `"Bearer <token>"`); maps non-2xx, missing fields, and transport errors to a credentials failure carrying the response.
+- [X] T004 [P] DialClient test in `tests/unit/lib/clients/test_dial_client.py`: `get_obo_credentials` POSTs to `/v1/ops/external-service/obo-credentials` with `Api-Key`, body `url=applications/{scheduler_app_id}/external_services/{service_id}` and `owner_user_id`; parametrized BOTH external-service auth types per `dial/core/config-template.json` — API_KEY (`header_name="Api-Key"`) and OAUTH (`header_name="Authorization"`, value `"Bearer <token>"`); maps non-2xx, missing fields, and transport errors to a credentials failure carrying the response.
 - [X] T005 [P] Migration test in `tests/unit/migrations/test_add_service_id.py`: after upgrade, pre-existing rows have `service_id == "dial-oauth"` and the column is NOT NULL.
 
 ### Implementation
@@ -82,7 +82,7 @@ Web service + worker with shared library: `src/api/`, `src/worker/`, `src/lib/`;
 - [X] T021 [P] [US1] Updated `SseExecutor` in `src/worker/executors/sse.py`: same header change; removed shared key.
 - [X] T022 [P] [US1] Updated `ChatCompletionExecutor` in `src/worker/executors/chat_completion.py`: `AsyncAzureOpenAI(api_key=...)` set to `ctx.auth_header_value.get_secret_value()`, stripping a leading `"Bearer "` prefix if present; `properties.extra_headers` still forwarded; shared-key usage removed.
 - [X] T023 [US1] Updated `_execute_scheduled_job_inner` in `src/worker/jobs.py`: after creating the in-progress run and validating properties, `_resolve_credentials` loads the schedule via `ScheduleRepository.get_by_id`, builds `OboCredentialsRequest`, calls `DialClient.get_obo_credentials`, populates `RunContext.auth_header_name/value` on success, then proceeds to `execute_with_policy`.
-- [X] T024 [US1] Added structured logging (`credentials_fetch_start`/`credentials_fetch_succeeded`) in `src/worker/jobs.py`, keyed by `schedule_id`/`run_id`/`service_id`/`owner_sub`; `header_value` confirmed never logged (secret-hygiene tests + grep review).
+- [X] T024 [US1] Added structured logging (`credentials_fetch_start`/`credentials_fetch_succeeded`) in `src/worker/jobs.py`, keyed by `schedule_id`/`run_id`/`service_id`/`owner_user_id`; `header_value` confirmed never logged (secret-hygiene tests + grep review).
 
 **Checkpoint**: MVP — schedules execute with per-user credentials; no shared key on target requests. Verified against a real DIAL/Keycloak stack (`tests/integration/test_real_dial_credentials.py`).
 

@@ -119,8 +119,8 @@ class Settings(BaseSettings):
     job_coalesce: bool = False
     job_max_instances: int = 1
     job_misfire_grace_time: int = 60
-    user_id_path_list: list[str] = ["sub", "userClaims.sub.0", "project"]
-    scheduler_app_id: str = "public/dial_scheduler__1.0.0"
+    user_id_path_list: list[str] = ["userId", "project"]
+    scheduler_app_id: str = "public/dial_scheduler"
     mcp_enabled: bool = True
     mcp_path: str = "/mcp"
     readiness_db_timeout_seconds: float = 2.0

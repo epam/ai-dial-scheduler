@@ -75,7 +75,7 @@ class TestUserIdPathList:
 
         s = Settings()
 
-        assert s.user_id_path_list == ["sub", "userClaims.sub.0", "project"]
+        assert s.user_id_path_list == ["userId", "project"]
 
     def test_user_id_path_list_override(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
@@ -96,7 +96,7 @@ class TestSchedulerAppId:
 
         s = Settings()
 
-        assert s.scheduler_app_id == "public/dial_scheduler__1.0.0"
+        assert s.scheduler_app_id == "public/dial_scheduler"
 
     def test_scheduler_app_id_override(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")

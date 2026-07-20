@@ -30,7 +30,7 @@ Key tests that must pass (created test-first during `/speckit-implement`):
 - **Migration**: existing schedule rows get `service_id = "dial-oauth"`; column is NOT NULL after upgrade.
 - **Settings**: `scheduler_app_id == "dial_scheduler"`; `user_id_path_list == ["sub", "project"]`.
 - **DialClient.get_obo_credentials**: builds `url = applications/{scheduler_app_id}/external_services/{service_id}`
-  and `owner_sub`, sends `Api-Key`; parses `header_name`/`header_value`; maps non-2xx / missing
+  and `owner_user_id`, sends `Api-Key`; parses `header_name`/`header_value`; maps non-2xx / missing
   fields / transport error to a credentials failure carrying the response.
 - **Executors (rest/sse/chat_completion)**: outgoing request carries the OBO header and NO
   shared `Api-Key` from settings; OBO header overrides a same-named `extra_headers` entry.
