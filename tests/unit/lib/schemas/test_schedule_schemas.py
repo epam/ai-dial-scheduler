@@ -171,6 +171,62 @@ class TestScheduleProperties:
             )
 
 
+class TestCreateConversation:
+    def test_defaults_to_false(self):
+        props = ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://example.com/api",
+            api_version="2024-02-01",
+        )
+        assert props.create_conversation is False
+
+    def test_accepted_for_chat_completion(self):
+        props = ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://example.com/api",
+            api_version="2024-02-01",
+            create_conversation=True,
+        )
+        assert props.create_conversation is True
+
+    def test_rejected_for_rest(self):
+        with pytest.raises(ValidationError, match="create_conversation is only allowed"):
+            ScheduleProperties(
+                target_type=TargetType.REST,
+                url="https://example.com/api",
+                method=HttpMethod.POST,
+                create_conversation=True,
+            )
+
+    def test_rejected_for_sse(self):
+        with pytest.raises(ValidationError, match="create_conversation is only allowed"):
+            ScheduleProperties(
+                target_type=TargetType.SSE,
+                url="https://example.com/sse",
+                method=HttpMethod.POST,
+                create_conversation=True,
+            )
+
+    def test_false_allowed_for_rest(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            create_conversation=False,
+        )
+        assert props.create_conversation is False
+
+    def test_survives_kwargs_roundtrip(self):
+        props = ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://example.com/api",
+            api_version="2024-02-01",
+            create_conversation=True,
+        )
+        rebuilt = ScheduleProperties(**props.model_dump(mode="json"))
+        assert rebuilt.create_conversation is True
+
+
 class TestScheduleTimeout:
     def test_timeout_defaults_to_none(self):
         props = ScheduleProperties(target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST)

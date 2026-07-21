@@ -93,6 +93,7 @@ class ScheduleProperties(BaseModel):
     api_version: str | None = None
     timeout: float | None = None
     retry: RetryPolicy | None = None
+    create_conversation: bool = False
 
     @field_validator("url")
     @classmethod
@@ -121,6 +122,8 @@ class ScheduleProperties(BaseModel):
                 raise ValueError(f"method is required for target_type '{self.target_type}'")
             if self.api_version is not None:
                 raise ValueError(f"api_version must not be set for target_type '{self.target_type}'")
+            if self.create_conversation:
+                raise ValueError("create_conversation is only allowed for target_type 'chat_completion'")
         return self
 
 

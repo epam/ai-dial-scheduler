@@ -1,0 +1,92 @@
+### Variables
+@baseUrl = {{dial_url}}/v1/deployments/applications/{{app_id}}/route
+
+
+### ============================================================
+### LIST SCHEDULES
+### ============================================================
+
+# @name list_schedules
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### CREATE CHAT COMPLETION SCHEDULE (fires every 30 s)
+### ============================================================
+
+# @name create_chat_completion_schedule
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Real DIAL streaming smoke test",
+  "service_id": "dial-oauth",
+  "trigger": {
+    "cron": {"fields": {"second": "*/30"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview",
+    "create_conversation": true
+  }
+}
+
+> {% client.global.set("schedule_id", response.body["id"]) %}
+
+
+### ============================================================
+### LIST SCHEDULE RUNS
+### ============================================================
+
+# @name schedule_runs
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {% client.global.set("run_id", response.body["results"][0]["id"]) %}
+
+
+### ============================================================
+### GET SCHEDULE RUN DETAILS
+### ============================================================
+
+# @name schedule_run_details
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs/{{run_id}}
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### GET BUCKET
+### ============================================================
+
+# @name bucket
+GET {{dial_url}}/v1/bucket
+Authorization: Bearer {{user_token}}
+
+> {% client.global.set("bucket", response.body["bucket"]) %}
+
+
+### ============================================================
+### GET CONVERSATION
+### ============================================================
+
+# @name get_conversation
+GET {{dial_url}}/v1/conversations/{{bucket}}/.scheduler/{{schedule_id}}/{{run_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### PAUSE SCHEDULE
+### ============================================================
+
+# @name pause_schedule
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/pause
+Authorization: Bearer {{user_token}}

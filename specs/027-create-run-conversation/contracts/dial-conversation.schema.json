@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aidial-scheduler/specs/027/dial-conversation.schema.json",
+  "title": "DialConversation",
+  "description": "Conversation document written by the scheduler to PUT /v1/conversations/{bucket}/.scheduler/{schedule_id}/{run_id}. Mirrors the DIAL Chat conversation shape (see conversations/gpt-5-6 and conversations/app fixtures).",
+  "type": "object",
+  "required": ["id", "name", "model", "messages"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "conversations/{bucket}/.scheduler/{schedule_id}/{run_id}"
+    },
+    "name": {
+      "type": "string",
+      "description": "Display name derived from the user prompt (truncated)."
+    },
+    "model": { "$ref": "#/$defs/model" },
+    "prompt": { "type": "string", "default": "" },
+    "temperature": { "type": "number", "default": 1 },
+    "folderId": {
+      "type": "string",
+      "description": "conversations/{bucket}/.scheduler/{schedule_id}"
+    },
+    "messages": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "Exactly two messages: user then assistant.",
+      "items": { "$ref": "#/$defs/message" }
+    },
+    "selectedAddons": { "type": "array", "items": { "type": "string" }, "default": [] },
+    "updatedAt": { "type": "integer", "description": "Epoch milliseconds at creation." },
+    "responseFormat": { "type": "string", "default": "Markdown" }
+  },
+  "$defs": {
+    "model": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Deployment id for model deployments; resolved application 'reference' for application deployments."
+        }
+      }
+    },
+    "message": {
+      "type": "object",
+      "required": ["role", "content", "model"],
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "content": { "type": "string" },
+        "model": { "$ref": "#/$defs/model" },
+        "settings": {
+          "type": "object",
+          "properties": {
+            "prompt": { "type": "string" },
+            "temperature": { "type": "number" },
+            "selectedAddons": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "custom_content": {
+          "type": ["object", "null"],
+          "description": "Assistant only. Copied verbatim from the assembled completion's choices[0].message.custom_content (tool_execution_history, stages, etc.)."
+        },
+        "responseId": {
+          "type": "string",
+          "description": "Assistant only, optional. Completion id when available."
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "id": "conversations/9p6N8pJg8BRJCsCs9uvb6mzwCRAe6NBJfDva5ckebXWHjirHvHYSk5MUHCzb5xjSRF/.scheduler/sched-123/run-abc",
+      "name": "hi",
+      "model": { "id": "gpt-5.6-sol-2026-07-09-reasoning" },
+      "prompt": "",
+      "temperature": 1,
+      "folderId": "conversations/9p6N8pJg8BRJCsCs9uvb6mzwCRAe6NBJfDva5ckebXWHjirHvHYSk5MUHCzb5xjSRF/.scheduler/sched-123",
+      "messages": [
+        {
+          "role": "user",
+          "content": "hi",
+          "model": { "id": "gpt-5.6-sol-2026-07-09-reasoning" },
+          "settings": { "prompt": "", "temperature": 1, "selectedAddons": [] }
+        },
+        {
+          "role": "assistant",
+          "content": "Hi! How can I help?",
+          "model": { "id": "gpt-5.6-sol-2026-07-09-reasoning" },
+          "settings": { "prompt": "", "temperature": 1, "selectedAddons": [] }
+        }
+      ],
+      "selectedAddons": [],
+      "updatedAt": 1784286243253,
+      "responseFormat": "Markdown"
+    }
+  ]
+}

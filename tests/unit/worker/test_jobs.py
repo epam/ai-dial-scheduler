@@ -638,7 +638,7 @@ class TestExecuteScheduledJobTimeoutAndRetry:
 
 
 class TestExecuteScheduledJobCredentials:
-    async def test_injects_obo_header_into_run_context(self, mocker, mock_run_repo):
+    async def test_injects_obo_header_into_credentials(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job
 
         mock_executor = mocker.AsyncMock()
@@ -655,9 +655,9 @@ class TestExecuteScheduledJobCredentials:
                 extra_headers={},
             )
 
-        ctx = mock_executor.execute.call_args.args[0]
-        assert ctx.auth_header_name == "Api-Key"
-        assert ctx.auth_header_value.get_secret_value() == "obo-token"
+        credentials = mock_executor.execute.call_args.args[1]
+        assert credentials.header_name == "Api-Key"
+        assert credentials.header_value.get_secret_value() == "obo-token"
 
     async def test_requests_credentials_for_owner_and_service(self, mocker, mock_run_repo, mock_credentials):
         from src.worker.jobs import execute_scheduled_job

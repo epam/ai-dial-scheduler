@@ -6,6 +6,7 @@ import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.worker.executors.rest import RestExecutor
@@ -16,9 +17,8 @@ SCHEDULE_ID = "sched-001"
 CTX = RunContext(
     run_id=RUN_ID,
     schedule_id=SCHEDULE_ID,
-    auth_header_name="Api-Key",
-    auth_header_value=SecretStr("obo-token"),
 )
+CREDS = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
 
 # (header_name, header_value) shapes for both external-service auth types.
 AUTH_TYPE_CASES = [
@@ -69,7 +69,7 @@ class TestRestExecutorHappyPath:
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         mock_client.request.assert_called_once()
         call_kwargs = mock_client.request.call_args
@@ -79,17 +79,12 @@ class TestRestExecutorHappyPath:
 
     @pytest.mark.parametrize("header_name, header_value", AUTH_TYPE_CASES)
     async def test_injects_obo_header_and_no_shared_key(self, mock_client, header_name, header_value):
-        ctx = RunContext(
-            run_id=RUN_ID,
-            schedule_id=SCHEDULE_ID,
-            auth_header_name=header_name,
-            auth_header_value=SecretStr(header_value),
-        )
+        creds = OboCredentials(header_name=header_name, header_value=SecretStr(header_value))
         props = make_properties()
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(ctx, props)
+            await executor.execute(CTX, creds, props)
 
         headers = mock_client.request.call_args.kwargs["headers"]
         assert headers[header_name] == header_value
@@ -97,17 +92,12 @@ class TestRestExecutorHappyPath:
         assert set(headers) == {header_name}
 
     async def test_obo_header_overrides_same_named_extra_header(self, mock_client):
-        ctx = RunContext(
-            run_id=RUN_ID,
-            schedule_id=SCHEDULE_ID,
-            auth_header_name="Api-Key",
-            auth_header_value=SecretStr("obo-wins"),
-        )
+        creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-wins"))
         props = make_properties(extra_headers={"Api-Key": "stale", "X-Custom": "val"})
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(ctx, props)
+            await executor.execute(CTX, creds, props)
 
         headers = mock_client.request.call_args.kwargs["headers"]
         assert headers["Api-Key"] == "obo-wins"
@@ -118,24 +108,19 @@ class TestRestExecutorHappyPath:
         executor = RestExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         result_logs = [entry for entry in logs if entry.get("event") == "run_result"]
         assert len(result_logs) == 1
         assert result_logs[0]["run_id"] == RUN_ID
 
     async def test_obo_secret_not_in_logs(self, mock_client):
-        ctx = RunContext(
-            run_id=RUN_ID,
-            schedule_id=SCHEDULE_ID,
-            auth_header_name="Api-Key",
-            auth_header_value=SecretStr("my-secret-key"),
-        )
+        creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("my-secret-key"))
         props = make_properties()
         executor = RestExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(ctx, props)
+            await executor.execute(CTX, creds, props)
 
         for log in logs:
             assert "my-secret-key" not in str(log)
@@ -151,7 +136,7 @@ class TestRestExecutorReturnsResult:
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            result = await executor.execute(CTX, props)
+            result = await executor.execute(CTX, CREDS, props)
 
         assert result["status_code"] == 200
         assert result["body"] == {"ok": True}
@@ -165,7 +150,7 @@ class TestRestExecutorReturnsResult:
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            result = await executor.execute(CTX, props)
+            result = await executor.execute(CTX, CREDS, props)
 
         assert result["status_code"] == 200
         assert result["body"] == "plain text response"
@@ -180,7 +165,7 @@ class TestRestExecutorFailurePath:
         executor = RestExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.run_id == RUN_ID
         assert exc_info.value.schedule_id == SCHEDULE_ID
@@ -191,7 +176,7 @@ class TestRestExecutorFailurePath:
         executor = RestExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.run_id == RUN_ID
         assert exc_info.value.schedule_id == SCHEDULE_ID
@@ -206,7 +191,7 @@ class TestRestExecutorFailurePath:
         executor = RestExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.status_code == 502
 
@@ -216,7 +201,7 @@ class TestRestExecutorFailurePath:
         executor = RestExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.status_code is None
 
@@ -226,15 +211,13 @@ class TestRestExecutorTimeout:
         ctx = RunContext(
             run_id=RUN_ID,
             schedule_id=SCHEDULE_ID,
-            auth_header_name="Api-Key",
-            auth_header_value=SecretStr("obo-token"),
             effective_timeout=15.0,
         )
         props = make_properties()
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(ctx, props)
+            await executor.execute(ctx, CREDS, props)
 
         assert "timeout" in mock_client.request.call_args.kwargs
         assert mock_client.request.call_args.kwargs["timeout"] == httpx.Timeout(15.0)
@@ -244,6 +227,6 @@ class TestRestExecutorTimeout:
         executor = RestExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert "timeout" not in mock_client.request.call_args.kwargs

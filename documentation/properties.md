@@ -8,7 +8,8 @@ Represents the task run configuration and has the following structure:
     "url": "http://example.com/some",
     "payload": {"messages": [{"role": "user", "content": "some"}]},
     "extra_headers": {"tenant_id": "hcscd"},
-    "api_version": "str|null"
+    "api_version": "str|null",
+    "create_conversation": "bool"
 }
 
 The structure is restricted by the API, which is the only place where changes may
@@ -23,5 +24,10 @@ occur; it is not enforced by the database.
   header_value`) always overrides any same-named entry in `extra_headers` — callers cannot use
   `extra_headers` to override or bypass the authenticated identity a schedule runs as.
 - `api_version` — type: nullable str. Used only for chat completion.
+- `create_conversation` — type: bool, defaults to `false`. Only allowed for `target_type`
+  `chat_completion`; setting it `true` for `rest`/`sse` is rejected with a validation error. When
+  `true`, a successful run's prompt and assembled response are saved as a DIAL conversation under
+  the run owner's storage bucket. Failure to create the conversation is non-fatal and does not
+  affect the run outcome.
 
 Has a corresponding Pydantic model and is validated before each run start.

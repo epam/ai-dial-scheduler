@@ -31,7 +31,8 @@ Request
     "url": "",
     "payload": {},
     "extra_headers": {"tenant_id": "hcscd"},
-    "api_version": "str"
+    "api_version": "str",
+    "create_conversation": "bool"
   }
 }
 ```
@@ -93,7 +94,8 @@ Request
     "url": "",
     "payload": {},
     "extra_headers": {"tenant_id": "hcscd"},
-    "api_version": "str"
+    "api_version": "str",
+    "create_conversation": "bool"
   }
 }
 ```

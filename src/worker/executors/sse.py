@@ -5,6 +5,7 @@ import httpx_sse
 from httpx_sse import aconnect_sse
 
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
@@ -12,8 +13,10 @@ from src.worker.clients import HttpClientProvider
 
 
 class SseExecutor:
-    async def execute(self, ctx: RunContext, properties: ScheduleProperties) -> dict[str, Any]:
-        headers = {**properties.extra_headers, ctx.auth_header_name: ctx.auth_header_value.get_secret_value()}
+    async def execute(
+        self, ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
+    ) -> dict[str, Any]:
+        headers = {**properties.extra_headers, credentials.header_name: credentials.header_value.get_secret_value()}
         events: list[dict[str, str]] = []
         client = HttpClientProvider().client
 

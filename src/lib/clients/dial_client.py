@@ -2,8 +2,15 @@ from typing import Any
 
 import httpx
 
-from src.lib.constants import API_KEY_HEADER, OBO_CREDENTIALS_PATH
-from src.lib.exceptions.errors import DialServiceError, OboCredentialsError
+from src.lib.constants import (
+    API_KEY_HEADER,
+    APPLICATION_DETAILS_PATH_TEMPLATE,
+    BUCKET_PATH,
+    CONVERSATION_PATH_TEMPLATE,
+    OBO_CREDENTIALS_PATH,
+)
+from src.lib.exceptions.errors import ConversationCreationError, DialServiceError, OboCredentialsError
+from src.lib.schemas.conversation import ApplicationDetails, DialConversation
 from src.lib.schemas.credentials import OboCredentials, OboCredentialsRequest
 
 
@@ -76,6 +83,99 @@ class DialClient:
                 response_body=body,
             )
         return OboCredentials(header_name=body["header_name"], header_value=body["header_value"])
+
+    async def get_bucket(self, credentials: OboCredentials) -> str:
+        """Resolve the caller's DIAL storage bucket id via GET {base_url}/v1/bucket.
+
+        Args:
+            credentials: The run owner's on-behalf-of credentials.
+
+        Returns:
+            The bucket id used to build conversation storage paths.
+
+        Raises:
+            ConversationCreationError: On any non-2xx, transport error, or a body missing
+                ``bucket``. Callers treat this as a non-fatal, post-run failure.
+        """
+        url = f"{self._base_url}{BUCKET_PATH}"
+        headers = {credentials.header_name: credentials.header_value.get_secret_value()}
+        try:
+            response = await self._http_client.get(url, headers=headers, timeout=self._timeout)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ConversationCreationError(f"bucket request failed with status {exc.response.status_code}") from exc
+        except httpx.HTTPError as exc:
+            raise ConversationCreationError(f"bucket request failed: {exc}") from exc
+
+        body = _safe_body(response)
+        if not isinstance(body, dict) or not body.get("bucket"):
+            raise ConversationCreationError("bucket response missing 'bucket'")
+        return str(body["bucket"])
+
+    async def get_application(self, credentials: OboCredentials, application_id: str) -> ApplicationDetails:
+        """Fetch application details to resolve the underlying model ``reference``.
+
+        Calls GET {base_url}/v1/applications/{application_id}. Only used for
+        application deployments (ids beginning with ``applications/``).
+
+        Args:
+            credentials: The run owner's on-behalf-of credentials.
+            application_id: The application deployment id (e.g. ``applications/{bucket}/{name}``).
+
+        Returns:
+            Parsed application details carrying the model ``reference``.
+
+        Raises:
+            ConversationCreationError: On any non-2xx, transport error, or a body missing
+                ``reference``.
+        """
+        path = APPLICATION_DETAILS_PATH_TEMPLATE.format(application_id=application_id)
+        url = f"{self._base_url}{path}"
+        headers = {credentials.header_name: credentials.header_value.get_secret_value()}
+        try:
+            response = await self._http_client.get(url, headers=headers, timeout=self._timeout)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ConversationCreationError(
+                f"application details request failed with status {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ConversationCreationError(f"application details request failed: {exc}") from exc
+
+        body = _safe_body(response)
+        try:
+            return ApplicationDetails.model_validate(body)
+        except ValueError as exc:
+            raise ConversationCreationError("application details response missing 'reference'") from exc
+
+    async def put_conversation(self, credentials: OboCredentials, path: str, conversation: DialConversation) -> None:
+        """Write a conversation document via PUT {base_url}/v1/conversations/{path}.
+
+        Args:
+            credentials: The run owner's on-behalf-of credentials.
+            path: The conversation resource path (``{bucket}/{folder...}/{name}``) without the
+                ``/v1/conversations/`` prefix.
+            conversation: The conversation document to store.
+
+        Raises:
+            ConversationCreationError: On any non-2xx response or transport error.
+        """
+        url = f"{self._base_url}{CONVERSATION_PATH_TEMPLATE.format(conversation_path=path)}"
+        headers = {credentials.header_name: credentials.header_value.get_secret_value()}
+        try:
+            response = await self._http_client.put(
+                url,
+                headers=headers,
+                json=conversation.model_dump(exclude_none=True),
+                timeout=self._timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise ConversationCreationError(
+                f"conversation write failed with status {exc.response.status_code}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ConversationCreationError(f"conversation write failed: {exc}") from exc
 
 
 def _safe_body(response: httpx.Response) -> Any:
