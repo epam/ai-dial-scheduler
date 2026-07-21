@@ -96,7 +96,7 @@ class TestSchedulerAppId:
 
         s = Settings()
 
-        assert s.scheduler_app_id == "public/dial_scheduler"
+        assert s.scheduler_app_id == "public/dial_scheduler__1.0.0"
 
     def test_scheduler_app_id_override(self, monkeypatch):
         monkeypatch.setenv("DIAL_URL", "https://dial.example.com")
