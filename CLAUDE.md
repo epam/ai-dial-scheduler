@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/026-add-user-credentials-usage/plan.md` (Execute Schedules with Per-User Credentials)
+- Current plan: `specs/027-create-run-conversation/plan.md` (Create DIAL Conversation on Run Complete)
 <!-- SPECKIT END -->

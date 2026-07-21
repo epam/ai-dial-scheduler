@@ -6,6 +6,7 @@ import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.worker.executors.sse import SseExecutor
@@ -16,9 +17,8 @@ SCHEDULE_ID = "sched-sse-001"
 CTX = RunContext(
     run_id=RUN_ID,
     schedule_id=SCHEDULE_ID,
-    auth_header_name="Api-Key",
-    auth_header_value=SecretStr("obo-token"),
 )
+CREDS = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
 
 # (header_name, header_value) shapes for both external-service auth types.
 AUTH_TYPE_CASES = [
@@ -74,7 +74,7 @@ class TestSseExecutorHappyPath:
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         call_kwargs = mock_connect.call_args
         assert call_kwargs.args[1] == "POST"
@@ -94,17 +94,12 @@ class TestSseExecutorHappyPath:
 
         mock_connect = mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
 
-        ctx = RunContext(
-            run_id=RUN_ID,
-            schedule_id=SCHEDULE_ID,
-            auth_header_name=header_name,
-            auth_header_value=SecretStr(header_value),
-        )
+        creds = OboCredentials(header_name=header_name, header_value=SecretStr(header_value))
         props = make_properties()
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(ctx, props)
+            await executor.execute(CTX, creds, props)
 
         headers = mock_connect.call_args.kwargs["headers"]
         assert headers[header_name] == header_value
@@ -132,7 +127,7 @@ class TestSseExecutorHappyPath:
         executor = SseExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         event_logs = [entry for entry in logs if entry.get("event") == "sse_event"]
         assert len(event_logs) == 2
@@ -154,7 +149,7 @@ class TestSseExecutorHappyPath:
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
     async def test_obo_secret_not_in_logs(self, mock_client, mocker):
         async def async_iter():
@@ -169,17 +164,12 @@ class TestSseExecutorHappyPath:
 
         mocker.patch("src.worker.executors.sse.aconnect_sse", return_value=event_source)
 
-        ctx = RunContext(
-            run_id=RUN_ID,
-            schedule_id=SCHEDULE_ID,
-            auth_header_name="Api-Key",
-            auth_header_value=SecretStr("my-sse-secret"),
-        )
+        creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("my-sse-secret"))
         props = make_properties()
         executor = SseExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(ctx, props)
+            await executor.execute(CTX, creds, props)
 
         for log in logs:
             assert "my-sse-secret" not in str(log)
@@ -208,7 +198,7 @@ class TestSseExecutorReturnsResult:
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            result = await executor.execute(CTX, props)
+            result = await executor.execute(CTX, CREDS, props)
 
         assert result == {"events": [{"event": "data", "data": "chunk1"}, {"event": "data", "data": "chunk2"}]}
 
@@ -229,7 +219,7 @@ class TestSseExecutorReturnsResult:
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            result = await executor.execute(CTX, props)
+            result = await executor.execute(CTX, CREDS, props)
 
         assert result == {"events": []}
 
@@ -251,7 +241,7 @@ class TestSseExecutorFailurePath:
         executor = SseExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.run_id == RUN_ID
         assert exc_info.value.schedule_id == SCHEDULE_ID
@@ -273,7 +263,7 @@ class TestSseExecutorFailurePath:
         executor = SseExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.status_code == 503
 
@@ -295,15 +285,13 @@ class TestSseExecutorTimeout:
         ctx = RunContext(
             run_id=RUN_ID,
             schedule_id=SCHEDULE_ID,
-            auth_header_name="Api-Key",
-            auth_header_value=SecretStr("obo-token"),
             effective_timeout=20.0,
         )
         props = make_properties()
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(ctx, props)
+            await executor.execute(ctx, CREDS, props)
 
         assert mock_connect.call_args.kwargs["timeout"] == httpx.Timeout(20.0)
 
@@ -324,6 +312,6 @@ class TestSseExecutorTimeout:
         executor = SseExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert "timeout" not in mock_connect.call_args.kwargs

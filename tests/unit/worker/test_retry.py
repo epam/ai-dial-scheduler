@@ -7,12 +7,14 @@ import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import RetryPolicy, ScheduleProperties
 from src.worker.retry import execute_with_policy
 
 
-CTX = RunContext(run_id="run-1", schedule_id="sched-1", auth_header_name="Api-Key", auth_header_value=SecretStr("t"))
+CTX = RunContext(run_id="run-1", schedule_id="sched-1")
+CREDS = OboCredentials(header_name="Api-Key", header_value=SecretStr("t"))
 
 
 def make_properties(**kwargs) -> ScheduleProperties:
@@ -34,7 +36,7 @@ class ScriptedExecutor:
         self.steps = list(steps)
         self.calls = 0
 
-    async def execute(self, ctx, properties):
+    async def execute(self, ctx, credentials, properties):
         step = self.steps[self.calls]
         self.calls += 1
         if isinstance(step, BaseException):
@@ -47,7 +49,7 @@ class SlowExecutor:
         self.delay = delay
         self.calls = 0
 
-    async def execute(self, ctx, properties):
+    async def execute(self, ctx, credentials, properties):
         self.calls += 1
         await asyncio.sleep(self.delay)
         return {"status_code": 200, "body": {}}
@@ -75,7 +77,7 @@ class TestSingleAttempt:
         props = make_properties()
 
         with structlog.testing.capture_logs() as logs:
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is True
         assert outcome.result == {"status_code": 200, "body": {"ok": True}}
@@ -90,7 +92,7 @@ class TestSingleAttempt:
         props = make_properties()
 
         with structlog.testing.capture_logs() as logs:
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert outcome.error is not None
@@ -115,7 +117,7 @@ class TestTimeout:
         props = make_properties(timeout=30)
 
         with structlog.testing.capture_logs():
-            await execute_with_policy(CTX, props, executor)
+            await execute_with_policy(CTX, CREDS, props, executor)
 
         assert captured["timeout"] == 30.0
 
@@ -135,7 +137,7 @@ class TestTimeout:
         props = make_properties()
 
         with structlog.testing.capture_logs():
-            await execute_with_policy(CTX, props, executor)
+            await execute_with_policy(CTX, CREDS, props, executor)
 
         assert captured["timeout"] == 45.0
 
@@ -148,7 +150,7 @@ class TestTimeout:
         props = make_properties()
 
         with structlog.testing.capture_logs() as logs:
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert outcome.error is not None
@@ -166,7 +168,7 @@ class TestTimeout:
         props = make_properties(retry=RetryPolicy(interval_sequence=[1, 2], retryable_errors=[500]))
 
         with structlog.testing.capture_logs():
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert executor.calls == 1
@@ -174,14 +176,12 @@ class TestTimeout:
 
 class TestEffectiveTimeoutThreading:
     async def test_sets_ctx_effective_timeout_from_properties(self):
-        ctx = RunContext(
-            run_id="run-2", schedule_id="sched-2", auth_header_name="Api-Key", auth_header_value=SecretStr("t")
-        )
+        ctx = RunContext(run_id="run-2", schedule_id="sched-2")
         executor = ScriptedExecutor({"status_code": 200, "body": {}})
         props = make_properties(timeout=42)
 
         with structlog.testing.capture_logs():
-            await execute_with_policy(ctx, props, executor)
+            await execute_with_policy(ctx, CREDS, props, executor)
 
         assert ctx.effective_timeout == 42.0
 
@@ -190,14 +190,12 @@ class TestEffectiveTimeoutThreading:
             "src.worker.retry.get_settings",
             return_value=mocker.MagicMock(worker_http=mocker.MagicMock(timeout_seconds=45.0)),
         )
-        ctx = RunContext(
-            run_id="run-3", schedule_id="sched-3", auth_header_name="Api-Key", auth_header_value=SecretStr("t")
-        )
+        ctx = RunContext(run_id="run-3", schedule_id="sched-3")
         executor = ScriptedExecutor({"status_code": 200, "body": {}})
         props = make_properties()
 
         with structlog.testing.capture_logs():
-            await execute_with_policy(ctx, props, executor)
+            await execute_with_policy(ctx, CREDS, props, executor)
 
         assert ctx.effective_timeout == 45.0
 
@@ -206,7 +204,7 @@ class TestEffectiveTimeoutThreading:
         props = make_properties(retry=RetryPolicy(interval_sequence=[3], retryable_errors=[500]))
 
         with structlog.testing.capture_logs() as logs:
-            await execute_with_policy(CTX, props, executor)
+            await execute_with_policy(CTX, CREDS, props, executor)
 
         decision_logs = [log for log in logs if log.get("event") in ("attempt_start", "retry_scheduled")]
         assert decision_logs
@@ -221,7 +219,7 @@ class TestRetry:
         props = make_properties(retry=RetryPolicy(interval_sequence=[2, 5], retryable_errors=[500]))
 
         with structlog.testing.capture_logs() as logs:
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is True
         assert executor.calls == 2
@@ -235,7 +233,7 @@ class TestRetry:
         props = make_properties(retry=RetryPolicy(interval_sequence=[2, 5, 8], retryable_errors=[500, 502]))
 
         with structlog.testing.capture_logs() as logs:
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert executor.calls == 4
@@ -248,7 +246,7 @@ class TestRetry:
         props = make_properties(retry=RetryPolicy(interval_sequence=[2, 5], retryable_errors=[500]))
 
         with structlog.testing.capture_logs() as logs:
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert executor.calls == 1
@@ -260,7 +258,7 @@ class TestRetry:
         props = make_properties(retry=RetryPolicy(interval_sequence=[1, 1], retryable_errors=[500]))
 
         with structlog.testing.capture_logs():
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert executor.calls == 3  # 1 initial + 2 retries
@@ -271,7 +269,7 @@ class TestRetry:
         props = make_properties(retry=RetryPolicy(interval_sequence=[2], retryable_errors=[500]))
 
         with structlog.testing.capture_logs():
-            outcome = await execute_with_policy(CTX, props, executor)
+            outcome = await execute_with_policy(CTX, CREDS, props, executor)
 
         assert outcome.succeeded is False
         assert executor.calls == 1
@@ -284,7 +282,7 @@ class TestLogging:
         props = make_properties(timeout=12, retry=RetryPolicy(interval_sequence=[3], retryable_errors=[500]))
 
         with structlog.testing.capture_logs() as logs:
-            await execute_with_policy(CTX, props, executor)
+            await execute_with_policy(CTX, CREDS, props, executor)
 
         starts = [log for log in logs if log.get("event") == "attempt_start"]
         assert len(starts) == 2
@@ -297,7 +295,7 @@ class TestLogging:
         props = make_properties(retry=RetryPolicy(interval_sequence=[7], retryable_errors=[502]))
 
         with structlog.testing.capture_logs() as logs:
-            await execute_with_policy(CTX, props, executor)
+            await execute_with_policy(CTX, CREDS, props, executor)
 
         scheduled = [log for log in logs if log.get("event") == "retry_scheduled"]
         assert len(scheduled) == 1

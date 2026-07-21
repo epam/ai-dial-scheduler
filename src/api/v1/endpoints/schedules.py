@@ -35,6 +35,7 @@ _SCHEDULE_EXAMPLES = {
                     "stream": True,
                 },
                 "api_version": "2025-01-01-preview",
+                "create_conversation": False,
             },
         },
     },

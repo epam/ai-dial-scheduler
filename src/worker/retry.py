@@ -4,6 +4,7 @@ from enum import StrEnum
 from typing import Any
 
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
@@ -44,7 +45,9 @@ class RunOutcome:
     attempt_count: int
 
 
-async def execute_with_policy(ctx: RunContext, properties: ScheduleProperties, executor: Executor) -> RunOutcome:
+async def execute_with_policy(
+    ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties, executor: Executor
+) -> RunOutcome:
     """Run the executor honoring the schedule's per-attempt timeout and retry policy.
 
     A single effective timeout (the schedule's ``timeout`` or the default worker HTTP
@@ -86,7 +89,7 @@ async def execute_with_policy(ctx: RunContext, properties: ScheduleProperties, e
         )
 
         try:
-            result = await asyncio.wait_for(executor.execute(ctx, properties), timeout=effective_timeout)
+            result = await asyncio.wait_for(executor.execute(ctx, credentials, properties), timeout=effective_timeout)
         except asyncio.TimeoutError:
             error = ScheduleRunError(
                 f"execution timed out after {effective_timeout}s",

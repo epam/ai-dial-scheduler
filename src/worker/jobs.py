@@ -8,6 +8,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from src.lib.clients.dial_client import DialClient
 from src.lib.constants import EXTERNAL_SERVICE_URL_TEMPLATE, HEARTBEAT_JOB_NAME
 from src.lib.db.engine import Database
+from src.lib.db.enums import TargetType
 from src.lib.exceptions.errors import OboCredentialsError, ScheduleRunError
 from src.lib.models.schedule import Schedule as _Schedule  # noqa: F401 — registers schedules table for FK resolution
 from src.lib.repositories.schedule_repository import ScheduleRepository
@@ -18,6 +19,7 @@ from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
+from src.worker.conversation import create_run_conversation
 from src.worker.dispatcher import resolve_executor
 from src.worker.health import touch_heartbeat
 from src.worker.retry import execute_with_policy
@@ -63,6 +65,28 @@ async def _persist_credentials_error(run_id: str, schedule_id: str, error: RunEr
         logger.warning("run_record_missing", run_id=run_id, schedule_id=schedule_id)
     else:
         logger.info("run_recorded_error", run_id=run_id, schedule_id=schedule_id)
+
+
+async def _maybe_create_conversation(
+    ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties, result: dict[str, Any]
+) -> None:
+    """Best-effort DIAL conversation creation after a successful chat completion run.
+
+    Only runs for chat completion schedules that opted in via ``create_conversation``. Any
+    failure is logged and swallowed so it never changes the already-successful run outcome
+    (FR-013). No prompt/response content or credentials are logged.
+    """
+    if properties.target_type != TargetType.CHAT_COMPLETION or not properties.create_conversation:
+        return
+    try:
+        await create_run_conversation(ctx, credentials, properties, result)
+    except Exception as exc:
+        logger.error(
+            "conversation_create_failed",
+            run_id=ctx.run_id,
+            schedule_id=ctx.schedule_id,
+            reason=str(exc),
+        )
 
 
 async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
@@ -166,17 +190,14 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
         credentials = await _resolve_credentials(run_id, schedule_id)
 
         executor = resolve_executor(properties.target_type)
-        ctx = RunContext(
-            run_id=run_id,
-            schedule_id=schedule_id,
-            auth_header_name=credentials.header_name,
-            auth_header_value=credentials.header_value,
-        )
-        outcome = await execute_with_policy(ctx, properties, executor)
+        ctx = RunContext(run_id=run_id, schedule_id=schedule_id)
+        outcome = await execute_with_policy(ctx, credentials, properties, executor)
 
         if outcome.succeeded:
-            await _persist_success(run_id, schedule_id, outcome.result or {})
+            result = outcome.result or {}
+            await _persist_success(run_id, schedule_id, result)
             logger.info("run_complete", run_id=run_id, schedule_id=schedule_id, attempts=outcome.attempt_count)
+            await _maybe_create_conversation(ctx, credentials, properties, result)
         else:
             error = outcome.error or ScheduleRunError("run failed", schedule_id=schedule_id, run_id=run_id)
             logger.error(

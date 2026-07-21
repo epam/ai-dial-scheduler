@@ -34,6 +34,15 @@ class DialServiceError(SchedulerError):
     """Raised when the DIAL service is unreachable or returns an unexpected non-2xx response."""
 
 
+class ConversationCreationError(SchedulerError):
+    """Raised when a DIAL conversation cannot be created after a successful run.
+
+    This is a worker-internal, non-fatal signal: it is always caught at the job boundary,
+    logged for diagnostics, and never re-raised past a successful run's outcome (FR-013).
+    It never carries issued credentials or streamed content.
+    """
+
+
 class OboCredentialsError(SchedulerError):
     """Raised when on-behalf-of credentials cannot be obtained for a schedule's owner.
 

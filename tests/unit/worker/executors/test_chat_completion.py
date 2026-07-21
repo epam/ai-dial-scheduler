@@ -8,29 +8,61 @@ import structlog.testing
 
 from src.lib.db.enums import TargetType
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.worker.executors.chat_completion import ChatCompletionExecutor
 
 
+class _FakeStream:
+    """Async context manager mimicking client.chat.completions.stream(...)."""
+
+    def __init__(self, events, final):
+        self._events = events
+        self._final = final
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def __aiter__(self):
+        async def _gen():
+            for event in self._events:
+                yield event
+
+        return _gen()
+
+    async def get_final_completion(self):
+        return self._final
+
+
+def _mock_stream(mocker, events=None, final=None):
+    """Patch AsyncAzureOpenAI so .chat.completions.stream returns a fake stream."""
+    mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+    mock_instance = mocker.MagicMock()
+    mock_client_cls.return_value = mock_instance
+    if final is None:
+        final = mocker.MagicMock(spec=ChatCompletion)
+        final.model_dump.return_value = {"id": "cmpl-1", "choices": []}
+    stream = _FakeStream(events or [], final)
+    mock_instance.chat.completions.stream = mocker.MagicMock(return_value=stream)
+    return mock_client_cls, mock_instance, stream
+
+
 RUN_ID = "run-cc-001"
 SCHEDULE_ID = "sched-cc-001"
-CTX = RunContext(
-    run_id=RUN_ID,
-    schedule_id=SCHEDULE_ID,
-    auth_header_name="Api-Key",
-    auth_header_value=SecretStr("obo-token"),
-)
+CTX = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID)
+CREDS = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
 
 
-def make_ctx(header_value: str, header_name: str = "Api-Key", **kwargs) -> RunContext:
-    return RunContext(
-        run_id=RUN_ID,
-        schedule_id=SCHEDULE_ID,
-        auth_header_name=header_name,
-        auth_header_value=SecretStr(header_value),
-        **kwargs,
-    )
+def make_ctx(**kwargs) -> RunContext:
+    return RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, **kwargs)
+
+
+def make_creds(header_value: str, header_name: str = "Api-Key") -> OboCredentials:
+    return OboCredentials(header_name=header_name, header_value=SecretStr(header_value))
 
 
 def make_properties(**kwargs) -> ScheduleProperties:
@@ -62,10 +94,7 @@ def mock_http_client(mocker):
 
 
 def _mock_azure(mocker):
-    mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
-    mock_instance = mocker.AsyncMock()
-    mock_client_cls.return_value = mock_instance
-    mock_instance.chat.completions.create = mocker.AsyncMock(return_value=mocker.MagicMock(spec=ChatCompletion))
+    mock_client_cls, mock_instance, _ = _mock_stream(mocker)
     return mock_client_cls, mock_instance
 
 
@@ -77,7 +106,7 @@ class TestChatCompletionExecutorHappyPath:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert mock_client_cls.call_args.kwargs["azure_endpoint"] == "https://dial.example.com"
 
@@ -88,7 +117,7 @@ class TestChatCompletionExecutorHappyPath:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert mock_client_cls.call_args.kwargs["azure_deployment"] == "gpt-4"
 
@@ -99,7 +128,7 @@ class TestChatCompletionExecutorHappyPath:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(make_ctx("raw-api-key", header_name="Api-Key"), props)
+            await executor.execute(CTX, make_creds("raw-api-key", header_name="Api-Key"), props)
 
         assert mock_client_cls.call_args.kwargs["api_key"] == "raw-api-key"
 
@@ -110,7 +139,7 @@ class TestChatCompletionExecutorHappyPath:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(make_ctx("Bearer abc.def.ghi", header_name="Authorization"), props)
+            await executor.execute(CTX, make_creds("Bearer abc.def.ghi", header_name="Authorization"), props)
 
         assert mock_client_cls.call_args.kwargs["api_key"] == "abc.def.ghi"
 
@@ -121,83 +150,58 @@ class TestChatCompletionExecutorHappyPath:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)  # should not raise
+            await executor.execute(CTX, CREDS, props)  # should not raise
 
-    async def test_single_response_logs_one_record(self, mocker):
-        _mock_azure(mocker)
+    async def test_stream_events_log_event_type_only(self, mocker):
+        events = [mocker.MagicMock(type="chunk"), mocker.MagicMock(type="content.delta")]
+        _mock_stream(mocker, events=events)
 
         props = make_properties()
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
-        result_logs = [entry for entry in logs if entry.get("event") in ("run_result", "stream_chunk")]
-        assert len(result_logs) == 1
-        assert result_logs[0]["run_id"] == RUN_ID
+        event_logs = [entry for entry in logs if entry.get("event") == "stream_event"]
+        assert len(event_logs) == 2
+        assert {e["event_type"] for e in event_logs} == {"chunk", "content.delta"}
 
-    async def test_stream_logs_one_record_per_chunk(self, mocker):
-        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
-        mock_instance = mocker.AsyncMock()
-        mock_client_cls.return_value = mock_instance
+    async def test_returns_assembled_result_for_non_stream(self, mocker):
+        final = mocker.MagicMock(spec=ChatCompletion)
+        final.model_dump.return_value = {"id": "cmpl-1", "choices": []}
+        _mock_stream(mocker, final=final)
 
-        chunks = [mocker.MagicMock(), mocker.MagicMock(), mocker.MagicMock()]
-
-        async def async_stream():
-            for c in chunks:
-                yield c
-
-        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=async_stream())
-
-        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
-        executor = ChatCompletionExecutor()
-
-        with structlog.testing.capture_logs() as logs:
-            await executor.execute(CTX, props)
-
-        chunk_logs = [entry for entry in logs if entry.get("event") == "stream_chunk"]
-        assert len(chunk_logs) == 3
-
-    async def test_returns_result_dict_for_non_stream(self, mocker):
-        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
-        mock_instance = mocker.AsyncMock()
-        mock_client_cls.return_value = mock_instance
-        completion = mocker.MagicMock(spec=ChatCompletion)
-        completion.model_dump.return_value = {"id": "cmpl-1", "choices": []}
-        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=completion)
-
-        props = make_properties()
+        props = make_properties()  # stream defaults to False
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            result = await executor.execute(CTX, props)
+            result = await executor.execute(CTX, CREDS, props)
 
-        assert "result" in result
+        assert result == {"result": {"id": "cmpl-1", "choices": []}}
 
-    async def test_returns_chunks_list_for_stream(self, mocker):
-        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
-        mock_instance = mocker.AsyncMock()
-        mock_client_cls.return_value = mock_instance
-
-        chunk1 = mocker.MagicMock()
-        chunk1.model_dump.return_value = {"id": "c1"}
-        chunk2 = mocker.MagicMock()
-        chunk2.model_dump.return_value = {"id": "c2"}
-
-        async def async_stream():
-            yield chunk1
-            yield chunk2
-
-        mock_instance.chat.completions.create = mocker.AsyncMock(return_value=async_stream())
+    async def test_returns_assembled_result_for_stream(self, mocker):
+        final = mocker.MagicMock(spec=ChatCompletion)
+        final.model_dump.return_value = {"id": "cmpl-2", "choices": []}
+        _mock_stream(mocker, events=[mocker.MagicMock(type="chunk")], final=final)
 
         props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            result = await executor.execute(CTX, props)
+            result = await executor.execute(CTX, CREDS, props)
 
-        assert "chunks" in result
-        assert len(result["chunks"]) == 2
+        assert result == {"result": {"id": "cmpl-2", "choices": []}}
+
+    async def test_stream_flag_not_passed_to_client(self, mocker):
+        _, mock_instance, _ = _mock_stream(mocker)
+
+        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
+        executor = ChatCompletionExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(CTX, CREDS, props)
+
+        assert "stream" not in mock_instance.chat.completions.stream.call_args.kwargs
 
     async def test_obo_secret_not_in_logs(self, mocker):
         _mock_azure(mocker)
@@ -206,7 +210,7 @@ class TestChatCompletionExecutorHappyPath:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs() as logs:
-            await executor.execute(make_ctx("super-secret-cc"), props)
+            await executor.execute(CTX, make_creds("super-secret-cc"), props)
 
         for log in logs:
             assert "super-secret-cc" not in str(log)
@@ -215,32 +219,32 @@ class TestChatCompletionExecutorHappyPath:
 class TestChatCompletionExecutorFailurePath:
     async def test_api_status_error_captures_status_code(self, mocker):
         mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
-        mock_instance = mocker.AsyncMock()
+        mock_instance = mocker.MagicMock()
         mock_client_cls.return_value = mock_instance
         response = mocker.MagicMock()
         response.status_code = 500
         api_error = openai.APIStatusError("server error", response=response, body=None)
-        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=api_error)
+        mock_instance.chat.completions.stream = mocker.MagicMock(side_effect=api_error)
 
         props = make_properties()
         executor = ChatCompletionExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.status_code == 500
 
     async def test_generic_error_has_no_status_code(self, mocker):
         mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
-        mock_instance = mocker.AsyncMock()
+        mock_instance = mocker.MagicMock()
         mock_client_cls.return_value = mock_instance
-        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=ValueError("bad payload"))
+        mock_instance.chat.completions.stream = mocker.MagicMock(side_effect=ValueError("bad payload"))
 
         props = make_properties()
         executor = ChatCompletionExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
         assert exc_info.value.status_code is None
 
@@ -249,14 +253,14 @@ class TestChatCompletionExecutorTimeout:
     async def test_effective_timeout_passed_through_when_set(self, mocker):
         _, mock_instance = _mock_azure(mocker)
 
-        ctx = make_ctx("obo-token", effective_timeout=25.0)
+        ctx = make_ctx(effective_timeout=25.0)
         props = make_properties()
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(ctx, props)
+            await executor.execute(ctx, CREDS, props)
 
-        assert mock_instance.chat.completions.create.call_args.kwargs["timeout"] == 25.0
+        assert mock_instance.chat.completions.stream.call_args.kwargs["timeout"] == 25.0
 
     async def test_no_timeout_kwarg_when_absent(self, mocker):
         _, mock_instance = _mock_azure(mocker)
@@ -265,6 +269,6 @@ class TestChatCompletionExecutorTimeout:
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
-            await executor.execute(CTX, props)
+            await executor.execute(CTX, CREDS, props)
 
-        assert "timeout" not in mock_instance.chat.completions.create.call_args.kwargs
+        assert "timeout" not in mock_instance.chat.completions.stream.call_args.kwargs

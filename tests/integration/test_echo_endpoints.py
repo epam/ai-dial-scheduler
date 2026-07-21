@@ -24,6 +24,7 @@ from src.api.v1.echo_chat import EchoChatCompletion
 from src.api.v1.endpoints.echo import router as echo_router
 from src.lib.db.enums import HttpMethod, TargetType
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 
@@ -69,13 +70,11 @@ def _make_asgi_client_factory(app: FastAPI):
 # ---------------------------------------------------------------------------
 
 
+_CREDS = OboCredentials(header_name="Api-Key", header_value=SecretStr("test-key"))
+
+
 def _make_ctx(run_id: str, schedule_id: str = "s1") -> RunContext:
-    return RunContext(
-        run_id=run_id,
-        schedule_id=schedule_id,
-        auth_header_name="Api-Key",
-        auth_header_value=SecretStr("test-key"),
-    )
+    return RunContext(run_id=run_id, schedule_id=schedule_id)
 
 
 @pytest.fixture
@@ -119,7 +118,7 @@ class TestRestExecutorWithEchoEndpoint:
             extra_headers={},
         )
         with structlog.testing.capture_logs() as logs:
-            await RestExecutor().execute(ctx, props)
+            await RestExecutor().execute(ctx, _CREDS, props)
 
         result_logs = [e for e in logs if e.get("event") == "run_result"]
         assert len(result_logs) == 1
@@ -137,7 +136,7 @@ class TestRestExecutorWithEchoEndpoint:
             extra_headers={},
         )
         with pytest.raises(ScheduleRunError) as exc_info:
-            await RestExecutor().execute(ctx, props)
+            await RestExecutor().execute(ctx, _CREDS, props)
 
         assert exc_info.value.run_id == "r2"
         assert exc_info.value.schedule_id == "s1"
@@ -154,7 +153,7 @@ class TestRestExecutorWithEchoEndpoint:
             extra_headers={},
         )
         with structlog.testing.capture_logs():
-            await RestExecutor().execute(ctx, props)  # should not raise or hang
+            await RestExecutor().execute(ctx, _CREDS, props)  # should not raise or hang
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +181,7 @@ class TestSseExecutorWithEchoEndpoint:
             extra_headers={},
         )
         with structlog.testing.capture_logs() as logs:
-            await SseExecutor().execute(ctx, props)
+            await SseExecutor().execute(ctx, _CREDS, props)
 
         sse_logs = [e for e in logs if e.get("event") == "sse_event"]
         assert len(sse_logs) == 4
@@ -199,7 +198,7 @@ class TestSseExecutorWithEchoEndpoint:
             extra_headers={},
         )
         with pytest.raises(ScheduleRunError) as exc_info:
-            await SseExecutor().execute(ctx, props)
+            await SseExecutor().execute(ctx, _CREDS, props)
 
         assert exc_info.value.run_id == "r5"
 
@@ -215,7 +214,7 @@ class TestSseExecutorWithEchoEndpoint:
             extra_headers={},
         )
         with structlog.testing.capture_logs() as logs:
-            await SseExecutor().execute(ctx, props)
+            await SseExecutor().execute(ctx, _CREDS, props)
 
         assert not any(e.get("event") == "sse_event" for e in logs)
 
@@ -234,7 +233,7 @@ class TestChatCompletionExecutorWithEchoEndpoint:
             mocker.patch("src.worker.executors.chat_completion.HttpClientProvider", return_value=provider)
             yield
 
-    async def test_streaming_logs_one_entry_per_chunk(self, dial_server: str) -> None:
+    async def test_streaming_returns_assembled_result(self, dial_server: str) -> None:
         from src.worker.executors.chat_completion import ChatCompletionExecutor
 
         ctx = _make_ctx("r7")
@@ -246,16 +245,17 @@ class TestChatCompletionExecutorWithEchoEndpoint:
             api_version="2024-02-01",
         )
         with structlog.testing.capture_logs() as logs:
-            await ChatCompletionExecutor().execute(ctx, props)
+            result = await ChatCompletionExecutor().execute(ctx, _CREDS, props)
 
-        # DIAL SDK wraps content in protocol chunks (role + content × N + finish_reason).
-        # Count only the content-bearing chunks to match EchoChatCompletion._CHUNKS.
-        chunk_logs = [
-            e for e in logs if e.get("event") == "stream_chunk" and "content='chunk" in str(e.get("chunk", ""))
-        ]
-        assert len(chunk_logs) == 3  # EchoChatCompletion._CHUNKS
+        # Streaming schedules assemble a single completion via get_final_completion(),
+        # so the stored result has the same shape as a non-streaming run.
+        assert "result" in result
+        assert result["result"]["choices"][0]["message"]["role"] == "assistant"
+        # Stream events log only their type discriminator, never streamed content.
+        event_logs = [e for e in logs if e.get("event") == "stream_event"]
+        assert len(event_logs) >= 1
 
-    async def test_non_streaming_logs_single_result(self, dial_server: str) -> None:
+    async def test_non_streaming_returns_assembled_result(self, dial_server: str) -> None:
         from src.worker.executors.chat_completion import ChatCompletionExecutor
 
         ctx = _make_ctx("r8")
@@ -266,9 +266,8 @@ class TestChatCompletionExecutorWithEchoEndpoint:
             extra_headers={},
             api_version="2024-02-01",
         )
-        with structlog.testing.capture_logs() as logs:
-            await ChatCompletionExecutor().execute(ctx, props)
+        with structlog.testing.capture_logs():
+            result = await ChatCompletionExecutor().execute(ctx, _CREDS, props)
 
-        result_logs = [e for e in logs if e.get("event") == "run_result"]
-        assert len(result_logs) == 1
-        assert result_logs[0]["run_id"] == "r8"
+        assert "result" in result
+        assert result["result"]["choices"][0]["message"]["role"] == "assistant"
