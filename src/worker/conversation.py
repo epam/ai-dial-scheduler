@@ -14,10 +14,10 @@ from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
 
 
-def _payload_temperature(properties: ScheduleProperties) -> float | None:
-    """Return the temperature from the payload, or ``None`` when not provided."""
+def _payload_temperature(properties: ScheduleProperties) -> float:
+    """Return the temperature from the payload, or ``1`` when not provided."""
     value = properties.payload.get("temperature")
-    return value if isinstance(value, (int, float)) else None
+    return value if isinstance(value, (int, float)) else 1
 
 
 def _assistant_message(result: dict[str, Any]) -> dict[str, Any]:
@@ -75,9 +75,7 @@ def build_conversation(
     """
     model = DialModel(id=build_input.model_id)
     temperature = _payload_temperature(properties)
-    settings: dict[str, Any] = {"prompt": "", "selectedAddons": []}
-    if temperature is not None:
-        settings["temperature"] = temperature
+    settings: dict[str, Any] = {"prompt": "", "selectedAddons": [], "temperature": temperature}
 
     history = _build_history_messages(properties, model, settings)
 

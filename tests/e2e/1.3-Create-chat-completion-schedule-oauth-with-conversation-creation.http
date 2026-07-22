@@ -12,47 +12,30 @@ Authorization: Bearer {{user_token}}
 
 
 ### ============================================================
-### SIGN IN — API KEY
+### CREATE CHAT COMPLETION SCHEDULE (fires once, immediately)
 ### ============================================================
 
-# @name sign_in_api_key
-POST {{dial_url}}/v1/ops/external-service/signin
-Authorization: Bearer {{user_token}}
-
-{
-  "url": "applications/{{app_id}}/external_services/dial-api-key",
-  "credentials_level": "USER",
-  "authentication_type": "API_KEY",
-  "api_key": "{{admin_api_key}}",
-  "offline_usage_consent": true
-}
-
-
-### ============================================================
-### CREATE RESPONSES SCHEDULE (fires every 30 s)
-### ============================================================
-
-# @name create_responses_schedule
+# @name create_chat_completion_schedule
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
 Authorization: Bearer {{user_token}}
 
 {
-  "display_name": "Real DIAL responses BG smoke test",
-  "service_id": "dial-api-key",
+  "display_name": "Real DIAL streaming smoke test",
+  "service_id": "dial-oauth",
   "trigger": {
-    "cron": {"fields": {"second": "*/30"}}
+    "date": "{{$isoTimestamp}}"
   },
   "properties": {
-    "target_type": "responses",
-    "url": "{{dial_url}}/openai/v1",
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
     "payload": {
-      "input": "hello, how are you?",
-      "model": "gpt-5.6-luna-2026-07-09",
-      "stream": false,
-      "background": true
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
     },
-    "api_version": "2025-01-01-preview"
+    "api_version": "2025-01-01-preview",
+    "create_conversation": true
   }
 }
 
@@ -80,9 +63,21 @@ Authorization: Bearer {{user_token}}
 
 
 ### ============================================================
-### PAUSE SCHEDULE
+### GET BUCKET
 ### ============================================================
 
-# @name pause_schedule
-POST {{baseUrl}}/v1/schedules/{{schedule_id}}/pause
+# @name bucket
+GET {{dial_url}}/v1/bucket
+Authorization: Bearer {{user_token}}
+
+> {% client.global.set("bucket", response.body["bucket"]) %}
+
+
+### ============================================================
+### GET CONVERSATION
+### ============================================================
+
+# @name get_conversation
+GET {{dial_url}}/v1/conversations/{{bucket}}/.scheduler/{{schedule_id}}/{{run_id}}
+Content-Type: application/json
 Authorization: Bearer {{user_token}}
