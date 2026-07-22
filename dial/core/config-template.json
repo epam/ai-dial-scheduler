@@ -1,106 +1,31 @@
 {
-  "applications": {
-    "dial_scheduler": {
-      "name": "dial_scheduler",
-      "display_name": "DIAL Scheduler",
-      "mcp": {
-        "endpoint": "http://host.docker.internal:5000/mcp",
-        "transport": "http",
-        "allowedTools": [],
-        "configDelivery": "meta",
-        "forwardPerRequestKey": true
-      },
-      "routes": {
-        "main": {
-          "name": "main",
-          "rewritePath": true,
-          "paths": [
-            "/.*"
-          ],
-          "methods": [
-            "DELETE",
-            "GET",
-            "PATCH",
-            "POST",
-            "PUT"
-          ],
-          "upstreams": [
-            {
-              "endpoint": "http://host.docker.internal:5000",
-              "weight": 1,
-              "tier": 0
-            }
-          ],
-          "maxRetryAttempts": 1,
-          "order": 2147483647,
-          "permissions": [
-            "READ",
-            "WRITE"
-          ],
-          "attachmentPaths": {
-            "requestBody": [],
-            "responseBody": []
-          }
-        }
-      },
-      "app_identity": "85bc6d7ada251caf0cadcefc4882a53e23662957e016705ef925aa3bc46649e9",
-      "allow_user_external_services": true,
-      "external_services": {
-        "dial-api-key": {
-          "display_name": "dial-api-key",
-          "auth_settings": {
-            "authentication_type": "API_KEY",
-            "api_key_header": "Api-Key"
-          }
-        },
-        "dial-oauth": {
-          "display_name": "dial-oauth",
-          "auth_settings": {
-            "authentication_type": "OAUTH",
-            "client_id": "dial-chat",
-            "client_secret": "keycloak_secret",
-            "authorization_endpoint": "http://host.docker.internal:8900/realms/dial/protocol/openid-connect/auth",
-            "token_endpoint": "http://host.docker.internal:8900/realms/dial/protocol/openid-connect/token",
-            "redirect_uri": "http://localhost:3100/callback",
-            "scopes_supported": [
-              "openid",
-              "offline_access"
-            ]
-          }
-        }
-      }
-    }
-  },
   "models": {
     "gpt-4.1-mini-2025-04-14": {
       "type": "chat",
       "name": "gpt-4.1-mini-2025-04-14",
       "endpoint": "http://adapter-dial:5000/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
       "displayName": "gpt-4.1-mini-2025-04-14",
-      "forwardAuthToken": false,
-      "descriptionKeywords": [
-        "Text Generation",
-        "Continue Supported",
-        "Image Recognition",
-        "OCR Extraction"
-      ],
-      "inputAttachmentTypes": [
-        "*/*"
-      ],
-      "maxInputAttachments": 5,
-      "maxRetryAttempts": 3,
       "upstreams": [
         {
-          "endpoint": "{REMOTE_DIAL_URL}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
-          "key": "{REMOTE_DIAL_API_KEY}"
+          "endpoint": "<DIAL_URL>/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+          "key": "<DIAL_API_KEY>"
         }
-      ],
-      "pricing": {
-        "unit": "token",
-        "prompt": "0.000005",
-        "completion": "0.000025"
-      }
-    }
+      ]
+    },
+
+    "gpt-5.6-luna-2026-07-09": {
+      "type": "chat",
+      "name": "gpt-5.6-luna-2026-07-09",
+      "responsesEndpoint": "http://adapter-openai:5000/openai/v1/responses",
+      "displayName": "gpt-5.6-luna-2026-07-09",
+      "upstreams": [
+        {
+          "id": "0",
+          "responsesEndpoint": "<DIAL_URL>/openai/v1/responses",
+          "key": "<DAIL_API_KEY>"
+        }
+      ]
+  }
   },
   "keys": {
     "dial_api_key": {
@@ -108,7 +33,8 @@
       "project": "TEST-PROJECT",
       "secured": false,
       "roles": [
-        "default"
+        "default",
+        "admin"
       ]
     },
     "dial_scheduler_api_key": {
@@ -123,6 +49,11 @@
   "roles": {
     "default": {
       "name": "default",
+      "limits": {
+      }
+    },
+    "admin": {
+      "name": "admin",
       "limits": {
       }
     }

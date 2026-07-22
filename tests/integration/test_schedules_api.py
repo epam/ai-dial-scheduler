@@ -112,6 +112,22 @@ DATE_REQUEST: dict[str, Any] = {
     },
 }
 
+RESPONSES_REQUEST: dict[str, Any] = {
+    "display_name": "Responses Schedule",
+    "service_id": "dial-oauth",
+    "trigger": {
+        "cron": {
+            "fields": {"hour": 9, "minute": 0},
+        }
+    },
+    "properties": {
+        "target_type": "responses",
+        "url": "https://core.dial/openai/v1/responses",
+        "api_version": "2025-01-01-preview",
+        "payload": {"input": "Summarize yesterday's incidents", "model": "gpt-5.6"},
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 # POST /v1/schedules/
@@ -189,6 +205,35 @@ class TestCreateSchedule:
             result = await session.execute(sa.select(Schedule).where(schedules_table.c.created_by == "mock_user_id"))
             remaining = result.scalars().all()
         assert len(remaining) == 0
+
+
+class TestCreateResponsesSchedule:
+    async def test_create_responses_returns_201_and_echoes_target_type(self, client: httpx.AsyncClient) -> None:
+        response = await client.post("/v1/schedules/", json=RESPONSES_REQUEST)
+
+        assert response.status_code == 201
+        body = response.json()
+        assert body["properties"]["target_type"] == "responses"
+        assert body["properties"]["payload"]["stream"] is False
+
+    async def test_create_responses_rejects_method(self, client: httpx.AsyncClient) -> None:
+        bad = {**RESPONSES_REQUEST, "properties": {**RESPONSES_REQUEST["properties"], "method": "POST"}}
+        response = await client.post("/v1/schedules/", json=bad)
+        assert response.status_code == 422
+
+    async def test_create_responses_requires_api_version(self, client: httpx.AsyncClient) -> None:
+        props = {k: v for k, v in RESPONSES_REQUEST["properties"].items() if k != "api_version"}
+        bad = {**RESPONSES_REQUEST, "properties": props}
+        response = await client.post("/v1/schedules/", json=bad)
+        assert response.status_code == 422
+
+    async def test_create_responses_rejects_create_conversation(self, client: httpx.AsyncClient) -> None:
+        bad = {
+            **RESPONSES_REQUEST,
+            "properties": {**RESPONSES_REQUEST["properties"], "create_conversation": True},
+        }
+        response = await client.post("/v1/schedules/", json=bad)
+        assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------

@@ -110,13 +110,17 @@ class ScheduleProperties(BaseModel):
 
     @model_validator(mode="after")
     def validate_target_rules(self) -> "ScheduleProperties":
-        if self.target_type == TargetType.CHAT_COMPLETION:
+        if self.target_type in (TargetType.CHAT_COMPLETION, TargetType.RESPONSES):
             if self.method is not None:
-                raise ValueError("method must not be set for target_type 'chat_completion'")
+                raise ValueError(f"method must not be set for target_type '{self.target_type}'")
             if not self.api_version:
-                raise ValueError("api_version is required for target_type 'chat_completion'")
+                raise ValueError(f"api_version is required for target_type '{self.target_type}'")
             if "stream" not in self.payload:
                 self.payload = {**self.payload, "stream": False}
+            if self.target_type == TargetType.RESPONSES and not self.payload.get("model"):
+                raise ValueError("payload.model is required for target_type 'responses'")
+            if self.create_conversation and self.target_type != TargetType.CHAT_COMPLETION:
+                raise ValueError("create_conversation is only allowed for target_type 'chat_completion'")
         else:
             if self.method is None:
                 raise ValueError(f"method is required for target_type '{self.target_type}'")
