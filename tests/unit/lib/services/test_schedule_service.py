@@ -25,7 +25,8 @@ def make_request() -> ScheduleRequest:
         trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
-            url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            url="https://core.dial/openai/",
+            payload={"model": "gpt-4o"},
             api_version="2025-01-01-preview",
         ),
     )
@@ -49,7 +50,8 @@ def make_request_with_metadata(metadata: dict) -> ScheduleRequest:
         trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
-            url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            url="https://core.dial/openai/",
+            payload={"model": "gpt-4o"},
             api_version="2025-01-01-preview",
         ),
         metadata=metadata,
@@ -66,7 +68,8 @@ def make_date_request() -> ScheduleRequest:
         trigger=ScheduleTrigger(date=datetime(2026, 6, 12, 9, 0, tzinfo=timezone.utc)),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
-            url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            url="https://core.dial/openai/",
+            payload={"model": "gpt-4o"},
             api_version="2025-01-01-preview",
         ),
     )

@@ -23,6 +23,7 @@ def _valid_request_kwargs() -> dict:
         "properties": ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
+            payload={"model": "gpt-4o"},
             api_version="2025-01-01-preview",
         ),
     }
@@ -59,7 +60,8 @@ class TestScheduleProperties:
     def test_chat_completion_valid(self):
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
-            url="https://core.dial/openai/deployments/gpt-4o/chat/completions",
+            url="https://core.dial/openai/",
+            payload={"model": "gpt-4o"},
             api_version="2025-01-01-preview",
         )
         assert props.method is None
@@ -69,7 +71,7 @@ class TestScheduleProperties:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
-            payload={"messages": []},
+            payload={"model": "gpt-4o", "messages": []},
             api_version="2025-01-01-preview",
         )
         assert props.payload["stream"] is False
@@ -78,7 +80,7 @@ class TestScheduleProperties:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
-            payload={"stream": True},
+            payload={"model": "gpt-4o", "stream": True},
             api_version="2025-01-01-preview",
         )
         assert props.payload["stream"] is True
@@ -87,6 +89,7 @@ class TestScheduleProperties:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
+            payload={"model": "gpt-4o"},
             api_version="2024-02-01",
         )
         assert props.api_version == "2024-02-01"
@@ -96,6 +99,7 @@ class TestScheduleProperties:
             ScheduleProperties(
                 target_type=TargetType.CHAT_COMPLETION,
                 url="https://example.com/api",
+                payload={"model": "gpt-4o"},
             )
 
     def test_chat_completion_empty_api_version_raises(self):
@@ -103,7 +107,26 @@ class TestScheduleProperties:
             ScheduleProperties(
                 target_type=TargetType.CHAT_COMPLETION,
                 url="https://example.com/api",
+                payload={"model": "gpt-4o"},
                 api_version="",
+            )
+
+    def test_chat_completion_requires_model_in_payload(self):
+        with pytest.raises(ValidationError, match="payload.model is required"):
+            ScheduleProperties(
+                target_type=TargetType.CHAT_COMPLETION,
+                url="https://example.com/api",
+                payload={"messages": [{"role": "user", "content": "hi"}]},
+                api_version="2025-01-01-preview",
+            )
+
+    def test_chat_completion_empty_model_raises(self):
+        with pytest.raises(ValidationError, match="payload.model is required"):
+            ScheduleProperties(
+                target_type=TargetType.CHAT_COMPLETION,
+                url="https://example.com/api",
+                payload={"model": ""},
+                api_version="2025-01-01-preview",
             )
 
     def test_rest_requires_method(self):
@@ -149,6 +172,7 @@ class TestScheduleProperties:
             ScheduleProperties(
                 target_type=TargetType.CHAT_COMPLETION,
                 url="https://example.com/api",
+                payload={"model": "gpt-4o"},
                 method=HttpMethod.POST,
             )
 
@@ -176,6 +200,7 @@ class TestCreateConversation:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
+            payload={"model": "gpt-4o"},
             api_version="2024-02-01",
         )
         assert props.create_conversation is False
@@ -184,6 +209,7 @@ class TestCreateConversation:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
+            payload={"model": "gpt-4o"},
             api_version="2024-02-01",
             create_conversation=True,
         )
@@ -220,6 +246,7 @@ class TestCreateConversation:
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
             url="https://example.com/api",
+            payload={"model": "gpt-4o"},
             api_version="2024-02-01",
             create_conversation=True,
         )
@@ -466,6 +493,7 @@ class TestScheduleRequest:
                 properties=ScheduleProperties(
                     target_type=TargetType.CHAT_COMPLETION,
                     url="https://example.com/api",
+                    payload={"model": "gpt-4o"},
                     api_version="2025-01-01-preview",
                 ),
             )

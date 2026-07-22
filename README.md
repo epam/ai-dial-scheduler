@@ -263,7 +263,7 @@ The `api` service runs the FastAPI application.
 | `ECHO_ENDPOINTS` | `false` | No | Log all incoming HTTP requests and responses |
 | `MCP_ENABLED` | `true` | No | Enable the MCP endpoint |
 | `MCP_PATH` | `/mcp` | No | URL path for the MCP endpoint |
-| `USER_ID_PATH_LIST` | `["sub","userClaims.sub.0","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `USER_ID_PATH_LIST` | `["userId", "project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
 | `SCHEDULER_APP_ID` | `dial_scheduler` | No | This app's DIAL application id, used to build the on-behalf-of credentials request (`applications/{SCHEDULER_APP_ID}/external_services/{service_id}`) |
 | `READINESS_DB_TIMEOUT_SECONDS` | `2.0` | No | Timeout for the database check on `GET /ready` |
 | **Database** | | | |
@@ -306,7 +306,7 @@ The `worker` service runs the APScheduler background process that executes sched
 | `JOB_COALESCE` | `false` | No | Merge multiple queued misfired runs into one |
 | `JOB_MAX_INSTANCES` | `1` | No | Max concurrent instances of the same job |
 | `JOB_MISFIRE_GRACE_TIME` | `60` | No | Seconds after scheduled time a job is still allowed to run |
-| `USER_ID_PATH_LIST` | `["sub","userClaims.sub.0","project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
+| `USER_ID_PATH_LIST` | `["userId", "project"]` | No | Ordered JSON paths used to extract the caller's user ID from DIAL claims |
 | `SCHEDULER_APP_ID` | `dial_scheduler` | No | This app's DIAL application id, used to build the on-behalf-of credentials request (`applications/{SCHEDULER_APP_ID}/external_services/{service_id}`) |
 | `WORKER_HEALTH_DIR` | `/tmp` | No | Directory holding the `started`/`heartbeat`/`ready` marker files used by Kubernetes `exec` probes |
 | `WORKER_LIVENESS_STALENESS_SECONDS` | `180.0` | No | Max age of the `heartbeat` marker before the worker is considered hung |

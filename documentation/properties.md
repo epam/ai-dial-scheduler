@@ -6,7 +6,7 @@ Represents the task run configuration and has the following structure:
     "target_type": "chat_completion|responses|rest|sse",
     "method": "POST|PUT|GET|null",
     "url": "http://example.com/some",
-    "payload": {"messages": [{"role": "user", "content": "some"}]},
+    "payload": {"model": "gpt-4", "messages": [{"role": "user", "content": "some"}]},
     "extra_headers": {"tenant_id": "hcscd"},
     "api_version": "str|null",
     "create_conversation": "bool"
@@ -19,16 +19,17 @@ occur; it is not enforced by the database.
   `responses` behaves like `chat_completion` (same validation rules) but invokes the DIAL/OpenAI
   Responses API (a single `input`/`instructions` request) instead of the Chat Completions API.
 - `method` — type: nullable enum, one of the values listed above. Not used for chat completion or responses.
-- `url` — type: str. For chat completion, must be a valid OpenAI-compatible deployment URL
-  (`.../openai/deployments/{deployment}/chat/completions`). For responses, must be the Responses
-  API base URL (e.g. `.../openai/v1`); it is passed to the client as-is and the SDK appends the
-  `responses` path. Unlike chat completion the model is not encoded in the URL path — it is
-  supplied via `payload.model`.
+- `url` — type: str. For chat completion and responses, a base URL passed to the SDK as-is; the SDK
+  appends the endpoint path (`/chat/completions` or `/responses`). The exact base depends on the
+  DIAL deployment — typically `.../openai/` for a DIAL Core proxy or
+  `.../openai/deployments/{name}` when pointing at a specific deployment. The model/deployment is
+  not encoded in the URL path — it is supplied via `payload.model`.
 - `payload` — type: json. For chat completion and responses, the "stream" field is extracted if
   present, defaulting to false. When `stream` is true the executor uses the streaming SDK call and
   assembles the final result; otherwise (the default) it uses the non-streaming `.create()` call.
-  Either way the stored result shape is identical. For responses, `payload.model` is required (it
-  identifies the deployment, since the Responses URL carries no deployment path segment).
+  Either way the stored result shape is identical. For both chat completion and responses,
+  `payload.model` is required — it identifies the deployment, since the base URL carries no
+  deployment path segment.
 - `extra_headers` — type: dict[str, str]. The injected per-user auth header (resolved from the
   schedule's `service_id` via DIAL's on-behalf-of credentials, applied as `header_name:
   header_value`) always overrides any same-named entry in `extra_headers` — callers cannot use

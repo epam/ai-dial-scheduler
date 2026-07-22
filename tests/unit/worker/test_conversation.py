@@ -33,8 +33,8 @@ def make_creds(**kwargs) -> OboCredentials:
 def make_properties(**kwargs) -> ScheduleProperties:
     defaults = dict(
         target_type=TargetType.CHAT_COMPLETION,
-        url="https://dial.example.com/openai/deployments/gpt-5.6-sol-2026-07-09-reasoning/chat/completions",
-        payload={"messages": [{"role": "user", "content": "hi"}]},
+        url="https://dial.example.com/openai/",
+        payload={"model": "gpt-5.6-sol-2026-07-09-reasoning", "messages": [{"role": "user", "content": "hi"}]},
         api_version="2024-02-01",
         create_conversation=True,
     )
@@ -71,11 +71,12 @@ class TestBuildConversationModel:
     def test_conversation_history_preserved(self):
         props = make_properties(
             payload={
+                "model": "gpt-5.6-sol-2026-07-09-reasoning",
                 "messages": [
                     {"role": "user", "content": "first question"},
                     {"role": "assistant", "content": "first answer"},
                     {"role": "user", "content": "follow up"},
-                ]
+                ],
             }
         )
         conv = build_conversation(props, _result(), _BUILD_INPUT)
@@ -91,10 +92,11 @@ class TestBuildConversationModel:
     def test_system_message_included_in_history(self):
         props = make_properties(
             payload={
+                "model": "gpt-5.6-sol-2026-07-09-reasoning",
                 "messages": [
                     {"role": "system", "content": "You are a helpful assistant."},
                     {"role": "user", "content": "hi"},
-                ]
+                ],
             }
         )
         conv = build_conversation(props, _result(), _BUILD_INPUT)
@@ -210,30 +212,61 @@ class TestCreateRunConversationOrchestration:
         mock_dial.put_conversation.assert_not_awaited()
 
 
+_APP_MODEL = "applications/bkt/Untitled app 1101__0.0.1"
+
+
+def _app_payload() -> dict:
+    return {"model": _APP_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+
+
 class TestCreateRunConversationApplication:
     async def test_application_deployment_resolves_reference(self, mocker, mock_dial):
         from src.lib.schemas.conversation import ApplicationDetails
 
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
-        app_url = (
-            "https://dial.example.com/openai/deployments/applications/bkt/Untitled app 1101__0.0.1/chat/completions"
-        )
 
         with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(url=app_url), _result())
+            await create_run_conversation(make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result())
 
         mock_dial.get_application.assert_awaited_once()
+        assert mock_dial.get_application.call_args.args[1] == _APP_MODEL
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "c9e5decf-1284-421e-ab84-c790beea837d"
 
     async def test_application_reference_failure_raises(self, mock_dial):
         mock_dial.get_application.side_effect = ConversationCreationError("no reference")
-        app_url = (
-            "https://dial.example.com/openai/deployments/applications/bkt/Untitled app 1101__0.0.1/chat/completions"
-        )
 
         with structlog.testing.capture_logs():
             with pytest.raises(ConversationCreationError):
-                await create_run_conversation(make_ctx(), make_creds(), make_properties(url=app_url), _result())
+                await create_run_conversation(
+                    make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result()
+                )
+
+        mock_dial.put_conversation.assert_not_awaited()
+
+
+class TestCreateRunConversationModelResolution:
+    async def test_model_taken_from_payload(self, mock_dial):
+        with structlog.testing.capture_logs():
+            await create_run_conversation(
+                make_ctx(),
+                make_creds(),
+                make_properties(payload={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}),
+                _result(),
+            )
+
+        mock_dial.get_application.assert_not_awaited()
+        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        assert written.model.id == "gpt-4o"
+
+    async def test_missing_model_raises_conversation_error(self, mock_dial):
+        # Construct properties whose payload lacks a model, bypassing schema validation
+        # (validation normally guarantees presence) to exercise the executor's guard.
+        props = make_properties()
+        object.__setattr__(props, "payload", {"messages": [{"role": "user", "content": "hi"}]})
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ConversationCreationError):
+                await create_run_conversation(make_ctx(), make_creds(), props, _result())
 
         mock_dial.put_conversation.assert_not_awaited()

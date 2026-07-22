@@ -72,123 +72,63 @@ Build the Docker image from [Dockerfile](/Dockerfile).
   overridden, and the paths if `WORKER_HEALTH_DIR` is overridden):
 
   ```yaml
-  startupProbe:
-    exec:
-      command: ["/bin/sh", "-c", "test -f /tmp/started"]
-    periodSeconds: 10
-    failureThreshold: 30   # up to 5 minutes to complete startup before being killed
+    updateStrategy:
+      type: Recreate
 
-  livenessProbe:
-    exec:
-      command:
-        - /bin/sh
-        - -c
-        - '[ $(( $(date +%s) - $(stat -c %Y /tmp/heartbeat) )) -lt 180 ]'
-    periodSeconds: 30
-    timeoutSeconds: 5
-    failureThreshold: 3
+    customLivenessProbe:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - '[ -f /tmp/heartbeat ] && [ $(( $(date +%s) - $(stat -c %Y /tmp/heartbeat) )) -lt 180 ]'
+      periodSeconds: 30
+      timeoutSeconds: 5
+      failureThreshold: 3
 
-  readinessProbe:
-    exec:
-      command: ["/bin/sh", "-c", "test -f /tmp/ready"]
-    periodSeconds: 15
-    timeoutSeconds: 5
-    failureThreshold: 2
+    customReadinessProbe:
+      exec:
+        command: ["/bin/sh", "-c", "test -f /tmp/ready"]
+      initialDelaySeconds: 15
+      periodSeconds: 15
+      timeoutSeconds: 5
+      failureThreshold: 2
+
+    customStartupProbe:
+      exec:
+        command: ["/bin/sh", "-c", "test -f /tmp/started"]
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30
   ```
 
   These commands rely on a POSIX shell and BusyBox `stat`/`test`/`date`, already present in the
   worker's Alpine-based image — no extra packages are needed.
 
+> **Important — run exactly one worker replica.**
+> APScheduler's PostgreSQL jobstore does not provide leader election. Running multiple workers
+> against the same database causes duplicate job execution.
+
+> **Important — heartbeat timing constraint.**
+> `NOOP_INTERVAL_SECONDS` (default `60`) must be less than `WORKER_LIVENESS_STALENESS_SECONDS`
+> (default `180`). If `NOOP_INTERVAL_SECONDS` is set equal to or greater than
+> `WORKER_LIVENESS_STALENESS_SECONDS`, the heartbeat file will always appear stale and the
+> liveness probe will continuously restart the worker.
+
 ## Configure the App in DIAL Admin
 
 ### App Definition
 
-```json
-{
-  "name": "dial_scheduler",
-  "display_name": "DIAL Scheduler",
-  "app_identity": "<sha256-hash-of-the-app's-dial-api-key>",
-  "allow_user_external_services": true,
-  "external_services": {
-    "dial-api-key": {
-      "display_name": "dial-api-key",
-      "auth_settings": {
-        "authentication_type": "API_KEY",
-        "api_key_header": "Api-Key"
-      }
-    },
-    "dial-oauth": {
-      "display_name": "dial-oauth",
-      "auth_settings": {
-        "authentication_type": "OAUTH",
-        "client_id": "<oauth-client-id>",
-        "client_secret": "<oauth-client-secret>",
-        "authorization_endpoint": "<idp-authorization-endpoint>",
-        "token_endpoint": "<idp-token-endpoint>",
-        "redirect_uri": "<oauth-redirect-uri>",
-        "scopes_supported": ["openid", "offline_access"]
-      }
-    }
-  },
-  "mcp": {
-    "endpoint": "http://dial-scheduler-api.dial-scheduler/mcp",
-    "transport": "http",
-    "allowedTools": [],
-    "configDelivery": "meta",
-    "forwardPerRequestKey": true
-  },
-  "routes": {
-    "main": {
-      "name": "main",
-      "rewritePath": true,
-      "paths": [
-        "/.*"
-      ],
-      "methods": [
-        "DELETE",
-        "GET",
-        "PATCH",
-        "POST",
-        "PUT"
-      ],
-      "upstreams": [
-        {
-          "endpoint": "http://dial-scheduler-api.dial-scheduler",
-          "weight": 1,
-          "tier": 0
-        }
-      ],
-      "maxRetryAttempts": 1,
-      "order": 2147483647,
-      "permissions": [
-        "READ",
-        "WRITE"
-      ],
-      "attachmentPaths": {
-        "requestBody": [],
-        "responseBody": []
-      }
-    }
-  }
-}
-```
+Copy documentation/deployment/scheduler_app/scheduler-app-definition.json
 
-### Steps
+Populate values:
 
-1. Open DIAL Admin.
-2. Create the application:
-   - **ID:** `dial_scheduler`
-   - **Display Name:** `DIAL Scheduler`
-   - **Chat Endpoint:** `false`
-   - **MCP Endpoint:** `true`, Endpoint: `http://dial-scheduler-api.dial-scheduler/mcp`
-   - Click **Create**.
-3. Open the created application → **JSON Editor → Core Format**.
-4. Paste the App Definition JSON above (filling in the `external_services.dial-oauth.auth_settings`
-   OAuth client/IdP values for your environment, and setting `app_identity` to
-   `sha256(api_key)` of the DIAL API key issued to this application) and save.
-5. If the application ID differs from `dial_scheduler`, set `SCHEDULER_APP_ID` to match on both the
-   `api` and `worker` services — the worker uses it to build the on-behalf-of credentials request
-   (`applications/{SCHEDULER_APP_ID}/external_services/{service_id}`).
+- <SCHEDULER_URL> (2 places)- scheduler api url in k8s cluster, default http://dial-scheduler-api.dial-scheduler
+- <SHA256(SCHEDULER_API_KEY)> - sha256 hash of scheduler api-key form ### 0. Create app api key in DIAL
+
+### Create Assets App
+1. Open DIAL Admin, Assets-> Applications (<Admin URL>/en/assets-applications)
+2. Create -> Import
+3. Select populated cheduler-app-definition.json
 
 ### Per-user credentials
 
@@ -206,5 +146,5 @@ standard external-service sign-in flow before creating schedules that depend on 
 Once deployed, the scheduler API is accessible through DIAL at:
 
 ```
-{DIAL_URL}/v1/deployments/dial_scheduler/route/v1/schedules/
+<DIAL_URL>/v1/deployments/applications/public/dial_scheduler__1.0.0/route/v1/schedules/
 ```

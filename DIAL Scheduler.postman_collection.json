@@ -202,7 +202,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with API-KEY\",\r\n  \"trigger\": {\r\n    \"cron\": {\"fields\": {\"minute\": \"*\"}}\r\n  },\r\n  \"service_id\":\"dial-api-key\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with API-KEY\",\r\n  \"trigger\": {\r\n    \"date\": \"{{$isoTimestamp}}\"\r\n  },\r\n  \"service_id\":\"dial-api-key\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -235,7 +235,40 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with Token\",\r\n  \"trigger\": {\r\n    \"cron\": {\"fields\": {\"minute\": \"*\"}}\r\n  },\r\n  \"service_id\":\"dial-oauth\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with Token\",\r\n  \"trigger\": {\r\n    \"date\": \"{{$isoTimestamp}}\"\r\n  },\r\n  \"service_id\":\"dial-oauth\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Schedule Responses Oauth Copy",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment Responses with Token\",\r\n  \"trigger\": {\r\n    \"date\": \"{{$isoTimestamp}}\"\r\n  },\r\n  \"service_id\":\"dial-oauth\",\r\n  \"properties\": {\r\n    \"target_type\": \"responses\",\r\n    \"url\": \"{{DIAL_URL}}/openai/v1\",\r\n    \"payload\": {\r\n      \"input\": \"2+2\",\r\n      \"model\": \"gpt-5.6-luna-2026-07-09\",\r\n      \"stream\": false,\r\n      \"background\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -375,7 +408,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with API-KEY\",\r\n  \"trigger\": {\r\n    \"cron\": {\"fields\": {\"day\": \"*\"}}\r\n  },\r\n  \"service_id\":\"dial-api-key\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with API-KEY\",\r\n  \"trigger\": {\r\n    \"cron\": {\"fields\": {\"day\": \"*\"}}\r\n  },\r\n  \"service_id\":\"dial-api-key\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
           "options": {
             "raw": {
               "language": "json"

@@ -1,0 +1,63 @@
+{
+  "applications": [
+    {
+      "name": "dial_scheduler",
+      "display_name": "DIAL Scheduler",
+      "mcp": {
+        "endpoint": "<SCHEDULER_URL>/mcp",
+        "transport": "HTTP",
+        "allowedTools": [],
+        "configDelivery": "META",
+        "forwardPerRequestKey": true
+      },
+      "external_services": {
+        "dial-api-key": {
+          "display_name": "dial-api-key",
+          "auth_settings": {
+            "authentication_type": "API_KEY",
+            "api_key_header": "Api-Key"
+          }
+        }
+      },
+      "app_identity": "<SHA256(SCHEDULER_API_KEY)>",
+      "allow_user_external_services": true,
+      "routes": {
+        "main": {
+          "name": "main",
+          "rewritePath": true,
+          "paths": [
+            "/.*"
+          ],
+          "methods": [
+            "DELETE",
+            "POST",
+            "GET",
+            "PATCH",
+            "PUT"
+          ],
+          "upstreams": [
+            {
+              "endpoint": "<SCHEDULER_URL>",
+              "weight": 1,
+              "tier": 0
+            }
+          ],
+          "maxRetryAttempts": 1,
+          "order": 2147483647,
+          "permissions": [
+            "WRITE",
+            "READ"
+          ],
+          "attachmentPaths": {
+            "requestBody": [],
+            "responseBody": []
+          }
+        }
+      },
+      "folderId": "public/",
+      "path": "public/dial_scheduler",
+      "version": "1.0.0",
+      "id": "applications/public/dial_scheduler"
+    }
+  ]
+}
