@@ -40,7 +40,7 @@ Authorization: Bearer {{authValue}}
   },
   "properties": {
     "target_type": "chat_completion",
-    "url": "{{dialUrl}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+    "url": "{{dialUrl}}/openai/",
     "payload": {
       "messages": [{"role": "user", "content": "hello, how are you?"}],
       "model": "gpt-4.1-mini-2025-04-14",
@@ -65,7 +65,7 @@ Authorization: Bearer {{authValue}}
   },
   "properties": {
     "target_type": "chat_completion",
-    "url": "{{dialUrl}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+    "url": "{{dialUrl}}/openai/",
     "payload": {
       "messages": [{"role": "user", "content": "hello, how are you?"}],
       "model": "gpt-4.1-mini-2025-04-14",

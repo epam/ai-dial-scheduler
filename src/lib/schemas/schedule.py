@@ -117,8 +117,8 @@ class ScheduleProperties(BaseModel):
                 raise ValueError(f"api_version is required for target_type '{self.target_type}'")
             if "stream" not in self.payload:
                 self.payload = {**self.payload, "stream": False}
-            if self.target_type == TargetType.RESPONSES and not self.payload.get("model"):
-                raise ValueError("payload.model is required for target_type 'responses'")
+            if not self.payload.get("model"):
+                raise ValueError(f"payload.model is required for target_type '{self.target_type}'")
             if self.create_conversation and self.target_type != TargetType.CHAT_COMPLETION:
                 raise ValueError("create_conversation is only allowed for target_type 'chat_completion'")
         else:

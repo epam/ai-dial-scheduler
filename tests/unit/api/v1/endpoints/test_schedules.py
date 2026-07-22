@@ -22,7 +22,8 @@ VALID_REQUEST = {
     },
     "properties": {
         "target_type": "chat_completion",
-        "url": "https://core.dial/openai/deployments/gpt-4o/chat/completions",
+        "url": "https://core.dial/openai/",
+        "payload": {"model": "gpt-4o"},
         "api_version": "2025-01-01-preview",
     },
 }

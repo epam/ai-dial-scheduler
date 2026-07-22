@@ -311,7 +311,7 @@ class TestGetApplication:
 
         call = mock_http_client.get.call_args
         url = call.args[0]
-        assert url == "https://dial.example.com/v1/applications/applications/bkt/My App__0.0.1"
+        assert url == "https://dial.example.com/v1/applications/bkt/My App__0.0.1"
         assert call.kwargs["headers"]["Authorization"] == "Bearer token"
 
     async def test_non_2xx_raises_conversation_error(self):

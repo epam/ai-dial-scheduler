@@ -6,7 +6,7 @@ from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
-from src.lib.utils.dial import parse_deployment, strip_bearer_prefix
+from src.lib.utils.dial import strip_bearer_prefix
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
 
@@ -19,12 +19,12 @@ class ChatCompletionExecutor:
         # stripping a leading "Bearer " (OAUTH-type services) so only the raw token is sent.
         api_key = strip_bearer_prefix(credentials.header_value.get_secret_value())
         try:
-            azure_endpoint, azure_deployment = parse_deployment(properties.url)
+            # ``url`` is the base URL; the deployment is selected by ``payload.model`` (sent in the
+            # request body by the SDK). Validation guarantees ``payload.model`` is present.
             client = AsyncAzureOpenAI(
-                azure_endpoint=azure_endpoint,
+                base_url=properties.url,
                 api_key=api_key,
                 api_version=properties.api_version,
-                azure_deployment=azure_deployment,
                 http_client=HttpClientProvider().client,
             )
             # ``stream`` is controlled by DIAL via the payload flag (defaults to False). When

@@ -139,8 +139,8 @@ class TestExecuteScheduledJobHappyPath:
             await execute_scheduled_job(
                 schedule_id=SCHEDULE_ID,
                 target_type=TargetType.CHAT_COMPLETION,
-                url="https://example.com/openai/deployments/gpt-4/chat/completions",
-                payload={},
+                url="https://example.com/openai/",
+                payload={"model": "gpt-4"},
                 extra_headers={},
                 api_version="2024-02-01",
             )

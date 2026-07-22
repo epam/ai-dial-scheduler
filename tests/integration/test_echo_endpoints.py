@@ -239,7 +239,7 @@ class TestChatCompletionExecutorWithEchoEndpoint:
         ctx = _make_ctx("r7")
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
-            url=f"{dial_server}/openai/deployments/echo/chat/completions",
+            url=f"{dial_server}/openai/deployments/echo",
             payload={"messages": [{"role": "user", "content": "hi"}], "model": "echo", "stream": True},
             extra_headers={},
             api_version="2024-02-01",
@@ -261,7 +261,7 @@ class TestChatCompletionExecutorWithEchoEndpoint:
         ctx = _make_ctx("r8")
         props = ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
-            url=f"{dial_server}/openai/deployments/echo/chat/completions",
+            url=f"{dial_server}/openai/deployments/echo",
             payload={"messages": [{"role": "user", "content": "hi"}], "model": "echo", "stream": False},
             extra_headers={},
             api_version="2024-02-01",

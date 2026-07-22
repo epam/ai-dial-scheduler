@@ -66,11 +66,14 @@ def make_creds(header_value: str, header_name: str = "Api-Key") -> OboCredential
     return OboCredentials(header_name=header_name, header_value=SecretStr(header_value))
 
 
+CHAT_COMPLETION_URL = "https://dial.example.com/openai/"
+
+
 def make_properties(**kwargs) -> ScheduleProperties:
     defaults = dict(
         target_type=TargetType.CHAT_COMPLETION,
-        url="https://dial.example.com/openai/deployments/gpt-4/chat/completions",
-        payload={"messages": [{"role": "user", "content": "hello"}]},
+        url=CHAT_COMPLETION_URL,
+        payload={"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}]},
         extra_headers={},
         api_version="2024-02-01",
     )
@@ -100,7 +103,7 @@ def _mock_azure(mocker):
 
 
 class TestChatCompletionExecutorHappyPath:
-    async def test_azure_endpoint_uses_scheme_and_netloc(self, mocker):
+    async def test_base_url_passed_verbatim(self, mocker):
         mock_client_cls, _ = _mock_azure(mocker)
 
         props = make_properties()
@@ -109,18 +112,22 @@ class TestChatCompletionExecutorHappyPath:
         with structlog.testing.capture_logs():
             await executor.execute(CTX, CREDS, props)
 
-        assert mock_client_cls.call_args.kwargs["azure_endpoint"] == "https://dial.example.com"
+        assert mock_client_cls.call_args.kwargs["base_url"] == CHAT_COMPLETION_URL
 
-    async def test_deployment_extracted_from_url_path(self, mocker):
-        mock_client_cls, _ = _mock_azure(mocker)
+    async def test_model_passed_in_payload_not_as_deployment(self, mocker):
+        mock_client_cls, mock_instance = _mock_azure(mocker)
 
-        props = make_properties()
+        props = make_properties()  # non-streaming default → .create()
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
             await executor.execute(CTX, CREDS, props)
 
-        assert mock_client_cls.call_args.kwargs["azure_deployment"] == "gpt-4"
+        # The client is built with base_url only — no azure_endpoint/azure_deployment.
+        assert "azure_deployment" not in mock_client_cls.call_args.kwargs
+        assert "azure_endpoint" not in mock_client_cls.call_args.kwargs
+        # The model rides the request payload.
+        assert mock_instance.chat.completions.create.call_args.kwargs["model"] == "gpt-4"
 
     async def test_api_key_type_service_passes_value_verbatim(self, mocker):
         mock_client_cls, _ = _mock_azure(mocker)
@@ -157,7 +164,9 @@ class TestChatCompletionExecutorHappyPath:
         events = [mocker.MagicMock(type="chunk"), mocker.MagicMock(type="content.delta")]
         _mock_stream(mocker, events=events)
 
-        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
+        props = make_properties(
+            payload={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}], "stream": True}
+        )
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs() as logs:
@@ -185,7 +194,9 @@ class TestChatCompletionExecutorHappyPath:
         final.model_dump.return_value = {"id": "cmpl-2", "choices": []}
         _mock_stream(mocker, events=[mocker.MagicMock(type="chunk")], final=final)
 
-        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
+        props = make_properties(
+            payload={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}], "stream": True}
+        )
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
@@ -196,7 +207,9 @@ class TestChatCompletionExecutorHappyPath:
     async def test_stream_flag_not_passed_to_client(self, mocker):
         _, mock_instance, _ = _mock_stream(mocker)
 
-        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
+        props = make_properties(
+            payload={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}], "stream": True}
+        )
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():

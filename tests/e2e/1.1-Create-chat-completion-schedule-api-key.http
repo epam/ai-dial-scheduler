@@ -45,7 +45,7 @@ Authorization: Bearer {{user_token}}
   },
   "properties": {
     "target_type": "chat_completion",
-    "url": "{{dial_url}}/openai/deployments/gpt-4.1-mini-2025-04-14/chat/completions",
+    "url": "{{dial_url}}/openai/",
     "payload": {
       "messages": [{"role": "user", "content": "hello, how are you?"}],
       "model": "gpt-4.1-mini-2025-04-14",

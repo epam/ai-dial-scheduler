@@ -9,7 +9,6 @@ from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
-from src.lib.utils.dial import extract_deployment_id
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
 
@@ -124,10 +123,9 @@ async def create_run_conversation(
     settings = get_settings()
     client = DialClient(HttpClientProvider().client, settings.dial_url, settings.worker_http.timeout_seconds)
 
-    try:
-        deployment = extract_deployment_id(properties.url)
-    except ValueError as exc:
-        raise ConversationCreationError(str(exc)) from exc
+    deployment = properties.payload.get("model")
+    if not deployment:
+        raise ConversationCreationError("payload.model is required to create a conversation")
 
     is_application = deployment.startswith(APPLICATION_DEPLOYMENT_PREFIX)
     logger.info(
