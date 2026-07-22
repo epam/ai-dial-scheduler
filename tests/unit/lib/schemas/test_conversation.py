@@ -83,7 +83,7 @@ class TestDialConversation:
             updatedAt=1,
         )
         assert conv.prompt == ""
-        assert conv.temperature is None
+        assert conv.temperature == 1
         assert conv.selectedAddons == []
         assert conv.responseFormat == "Markdown"
 

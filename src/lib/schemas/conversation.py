@@ -38,7 +38,7 @@ class DialConversation(BaseModel):
     name: str
     model: DialModel
     prompt: str = ""
-    temperature: float | None = None
+    temperature: float = 1
     folderId: str  # noqa: N815 — DIAL Chat field name
     messages: list[DialMessage]
     selectedAddons: list[str] = Field(default_factory=list)  # noqa: N815 — DIAL Chat field name
