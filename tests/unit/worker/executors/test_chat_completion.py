@@ -39,7 +39,7 @@ class _FakeStream:
 
 
 def _mock_stream(mocker, events=None, final=None):
-    """Patch AsyncAzureOpenAI so .chat.completions.stream returns a fake stream."""
+    """Patch AsyncAzureOpenAI wiring both .chat.completions.create (non-stream) and .stream."""
     mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
     mock_instance = mocker.MagicMock()
     mock_client_cls.return_value = mock_instance
@@ -48,6 +48,7 @@ def _mock_stream(mocker, events=None, final=None):
         final.model_dump.return_value = {"id": "cmpl-1", "choices": []}
     stream = _FakeStream(events or [], final)
     mock_instance.chat.completions.stream = mocker.MagicMock(return_value=stream)
+    mock_instance.chat.completions.create = mocker.AsyncMock(return_value=final)
     return mock_client_cls, mock_instance, stream
 
 
@@ -156,7 +157,7 @@ class TestChatCompletionExecutorHappyPath:
         events = [mocker.MagicMock(type="chunk"), mocker.MagicMock(type="content.delta")]
         _mock_stream(mocker, events=events)
 
-        props = make_properties()
+        props = make_properties(payload={"messages": [{"role": "user", "content": "hi"}], "stream": True})
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs() as logs:
@@ -224,9 +225,9 @@ class TestChatCompletionExecutorFailurePath:
         response = mocker.MagicMock()
         response.status_code = 500
         api_error = openai.APIStatusError("server error", response=response, body=None)
-        mock_instance.chat.completions.stream = mocker.MagicMock(side_effect=api_error)
+        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=api_error)
 
-        props = make_properties()
+        props = make_properties()  # non-stream default → .create()
         executor = ChatCompletionExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
@@ -238,9 +239,9 @@ class TestChatCompletionExecutorFailurePath:
         mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
         mock_instance = mocker.MagicMock()
         mock_client_cls.return_value = mock_instance
-        mock_instance.chat.completions.stream = mocker.MagicMock(side_effect=ValueError("bad payload"))
+        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=ValueError("bad payload"))
 
-        props = make_properties()
+        props = make_properties()  # non-stream default → .create()
         executor = ChatCompletionExecutor()
 
         with pytest.raises(ScheduleRunError) as exc_info:
@@ -254,21 +255,21 @@ class TestChatCompletionExecutorTimeout:
         _, mock_instance = _mock_azure(mocker)
 
         ctx = make_ctx(effective_timeout=25.0)
-        props = make_properties()
+        props = make_properties()  # non-stream default → .create()
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
             await executor.execute(ctx, CREDS, props)
 
-        assert mock_instance.chat.completions.stream.call_args.kwargs["timeout"] == 25.0
+        assert mock_instance.chat.completions.create.call_args.kwargs["timeout"] == 25.0
 
     async def test_no_timeout_kwarg_when_absent(self, mocker):
         _, mock_instance = _mock_azure(mocker)
 
-        props = make_properties()
+        props = make_properties()  # non-stream default → .create()
         executor = ChatCompletionExecutor()
 
         with structlog.testing.capture_logs():
             await executor.execute(CTX, CREDS, props)
 
-        assert "timeout" not in mock_instance.chat.completions.stream.call_args.kwargs
+        assert "timeout" not in mock_instance.chat.completions.create.call_args.kwargs

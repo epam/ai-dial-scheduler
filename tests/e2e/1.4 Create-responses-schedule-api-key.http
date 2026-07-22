@@ -1,0 +1,87 @@
+### Variables
+@baseUrl = {{dial_url}}/v1/deployments/applications/{{app_id}}/route
+
+
+### ============================================================
+### LIST SCHEDULES
+### ============================================================
+
+# @name list_schedules
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### SIGN IN — API KEY
+### ============================================================
+
+# @name sign_in_api_key
+POST {{dial_url}}/v1/ops/external-service/signin
+Authorization: Bearer {{user_token}}
+
+{
+  "url": "applications/{{app_id}}/external_services/dial-api-key",
+  "credentials_level": "USER",
+  "authentication_type": "API_KEY",
+  "api_key": "{{admin_api_key}}",
+  "offline_usage_consent": true
+}
+
+
+### ============================================================
+### CREATE RESPONSES SCHEDULE (fires every 30 s)
+### ============================================================
+
+# @name create_responses_schedule
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Real DIAL responses smoke test",
+  "service_id": "dial-api-key",
+  "trigger": {
+    "cron": {"fields": {"second": "*/30"}}
+  },
+  "properties": {
+    "target_type": "responses",
+    "url": "{{dial_url}}/openai/v1",
+    "payload": {
+      "input": "hello, how are you?",
+      "model": "gpt-5.6-luna-2026-07-09",
+      "stream": false
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+> {% client.global.set("schedule_id", response.body["id"]) %}
+
+
+### ============================================================
+### LIST SCHEDULE RUNS
+### ============================================================
+
+# @name schedule_runs
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {% client.global.set("run_id", response.body["results"][0]["id"]) %}
+
+
+### ============================================================
+### GET SCHEDULE RUN DETAILS
+### ============================================================
+
+# @name schedule_run_details
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs/{{run_id}}
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### PAUSE SCHEDULE
+### ============================================================
+
+# @name pause_schedule
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/pause
+Authorization: Bearer {{user_token}}

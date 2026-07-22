@@ -227,6 +227,82 @@ class TestCreateConversation:
         assert rebuilt.create_conversation is True
 
 
+class TestResponsesProperties:
+    def test_responses_valid(self):
+        props = ScheduleProperties(
+            target_type=TargetType.RESPONSES,
+            url="https://core.dial/openai/v1/responses",
+            payload={"input": "hi", "model": "gpt-5.6"},
+            api_version="2025-01-01-preview",
+        )
+        assert props.method is None
+        assert props.payload["stream"] is False
+
+    def test_responses_stream_default(self):
+        props = ScheduleProperties(
+            target_type=TargetType.RESPONSES,
+            url="https://example.com/openai/v1/responses",
+            payload={"input": "hi", "model": "gpt-5.6"},
+            api_version="2025-01-01-preview",
+        )
+        assert props.payload["stream"] is False
+
+    def test_responses_stream_preserved(self):
+        props = ScheduleProperties(
+            target_type=TargetType.RESPONSES,
+            url="https://example.com/openai/v1/responses",
+            payload={"input": "hi", "model": "gpt-5.6", "stream": True},
+            api_version="2025-01-01-preview",
+        )
+        assert props.payload["stream"] is True
+
+    def test_responses_requires_model_in_payload(self):
+        with pytest.raises(ValidationError, match="payload.model is required"):
+            ScheduleProperties(
+                target_type=TargetType.RESPONSES,
+                url="https://example.com/openai/v1/responses",
+                payload={"input": "hi"},
+                api_version="2025-01-01-preview",
+            )
+
+    def test_responses_requires_api_version(self):
+        with pytest.raises(ValidationError, match="api_version is required"):
+            ScheduleProperties(
+                target_type=TargetType.RESPONSES,
+                url="https://example.com/openai/v1/responses",
+                payload={"input": "hi", "model": "gpt-5.6"},
+            )
+
+    def test_responses_empty_api_version_raises(self):
+        with pytest.raises(ValidationError, match="api_version is required"):
+            ScheduleProperties(
+                target_type=TargetType.RESPONSES,
+                url="https://example.com/openai/v1/responses",
+                payload={"input": "hi", "model": "gpt-5.6"},
+                api_version="",
+            )
+
+    def test_responses_rejects_method(self):
+        with pytest.raises(ValidationError, match="method must not be set"):
+            ScheduleProperties(
+                target_type=TargetType.RESPONSES,
+                url="https://example.com/openai/v1/responses",
+                payload={"input": "hi", "model": "gpt-5.6"},
+                method=HttpMethod.POST,
+                api_version="2025-01-01-preview",
+            )
+
+    def test_responses_rejects_create_conversation(self):
+        with pytest.raises(ValidationError, match="create_conversation is only allowed"):
+            ScheduleProperties(
+                target_type=TargetType.RESPONSES,
+                url="https://example.com/openai/v1/responses",
+                payload={"input": "hi", "model": "gpt-5.6"},
+                api_version="2025-01-01-preview",
+                create_conversation=True,
+            )
+
+
 class TestScheduleTimeout:
     def test_timeout_defaults_to_none(self):
         props = ScheduleProperties(target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST)

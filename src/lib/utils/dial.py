@@ -15,6 +15,21 @@ def strip_bearer_prefix(token: str) -> str:
     return token
 
 
+def parse_deployment(url: str) -> tuple[str, str]:
+    """Return ``(azure_endpoint, azure_deployment)`` parsed from a deployment URL.
+
+    The endpoint is the scheme and network location; the deployment id is resolved via
+    :func:`extract_deployment_id`, so multi-segment application deployment ids
+    (e.g. ``applications/{bucket}/{name}``) are preserved consistently for all executors.
+
+    Raises:
+        ValueError: When the URL path does not contain a ``deployments/<id>`` segment.
+    """
+    parsed = urlsplit(url)
+    endpoint = f"{parsed.scheme}://{parsed.netloc}"
+    return endpoint, extract_deployment_id(url)
+
+
 def extract_deployment_id(url: str) -> str:
     """Return the deployment id from a chat completion URL.
 

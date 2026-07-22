@@ -82,7 +82,13 @@ services:
     restart: always
 
   adapter-dial:
-    image: epam/ai-dial-adapter-dial:latest
+    image: epam/ai-dial-adapter-dial:development
+    platform: linux/amd64
+    environment:
+      DIAL_URL: "http://core:8080"
+
+  adapter-openai:
+    image: epam/ai-dial-adapter-openai:development
     platform: linux/amd64
     environment:
       DIAL_URL: "http://core:8080"

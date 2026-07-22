@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/027-create-run-conversation/plan.md` (Create DIAL Conversation on Run Complete)
+- Current plan: `specs/028-responses-schedule-type/plan.md` (Responses Schedule Type)
 <!-- SPECKIT END -->

@@ -22,6 +22,7 @@ class ScheduleRunStatus(StrEnum):
 
 class TargetType(StrEnum):
     CHAT_COMPLETION = "chat_completion"
+    RESPONSES = "responses"
     REST = "rest"
     SSE = "sse"
 
