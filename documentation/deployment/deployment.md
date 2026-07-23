@@ -118,23 +118,25 @@ Build the Docker image from [Dockerfile](/Dockerfile).
 
 ### App Definition
 
-Copy documentation/deployment/scheduler_app/scheduler-app-definition.json
+Copy [scheduler-app-definition.json](scheduler_app/scheduler-app-definition.json)
 
 Populate values:
 
 - <SCHEDULER_URL> (2 places)- scheduler api url in k8s cluster, default http://dial-scheduler-api.dial-scheduler
 - <SHA256(SCHEDULER_API_KEY)> - sha256 hash of scheduler api-key form ### 0. Create app api key in DIAL
 
+For external services with OAUTH configuration see [dial-scheduler-external-services-devops-setup.md](dial-scheduler-external-services-devops-setup.md)
+
 ### Create Assets App
 1. Open DIAL Admin, Assets-> Applications (<Admin URL>/en/assets-applications)
 2. Create -> Import
-3. Select populated cheduler-app-definition.json
+3. Select populated scheduler-app-definition.json
 
 ### Per-user credentials
 
 Each schedule executes using the credentials of the user who created it, not a shared service
 key: `POST /schedules/` requires a `service_id` naming one of the app's registered
-`external_services` (e.g. `dial-oauth` above). Before a schedule fires, the worker fetches
+`external_services` (e.g. `dial-api-key` above). Before a schedule fires, the worker fetches
 on-behalf-of credentials for the schedule's owner and `service_id` from DIAL; if that owner has
 not signed in to the external service, the run fails with a credentials-stage error and the
 target action is never dispatched (see `documentation/api_contract.md` and
