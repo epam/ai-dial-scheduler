@@ -65,24 +65,12 @@ lint:
     - if: "$CI_COMMIT_BRANCH == 'development'"
     - if: '$CI_COMMIT_TAG'
 
-trigger_deploy_migrations:
-  stage: promote
-  inherit:
-    variables: false
-  trigger:
-    project: Clients/dial/dev/dial-scheduler/dial-scheduler-migrations
-    strategy: depend
-  rules:
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-
 trigger_deploy_api:
   stage: promote
   inherit:
     variables: false
   trigger:
     project: Clients/dial/dev/dial-scheduler/dial-scheduler-api
-  needs:
-    - trigger_deploy_migrations
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
@@ -92,7 +80,5 @@ trigger_deploy_worker:
     variables: false
   trigger:
     project: Clients/dial/dev/dial-scheduler/dial-scheduler-worker
-  needs:
-    - trigger_deploy_migrations
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
