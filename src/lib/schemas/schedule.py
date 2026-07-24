@@ -136,6 +136,7 @@ class ScheduleRequest(BaseModel):
 
     display_name: str
     service_id: str
+    description: str | None = Field(default=None, max_length=1000)
     trigger: ScheduleTrigger
     properties: ScheduleProperties
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -154,6 +155,7 @@ class ScheduleResponse(BaseModel):
     id: str
     display_name: str
     service_id: str
+    description: str | None = None
     next_run_time: datetime | None
     trigger: dict[str, Any]
     properties: dict[str, Any]
@@ -169,8 +171,10 @@ class ScheduleListItem(BaseModel):
     id: str
     display_name: str
     service_id: str
+    description: str | None = None
     next_run_time: datetime | None
     trigger_type: TriggerType
+    trigger: dict[str, Any]
     created_by: str
     created_at: datetime
     updated_at: datetime

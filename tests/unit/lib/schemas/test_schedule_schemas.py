@@ -8,6 +8,7 @@ from src.lib.schemas.schedule import (
     CronFields,
     CronTriggerSpec,
     RetryPolicy,
+    ScheduleListItem,
     ScheduleProperties,
     ScheduleRequest,
     ScheduleResponse,
@@ -481,6 +482,92 @@ class TestScheduleMetadata:
             updated_at=now,
         )
         assert resp.metadata == {}
+
+
+class TestScheduleDescription:
+    def test_description_defaults_to_none(self):
+        req = ScheduleRequest(**_valid_request_kwargs())
+        assert req.description is None
+
+    def test_description_accepted(self):
+        req = ScheduleRequest(**_valid_request_kwargs(), description="Daily digest notes")
+        assert req.description == "Daily digest notes"
+
+    def test_description_max_length_accepted(self):
+        req = ScheduleRequest(**_valid_request_kwargs(), description="x" * 1000)
+        assert req.description is not None
+        assert len(req.description) == 1000
+
+    def test_description_over_max_length_raises(self):
+        with pytest.raises(ValidationError, match="description"):
+            ScheduleRequest(**_valid_request_kwargs(), description="x" * 1001)
+
+    def test_whitespace_only_description_accepted(self):
+        req = ScheduleRequest(**_valid_request_kwargs(), description="   ")
+        assert req.description == "   "
+
+    def test_response_includes_description(self):
+        now = datetime.now(UTC)
+        resp = ScheduleResponse(
+            id="x",
+            display_name="x",
+            service_id="dial-oauth",
+            next_run_time=None,
+            trigger={},
+            properties={},
+            description="notes",
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert resp.description == "notes"
+
+    def test_response_description_defaults_to_none(self):
+        now = datetime.now(UTC)
+        resp = ScheduleResponse(
+            id="x",
+            display_name="x",
+            service_id="dial-oauth",
+            next_run_time=None,
+            trigger={},
+            properties={},
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert resp.description is None
+
+    def test_list_item_includes_description_and_trigger(self):
+        now = datetime.now(UTC)
+        item = ScheduleListItem(
+            id="x",
+            display_name="x",
+            service_id="dial-oauth",
+            next_run_time=None,
+            trigger_type=TriggerType.CRON,
+            trigger={"cron": {"fields": {"hour": 9}}},
+            description="notes",
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert item.description == "notes"
+        assert item.trigger == {"cron": {"fields": {"hour": 9}}}
+
+    def test_list_item_description_defaults_to_none(self):
+        now = datetime.now(UTC)
+        item = ScheduleListItem(
+            id="x",
+            display_name="x",
+            service_id="dial-oauth",
+            next_run_time=None,
+            trigger_type=TriggerType.DATE,
+            trigger={"date": "2026-06-12T09:00:00Z"},
+            created_by="u",
+            created_at=now,
+            updated_at=now,
+        )
+        assert item.description is None
 
 
 class TestScheduleRequest:

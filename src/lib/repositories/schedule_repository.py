@@ -64,12 +64,14 @@ class ScheduleRepository:
         service_id: str,
         trigger: dict[str, Any],
         kwargs: dict[str, Any],
+        description: str | None = None,
         metadata: dict[str, Any] | None = None,
         updated_at: datetime | None = None,
     ) -> Schedule | None:
         """Update an owned schedule row and commit; returns None if not found/owned.
 
         Pass `metadata` to replace the stored metadata; omit it to leave it unchanged.
+        `description` is always assigned (full replacement, including back to NULL).
         Pass `updated_at` to explicitly restore a prior timestamp (compensating transaction).
         """
         schedule = await self._session.get(Schedule, schedule_id)
@@ -77,6 +79,7 @@ class ScheduleRepository:
             return None
         schedule.display_name = display_name
         schedule.service_id = service_id
+        schedule.description = description
         schedule.trigger = trigger
         schedule.kwargs = kwargs
         if metadata is not None:
@@ -112,17 +115,24 @@ class ScheduleRepository:
         offset: int,
         *,
         metadata_filter: dict[str, str] | None = None,
+        name_filter: str | None = None,
     ) -> tuple[int, list[tuple[Schedule, datetime | None]]]:
         """Return total count and a page of owned schedules with next_run_times.
 
         When ``metadata_filter`` is non-empty, only schedules whose ``metadata`` JSONB
         contains all the given key/value pairs as strings are returned (``@>`` containment,
         which matches string values only and composes the pairs with AND).
+
+        When ``name_filter`` is provided, results are further restricted to schedules whose
+        ``display_name`` contains it as a case-insensitive substring (``ILIKE``). LIKE
+        wildcards (``%``/``_``) in the term are escaped so they match literally. All
+        conditions compose with AND.
         """
         schedules_table = Schedule.__table__  # type: ignore[attr-defined]
         id_col: Column = schedules_table.c.id  # type: ignore[assignment]
         created_by_col: Column = schedules_table.c.created_by  # type: ignore[assignment]
         created_at_col: Column = schedules_table.c.created_at  # type: ignore[assignment]
+        display_name_col: Column = schedules_table.c.display_name  # type: ignore[assignment]
         metadata_col: Column = schedules_table.c["metadata"]  # type: ignore[assignment]
 
         conditions = [created_by_col == created_by]
@@ -130,6 +140,9 @@ class ScheduleRepository:
             # JSONB containment (@>) — type-aware, so a string filter matches only
             # string-valued entries, and multiple keys compose with AND.
             conditions.append(metadata_col.contains(dict(metadata_filter)))
+        if name_filter:
+            escaped = name_filter.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conditions.append(display_name_col.ilike(f"%{escaped}%", escape="\\"))
 
         count_stmt = select(func.count()).select_from(schedules_table).where(*conditions)
         count_result = await self._session.execute(count_stmt)

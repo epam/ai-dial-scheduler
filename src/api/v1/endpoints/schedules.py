@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.metadata_filter import parse_metadata_filter
+from src.api.dependencies.name_filter import parse_name_filter
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
 from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
@@ -18,6 +19,7 @@ router = APIRouter(prefix="/schedules", tags=["schedules"])
 ScheduleServiceDep = Annotated[ScheduleService, Depends(get_schedule_service)]
 PaginationDep = Annotated[Pagination, Depends()]
 MetadataFilterDep = Annotated[dict[str, str], Depends(parse_metadata_filter)]
+NameFilterDep = Annotated[str | None, Depends(parse_name_filter)]
 
 _SCHEDULE_EXAMPLES = {
     "chat_completion": {
@@ -25,6 +27,7 @@ _SCHEDULE_EXAMPLES = {
         "value": {
             "display_name": "Daily GPT-4o summary",
             "service_id": "dial-oauth",
+            "description": "Posts a GPT-4o summary of the day's highlights every morning.",
             "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
             "properties": {
                 "target_type": "chat_completion",
@@ -136,6 +139,7 @@ async def list_schedules(
     service: ScheduleServiceDep,
     pagination: PaginationDep,
     metadata_filter: MetadataFilterDep,
+    name_filter: NameFilterDep,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> Page[ScheduleListItem]:
     """Return a paginated, owner-scoped list of schedules.
@@ -143,8 +147,17 @@ async def list_schedules(
     Supports filtering by metadata via repeated `metadata__<key>=<value>` query
     parameters; only schedules whose metadata contains every supplied key with a
     matching string value are returned.
+
+    Supports filtering by name via the `name` query parameter; only schedules whose
+    `display_name` contains the given value as a case-insensitive substring are
+    returned. Composes with metadata filters and pagination using AND.
     """
-    return await service.list(user_id, pagination.paginator("/schedules"), metadata_filter)
+    return await service.list(
+        user_id,
+        pagination.paginator("/schedules"),
+        metadata_filter,
+        name_filter=name_filter,
+    )
 
 
 @router.get("/{schedule_id}", response_model=ScheduleResponse)

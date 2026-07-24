@@ -185,7 +185,7 @@ class TestGetSchedules:
         client.get("/v1/schedules/")
 
         mock_service.list.assert_awaited_once_with(
-            TEST_USER_ID, Paginator(limit=20, offset=0, base_path="/schedules"), {}
+            TEST_USER_ID, Paginator(limit=20, offset=0, base_path="/schedules"), {}, name_filter=None
         )
 
     def test_list_passes_metadata_filter_to_service(self, client, mock_service):
