@@ -399,6 +399,159 @@ class TestScheduleServiceList:
         assert result.results[0].trigger_type == TriggerType.CRON
 
 
+class TestScheduleServiceDescription:
+    @pytest.mark.asyncio
+    async def test_create_persists_description(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, now)
+
+        request = ScheduleRequest(**{**make_request().model_dump(), "description": "ops notes"})
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.create(request, "mock_user_id")
+
+        persisted: Schedule = repo.create.await_args[0][0]
+        assert persisted.description == "ops notes"
+
+    @pytest.mark.asyncio
+    async def test_update_passes_description_to_repo(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+        repo.update.return_value = schedule
+
+        request = ScheduleRequest(**{**make_request().model_dump(), "description": "new notes"})
+        service = ScheduleService(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.update("test-uuid", request, "mock_user_id")
+
+        assert repo.update.await_args.kwargs["description"] == "new notes"
+
+    @pytest.mark.asyncio
+    async def test_update_restores_prior_description_on_job_failure(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.description = "old notes"
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+        repo.update.return_value = schedule
+
+        request = ScheduleRequest(**{**make_request().model_dump(), "description": "new notes"})
+        service = ScheduleService(repo, scheduler)
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=Exception("add_job failed")),
+        ):
+            with pytest.raises(JobRegistrationError):
+                await service.update("test-uuid", request, "mock_user_id")
+
+        restore_kwargs = repo.update.await_args_list[1].kwargs
+        assert restore_kwargs["description"] == "old notes"
+
+    @pytest.mark.asyncio
+    async def test_get_returns_description_in_response(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.description = "detail notes"
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.get.return_value = (schedule, now)
+
+        service = ScheduleService(repo, scheduler)
+        result = await service.get("test-uuid", "mock_user_id")
+
+        assert result.description == "detail notes"
+
+    @pytest.mark.asyncio
+    async def test_list_includes_description(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.description = "row notes"
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = ScheduleService(repo, scheduler)
+        result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
+
+        assert result.results[0].description == "row notes"
+
+    @pytest.mark.asyncio
+    async def test_list_description_none_when_absent(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.description = None
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = ScheduleService(repo, scheduler)
+        result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
+
+        assert result.results[0].description is None
+
+
+class TestScheduleServiceListTrigger:
+    @pytest.mark.asyncio
+    async def test_list_includes_full_trigger(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.trigger = {"cron": {"fields": {"hour": 9}}}
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = ScheduleService(repo, scheduler)
+        result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
+
+        item = result.results[0]
+        assert item.trigger == {"cron": {"fields": {"hour": 9}}}
+        assert item.trigger_type == TriggerType.CRON
+
+    @pytest.mark.asyncio
+    async def test_list_forwards_name_filter_to_repo(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = now
+        schedule.updated_at = now
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = ScheduleService(repo, scheduler)
+        await service.list(
+            "mock_user_id",
+            Paginator(limit=10, offset=0, base_path="/schedules"),
+            name_filter="report",
+        )
+
+        assert repo.list.await_args.kwargs["name_filter"] == "report"
+
+
 class TestScheduleServiceMetadata:
     @pytest.mark.asyncio
     async def test_create_persists_metadata(self):

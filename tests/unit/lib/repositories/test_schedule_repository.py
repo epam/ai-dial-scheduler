@@ -187,6 +187,113 @@ class TestScheduleRepositoryUpdate:
         assert result is None
 
 
+class TestScheduleRepositoryDescription:
+    @pytest.mark.asyncio
+    async def test_update_sets_description(self):
+        session = AsyncMock()
+        session.add = MagicMock()
+        schedule = make_schedule()
+        session.get = AsyncMock(return_value=schedule)
+        session.refresh = AsyncMock()
+        repo = ScheduleRepository(session)
+
+        await repo.update(
+            "sched-1",
+            "mock_user_id",
+            display_name="New Name",
+            service_id="dial-oauth",
+            trigger={},
+            kwargs={},
+            description="fresh notes",
+        )
+
+        assert schedule.description == "fresh notes"
+
+    @pytest.mark.asyncio
+    async def test_update_replaces_description_with_none(self):
+        session = AsyncMock()
+        session.add = MagicMock()
+        schedule = make_schedule()
+        schedule.description = "old notes"
+        session.get = AsyncMock(return_value=schedule)
+        session.refresh = AsyncMock()
+        repo = ScheduleRepository(session)
+
+        await repo.update(
+            "sched-1",
+            "mock_user_id",
+            display_name="New Name",
+            service_id="dial-oauth",
+            trigger={},
+            kwargs={},
+            description=None,
+        )
+
+        assert schedule.description is None
+
+
+class TestScheduleRepositoryNameFilter:
+    @staticmethod
+    def _compiled_statements(session) -> list[str]:
+        dialect = postgresql.dialect()
+        return [str(call.args[0].compile(dialect=dialect)) for call in session.execute.await_args_list]
+
+    @pytest.mark.asyncio
+    async def test_name_filter_adds_ilike_predicate(self):
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+
+        repo = ScheduleRepository(session)
+        await repo.list("mock_user_id", limit=10, offset=0, name_filter="report")
+
+        statements = self._compiled_statements(session)
+        assert len(statements) == 2
+        for stmt in statements:
+            assert "ILIKE" in stmt.upper()
+            assert "display_name" in stmt
+
+    @pytest.mark.asyncio
+    async def test_no_name_filter_has_no_ilike(self):
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+
+        repo = ScheduleRepository(session)
+        await repo.list("mock_user_id", limit=10, offset=0)
+
+        for stmt in self._compiled_statements(session):
+            assert "ILIKE" not in stmt.upper()
+
+    @pytest.mark.asyncio
+    async def test_name_filter_composes_with_metadata(self):
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+
+        repo = ScheduleRepository(session)
+        await repo.list(
+            "mock_user_id",
+            limit=10,
+            offset=0,
+            metadata_filter={"tenant": "hcscd"},
+            name_filter="report",
+        )
+
+        for stmt in self._compiled_statements(session):
+            assert "ILIKE" in stmt.upper()
+            assert "@>" in stmt
+
+
 class TestScheduleRepositoryGet:
     @pytest.mark.asyncio
     async def test_get_returns_schedule_with_next_run_time(self):

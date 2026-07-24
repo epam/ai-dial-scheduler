@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/029-base-url-model-field/plan.md` (Base URL and Payload Model for Chat Completion)
+- Current plan: `specs/030-schedule-description-and-name-filter/plan.md` (Schedule Description & Name Filter)
 <!-- SPECKIT END -->

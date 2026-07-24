@@ -18,6 +18,8 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
         display_name: Human-readable schedule name.
         created_by: Identity of the schedule creator/owner.
         service_id: External service whose on-behalf-of credentials the run uses.
+        description: Optional free-text notes about the schedule (max 1000 chars,
+            enforced at the API schema boundary). NULL when absent.
         trigger: Structured trigger definition stored as JSONB.
         kwargs: Structured call arguments stored as JSONB.
         schedule_metadata: Business tags stored in the JSONB ``metadata`` column.
@@ -32,6 +34,11 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
     display_name: str
     created_by: str
     service_id: str
+    description: str | None = Field(
+        default=None,
+        sa_type=String(1000),  # type: ignore[call-overload]
+        nullable=True,
+    )
     trigger: dict[str, Any] = Field(
         sa_type=JSONB(),  # type: ignore[call-overload]
         sa_column_kwargs={"nullable": False},
