@@ -1,9 +1,18 @@
 from datetime import UTC, datetime
 from typing import Any
 
+from slugify import slugify
+
 from src.lib.clients.dial_client import DialClient
-from src.lib.constants import APPLICATION_DEPLOYMENT_PREFIX, SCHEDULER_CONVERSATION_FOLDER
+from src.lib.constants import (
+    APPLICATION_DEPLOYMENT_PREFIX,
+    CONVERSATION_NAME_SEGMENT_MAX_LENGTH,
+    CONVERSATION_NAME_SEPARATOR,
+    SCHEDULER_CONVERSATION_FOLDER,
+)
+from src.lib.db.engine import Database
 from src.lib.exceptions.errors import ConversationCreationError
+from src.lib.repositories.schedule_repository import ScheduleRepository
 from src.lib.schemas.conversation import ConversationBuildInput, DialConversation, DialMessage, DialModel
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
@@ -46,13 +55,30 @@ def _build_history_messages(
     ]
 
 
+def _conversation_name(build_input: ConversationBuildInput) -> str:
+    """Return the conversation display name ``{deployment}__{display-slug}__{run-id}``.
+
+    The deployment id (resolved model id / application reference) and run id are embedded
+    verbatim; only the mandatory display name is slugified (capped at
+    ``CONVERSATION_NAME_SEGMENT_MAX_LENGTH``).
+    """
+    display_slug = slugify(build_input.display_name, max_length=CONVERSATION_NAME_SEGMENT_MAX_LENGTH)
+    segments = (build_input.model_id, display_slug, build_input.run_id)
+    return CONVERSATION_NAME_SEPARATOR.join(segments)
+
+
 def conversation_resource_path(build_input: ConversationBuildInput) -> str:
-    """Return the conversation storage path (``{bucket}/{folder...}/{run_id}``).
+    """Return the conversation storage path (``{bucket}/{folder...}/{name}``).
 
     This is the resource path DIAL uses to store and address the conversation, without the
-    ``conversations/`` prefix. The document's ``id`` and ``folderId`` are derived from it.
+    ``conversations/`` prefix. The final segment is the conversation name
+    (``{deployment}__{display-slug}__{run-id}``), which is path-safe: the deployment segment
+    is the resolved model id / application reference (no ``applications/`` prefix), the
+    display name is slugified, and the run id is a UUID. The document's ``id`` and
+    ``folderId`` are derived from it.
     """
-    return f"{build_input.bucket}/{SCHEDULER_CONVERSATION_FOLDER}/{build_input.schedule_id}/{build_input.run_id}"
+    name = _conversation_name(build_input)
+    return f"{build_input.bucket}/{SCHEDULER_CONVERSATION_FOLDER}/{build_input.schedule_id}/{name}"
 
 
 def build_conversation(
@@ -90,13 +116,14 @@ def build_conversation(
         settings=settings,
     )
 
+    name = _conversation_name(build_input)
     resource_path = conversation_resource_path(build_input)
     conversation_id = f"conversations/{resource_path}"
     folder_id = conversation_id.rsplit("/", 1)[0]
 
     return DialConversation(
         id=conversation_id,
-        name=build_input.run_id,
+        name=name,
         model=model,
         temperature=temperature,
         folderId=folder_id,
@@ -141,9 +168,18 @@ async def create_run_conversation(
     else:
         model_id = deployment
 
+    async with Database().sessionmaker() as session:
+        schedule = await ScheduleRepository(session).get_by_id(ctx.schedule_id)
+    if schedule is None:
+        raise ConversationCreationError(f"schedule not found: {ctx.schedule_id}")
+
     bucket = await client.get_bucket(credentials)
     build_input = ConversationBuildInput(
-        model_id=model_id, bucket=bucket, schedule_id=ctx.schedule_id, run_id=ctx.run_id
+        model_id=model_id,
+        bucket=bucket,
+        schedule_id=ctx.schedule_id,
+        run_id=ctx.run_id,
+        display_name=schedule.display_name,
     )
     conversation = build_conversation(properties, result, build_input)
     resource_path = conversation_resource_path(build_input)

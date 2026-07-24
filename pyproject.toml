@@ -26,6 +26,7 @@ dependencies = [
     "fastmcp>=3.4.2",
     "cloud-sql-python-connector[pg8000]>=1.13.0,<2",
     "azure-identity>=1.19.0,<2",
+    "python-slugify>=8.0.4",
 ]
 
 

@@ -50,7 +50,12 @@ Authorization: Bearer {{user_token}}
 GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
 Authorization: Bearer {{user_token}}
 
-> {% client.global.set("run_id", response.body["results"][0]["id"]) %}
+> {%
+    const runId = response.body["results"][0]["id"];
+    client.global.set("run_id", runId);
+    // Conversation name/path leaf: {deployment}__{display-slug}__{run_id}.
+    client.global.set("conversation_name", "gpt-4.1-mini-2025-04-14__real-dial-streaming-smoke-test__" + runId);
+%}
 
 
 ### ============================================================
@@ -78,6 +83,6 @@ Authorization: Bearer {{user_token}}
 ### ============================================================
 
 # @name get_conversation
-GET {{dial_url}}/v1/conversations/{{bucket}}/.scheduler/{{schedule_id}}/{{run_id}}
+GET {{dial_url}}/v1/conversations/{{bucket}}/.scheduler/{{schedule_id}}/{{conversation_name}}
 Content-Type: application/json
 Authorization: Bearer {{user_token}}

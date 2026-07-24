@@ -57,6 +57,7 @@ class ConversationBuildInput(BaseModel):
     bucket: str
     schedule_id: str
     run_id: str
+    display_name: str
 
 
 class ApplicationDetails(BaseModel):
