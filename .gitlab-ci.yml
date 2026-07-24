@@ -1,6 +1,6 @@
 include:
   - project: GitLab/ci
-    ref: 3.3.0
+    ref: 3.3.2
     file: docker/docker-application-generic.gitlab-ci.yml
     inputs:
       docker-path: "dial-scheduler/images/dial-scheduler"
