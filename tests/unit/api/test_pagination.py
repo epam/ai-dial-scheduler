@@ -47,3 +47,21 @@ class TestPaginatorPaginate:
         assert result.limit == 2
         assert result.offset == 0
         assert result.results == ["a", "b"]
+
+
+class TestPaginatorExtraQuery:
+    def test_next_link_appends_extra_query(self):
+        p = Paginator(limit=5, offset=0, base_path="/items", extra_query="order_by=created_at&order_dir=asc")
+        assert p.paginate(count=10, results=[]).next == "/items?limit=5&offset=5&order_by=created_at&order_dir=asc"
+
+    def test_previous_link_appends_extra_query(self):
+        p = Paginator(limit=5, offset=5, base_path="/items", extra_query="order_by=name&order_dir=desc")
+        assert p.paginate(count=10, results=[]).previous == "/items?limit=5&offset=0&order_by=name&order_dir=desc"
+
+    def test_no_extra_query_leaves_links_unchanged(self):
+        p = Paginator(limit=5, offset=0, base_path="/items")
+        assert p.paginate(count=10, results=[]).next == "/items?limit=5&offset=5"
+
+    def test_empty_extra_query_leaves_links_unchanged(self):
+        p = Paginator(limit=5, offset=0, base_path="/items", extra_query="")
+        assert p.paginate(count=10, results=[]).next == "/items?limit=5&offset=5"

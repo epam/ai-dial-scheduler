@@ -10,6 +10,7 @@ from src.lib.constants import EXECUTE_SCHEDULED_JOB_REF
 from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
 from src.lib.models.schedule import Schedule
 from src.lib.repositories.schedule_repository import ScheduleRepository
+from src.lib.schemas.ordering import ScheduleOrdering
 from src.lib.schemas.pagination import Page, Paginator
 from src.lib.schemas.schedule import (
     ScheduleListItem,
@@ -173,6 +174,7 @@ class ScheduleService:
         paginator: Paginator,
         metadata_filter: dict[str, str] | None = None,
         name_filter: str | None = None,
+        ordering: ScheduleOrdering | None = None,
     ) -> Page[ScheduleListItem]:
         """Return a paginated, owner-scoped list of schedule summaries.
 
@@ -180,13 +182,19 @@ class ScheduleService:
         metadata contains all the given key/value pairs as string values. When
         ``name_filter`` is provided, results are further limited to schedules whose
         display name contains it as a case-insensitive substring.
+
+        ``ordering`` controls sort order (defaults to ``created_at`` descending) and is
+        echoed into the ``next``/``previous`` page links so it survives pagination.
         """
+        ordering = ordering or ScheduleOrdering()
+        paginator.extra_query = ordering.to_query()
         total, rows = await self._repo.list(
             created_by,
             paginator.limit,
             paginator.offset,
             metadata_filter=metadata_filter,
             name_filter=name_filter,
+            ordering=ordering,
         )
 
         results = []

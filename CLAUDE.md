@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/031-run-conversation-naming/plan.md` (Run Conversation Naming Convention)
+- Current plan: `specs/032-add-orderings/plan.md` (Add Ordering for Schedules/Runs List)
 <!-- SPECKIT END -->

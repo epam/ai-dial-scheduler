@@ -3,8 +3,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from sqlalchemy.dialects import postgresql
 
+from src.lib.db.enums import ScheduleSortField, SortDirection
 from src.lib.models.schedule import Schedule
 from src.lib.repositories.schedule_repository import ScheduleRepository
+from src.lib.schemas.ordering import ScheduleOrdering
 
 
 def make_schedule(
@@ -433,3 +435,107 @@ class TestScheduleRepositoryList:
         _, rows = await repo.list("mock_user_id", limit=10, offset=0)
 
         assert rows[0][1] is None
+
+
+class TestScheduleRepositoryOrdering:
+    @staticmethod
+    def _page_statement(session) -> str:
+        """Compile the second execute() call (the page query) to a SQL string."""
+        dialect = postgresql.dialect()
+        page_call = session.execute.await_args_list[1]
+        return str(page_call.args[0].compile(dialect=dialect))
+
+    @classmethod
+    def _order_by_clause(cls, session) -> str:
+        """Return the uppercased ORDER BY clause of the page statement, without LIMIT/OFFSET."""
+        stmt = cls._page_statement(session).upper()
+        after = stmt.split("ORDER BY", 1)[1]
+        return after.split("LIMIT", 1)[0].strip()
+
+    @staticmethod
+    def _empty_session() -> AsyncMock:
+        session = AsyncMock()
+        count_result = MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = MagicMock()
+        page_result.__iter__ = MagicMock(return_value=iter([]))
+        session.execute = AsyncMock(side_effect=[count_result, page_result])
+        return session
+
+    @pytest.mark.asyncio
+    async def test_default_orders_by_created_at_desc_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        await repo.list("mock_user_id", limit=10, offset=0)
+
+        clause = self._order_by_clause(session)
+        assert "CREATED_AT DESC" in clause
+        assert clause.endswith("ID DESC")
+
+    @pytest.mark.asyncio
+    async def test_created_at_asc_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        ordering = ScheduleOrdering(order_by=ScheduleSortField.CREATED_AT, order_dir=SortDirection.ASC)
+        await repo.list("mock_user_id", limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "CREATED_AT ASC" in clause
+        assert clause.endswith("ID ASC")
+
+    @pytest.mark.asyncio
+    async def test_created_at_desc_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        ordering = ScheduleOrdering(order_by=ScheduleSortField.CREATED_AT, order_dir=SortDirection.DESC)
+        await repo.list("mock_user_id", limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "CREATED_AT DESC" in clause
+        assert clause.endswith("ID DESC")
+
+    @pytest.mark.asyncio
+    async def test_next_run_time_asc_nulls_last_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        ordering = ScheduleOrdering(order_by=ScheduleSortField.NEXT_RUN_TIME, order_dir=SortDirection.ASC)
+        await repo.list("mock_user_id", limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "NEXT_RUN_TIME ASC NULLS LAST" in clause
+        assert clause.endswith("ID ASC")
+
+    @pytest.mark.asyncio
+    async def test_next_run_time_desc_nulls_last_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        ordering = ScheduleOrdering(order_by=ScheduleSortField.NEXT_RUN_TIME, order_dir=SortDirection.DESC)
+        await repo.list("mock_user_id", limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "NEXT_RUN_TIME DESC NULLS LAST" in clause
+        assert clause.endswith("ID DESC")
+
+    @pytest.mark.asyncio
+    async def test_name_asc_case_insensitive_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        ordering = ScheduleOrdering(order_by=ScheduleSortField.NAME, order_dir=SortDirection.ASC)
+        await repo.list("mock_user_id", limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "LOWER(" in clause
+        assert "DISPLAY_NAME" in clause
+        assert clause.endswith("ID ASC")
+
+    @pytest.mark.asyncio
+    async def test_name_desc_case_insensitive_with_id_tiebreaker(self):
+        session = self._empty_session()
+        repo = ScheduleRepository(session)
+        ordering = ScheduleOrdering(order_by=ScheduleSortField.NAME, order_dir=SortDirection.DESC)
+        await repo.list("mock_user_id", limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "LOWER(" in clause
+        assert "DISPLAY_NAME" in clause
+        assert clause.endswith("ID DESC")

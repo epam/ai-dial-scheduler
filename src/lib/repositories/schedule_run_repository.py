@@ -5,9 +5,10 @@ import uuid
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.lib.db.enums import ScheduleRunStatus
+from src.lib.db.enums import ScheduleRunStatus, SortDirection
 from src.lib.models.schedule_run import ScheduleRun
 from src.lib.schemas.credentials import RunError
+from src.lib.schemas.ordering import RunOrdering
 
 
 class ScheduleRunRepository:
@@ -63,8 +64,21 @@ class ScheduleRunRepository:
         await self._session.commit()
         return row
 
-    async def list_for_schedule(self, schedule_id: str, limit: int, offset: int) -> tuple[int, list[ScheduleRun]]:
-        """Return total count and a page of runs for a schedule, ordered created_at DESC, id DESC."""
+    async def list_for_schedule(
+        self,
+        schedule_id: str,
+        limit: int,
+        offset: int,
+        *,
+        ordering: RunOrdering | None = None,
+    ) -> tuple[int, list[ScheduleRun]]:
+        """Return total count and a page of runs for a schedule.
+
+        Runs are ordered by ``created_at`` in the requested direction (defaulting to
+        descending) with the primary key ``id`` appended as a final tiebreaker for
+        stable pagination.
+        """
+        ordering = ordering or RunOrdering()
         runs_table = ScheduleRun.__table__  # type: ignore[attr-defined]
         schedule_id_col = runs_table.c.schedule_id
         created_at_col = runs_table.c.created_at
@@ -74,10 +88,13 @@ class ScheduleRunRepository:
         count_result = await self._session.execute(count_stmt)
         total = count_result.scalar_one()
 
+        ascending = ordering.order_dir is SortDirection.ASC
+        created_at_order = created_at_col.asc() if ascending else created_at_col.desc()
+        id_order = id_col.asc() if ascending else id_col.desc()
         page_stmt = (
             select(ScheduleRun)
             .where(schedule_id_col == schedule_id)
-            .order_by(created_at_col.desc(), id_col.desc())
+            .order_by(created_at_order, id_order)
             .limit(limit)
             .offset(offset)
         )
