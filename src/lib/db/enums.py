@@ -36,3 +36,18 @@ class HttpMethod(StrEnum):
 class TriggerType(StrEnum):
     CRON = "cron"
     DATE = "date"
+
+
+class SortDirection(StrEnum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+class ScheduleSortField(StrEnum):
+    CREATED_AT = "created_at"
+    NEXT_RUN_TIME = "next_run_time"
+    NAME = "name"
+
+
+class RunSortField(StrEnum):
+    CREATED_AT = "created_at"

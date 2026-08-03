@@ -202,6 +202,52 @@ class TestScheduleRunRepositoryListForSchedule:
         assert rows == []
 
 
+class TestScheduleRunRepositoryListOrdering:
+    @staticmethod
+    def _order_by_clause(session) -> str:
+        from sqlalchemy.dialects import postgresql
+
+        page_call = session.execute.await_args_list[1]
+        stmt = str(page_call.args[0].compile(dialect=postgresql.dialect())).upper()
+        after = stmt.split("ORDER BY", 1)[1]
+        return after.split("LIMIT", 1)[0].strip()
+
+    @staticmethod
+    def _empty_session(mocker) -> Any:
+        session = mocker.AsyncMock()
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 0
+        page_result = mocker.MagicMock()
+        page_result.scalars.return_value.all.return_value = []
+        session.execute = mocker.AsyncMock(side_effect=[count_result, page_result])
+        return session
+
+    async def test_defaults_to_created_at_desc_with_id_tiebreaker(self, mocker):
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        session = self._empty_session(mocker)
+        repo = ScheduleRunRepository(session)
+        await repo.list_for_schedule(SCHEDULE_ID, limit=10, offset=0)
+
+        clause = self._order_by_clause(session)
+        assert "CREATED_AT DESC" in clause
+        assert clause.endswith("ID DESC")
+
+    async def test_created_at_asc_with_id_tiebreaker(self, mocker):
+        from src.lib.db.enums import RunSortField, SortDirection
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+        from src.lib.schemas.ordering import RunOrdering
+
+        session = self._empty_session(mocker)
+        repo = ScheduleRunRepository(session)
+        ordering = RunOrdering(order_by=RunSortField.CREATED_AT, order_dir=SortDirection.ASC)
+        await repo.list_for_schedule(SCHEDULE_ID, limit=10, offset=0, ordering=ordering)
+
+        clause = self._order_by_clause(session)
+        assert "CREATED_AT ASC" in clause
+        assert clause.endswith("ID ASC")
+
+
 class TestScheduleRunRepositoryGetForSchedule:
     async def test_returns_run_when_schedule_matches(self, mock_session, mocker):
         from src.lib.models.schedule_run import ScheduleRun

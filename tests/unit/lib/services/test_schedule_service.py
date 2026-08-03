@@ -364,7 +364,7 @@ class TestScheduleServiceList:
         service = ScheduleService(repo, scheduler)
         result = await service.list("mock_user_id", Paginator(limit=2, offset=0, base_path="/schedules"))
 
-        assert result.next == "/schedules?limit=2&offset=2"
+        assert result.next == "/schedules?limit=2&offset=2&order_by=created_at&order_dir=desc"
         assert result.previous is None
 
     @pytest.mark.asyncio

@@ -212,6 +212,41 @@ class TestListRunsApi:
         response = await client.get(f"/v1/schedules/{fake_id}/runs")
         assert response.status_code == 404
 
+    async def test_list_created_at_asc_reverses_order(self, client: httpx.AsyncClient, engine: AsyncEngine) -> None:
+        schedule_id = await create_schedule(client)
+        run1 = await seed_run(engine, schedule_id)
+        await seed_run(engine, schedule_id)
+        run3 = await seed_run(engine, schedule_id)
+
+        response = await client.get(f"/v1/schedules/{schedule_id}/runs?order_by=created_at&order_dir=asc")
+
+        ids = [r["id"] for r in response.json()["results"]]
+        assert ids[0] == str(run1.id)
+        assert ids[-1] == str(run3.id)
+
+    async def test_list_pagination_links_preserve_ordering(
+        self, client: httpx.AsyncClient, engine: AsyncEngine
+    ) -> None:
+        schedule_id = await create_schedule(client)
+        for _ in range(4):
+            await seed_run(engine, schedule_id)
+
+        response = await client.get(f"/v1/schedules/{schedule_id}/runs?limit=2&order_by=created_at&order_dir=asc")
+        body = response.json()
+        assert body["next"] is not None
+        assert "order_by=created_at" in body["next"]
+        assert "order_dir=asc" in body["next"]
+
+    async def test_list_rejects_next_run_time_ordering(self, client: httpx.AsyncClient) -> None:
+        schedule_id = await create_schedule(client)
+        response = await client.get(f"/v1/schedules/{schedule_id}/runs?order_by=next_run_time")
+        assert response.status_code == 422
+
+    async def test_list_rejects_invalid_order_dir(self, client: httpx.AsyncClient) -> None:
+        schedule_id = await create_schedule(client)
+        response = await client.get(f"/v1/schedules/{schedule_id}/runs?order_dir=sideways")
+        assert response.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # GET /v1/schedules/{id}/runs/{run_id}  (US2: Inspect a Single Run)

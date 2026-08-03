@@ -1,6 +1,7 @@
 from src.lib.exceptions.errors import ScheduleNotFoundError, ScheduleRunNotFoundError
 from src.lib.repositories.schedule_repository import ScheduleRepository
 from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+from src.lib.schemas.ordering import RunOrdering
 from src.lib.schemas.pagination import Page, Paginator
 from src.lib.schemas.run import RunListItem, RunResponse, RunScheduleSummary
 from src.lib.utils.logging import logger
@@ -13,16 +14,29 @@ class ScheduleRunService:
         self._schedule_repo = schedule_repo
         self._run_repo = run_repo
 
-    async def list_runs(self, schedule_id: str, created_by: str, paginator: Paginator) -> Page[RunListItem]:
-        """Return paginated runs for an owned schedule, or raise ScheduleNotFoundError."""
+    async def list_runs(
+        self,
+        schedule_id: str,
+        created_by: str,
+        paginator: Paginator,
+        ordering: RunOrdering | None = None,
+    ) -> Page[RunListItem]:
+        """Return paginated runs for an owned schedule, or raise ScheduleNotFoundError.
+
+        ``ordering`` controls sort order (defaults to ``created_at`` descending) and is
+        echoed into the ``next``/``previous`` page links so it survives pagination.
+        """
         row = await self._schedule_repo.get(schedule_id, created_by)
         if row is None:
             raise ScheduleNotFoundError(schedule_id)
 
+        ordering = ordering or RunOrdering()
+        paginator.extra_query = ordering.to_query()
+
         logger.info("Listing runs", schedule_id=schedule_id, created_by=created_by)
 
         total, runs = await self._run_repo.list_for_schedule(
-            schedule_id, limit=paginator.limit, offset=paginator.offset
+            schedule_id, limit=paginator.limit, offset=paginator.offset, ordering=ordering
         )
         results = [
             RunListItem(

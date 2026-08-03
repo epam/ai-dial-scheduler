@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.metadata_filter import parse_metadata_filter
 from src.api.dependencies.name_filter import parse_name_filter
+from src.api.dependencies.ordering import ScheduleOrderingParams
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
 from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
@@ -20,6 +21,7 @@ ScheduleServiceDep = Annotated[ScheduleService, Depends(get_schedule_service)]
 PaginationDep = Annotated[Pagination, Depends()]
 MetadataFilterDep = Annotated[dict[str, str], Depends(parse_metadata_filter)]
 NameFilterDep = Annotated[str | None, Depends(parse_name_filter)]
+ScheduleOrderingDep = Annotated[ScheduleOrderingParams, Depends()]
 
 _SCHEDULE_EXAMPLES = {
     "chat_completion": {
@@ -140,6 +142,7 @@ async def list_schedules(
     pagination: PaginationDep,
     metadata_filter: MetadataFilterDep,
     name_filter: NameFilterDep,
+    ordering: ScheduleOrderingDep,
     user_id: Annotated[str, Depends(get_user_id)],
 ) -> Page[ScheduleListItem]:
     """Return a paginated, owner-scoped list of schedules.
@@ -151,12 +154,17 @@ async def list_schedules(
     Supports filtering by name via the `name` query parameter; only schedules whose
     `display_name` contains the given value as a case-insensitive substring are
     returned. Composes with metadata filters and pagination using AND.
+
+    Ordering is controlled by `order_by` (`created_at`, `next_run_time`, `name`) and
+    `order_dir` (`asc`, `desc`), defaulting to `created_at desc`. Inactive/paused
+    schedules (no next run time) always sort last when ordering by `next_run_time`.
     """
     return await service.list(
         user_id,
         pagination.paginator("/schedules"),
         metadata_filter,
         name_filter=name_filter,
+        ordering=ordering.ordering(),
     )
 
 

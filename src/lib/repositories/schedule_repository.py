@@ -1,12 +1,14 @@
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Column, func, outerjoin, select
+from sqlalchemy import Column, ColumnElement, func, outerjoin, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 
+from src.lib.db.enums import ScheduleSortField, SortDirection
 from src.lib.models.apscheduler_job import apscheduler_jobs
 from src.lib.models.schedule import Schedule
+from src.lib.schemas.ordering import ScheduleOrdering
 
 
 class ScheduleRepository:
@@ -108,6 +110,33 @@ class ScheduleRepository:
         """
         return await self._session.get(Schedule, schedule_id)
 
+    @staticmethod
+    def _order_by_clause(
+        ordering: ScheduleOrdering,
+        *,
+        id_col: Column,
+        created_at_col: Column,
+        display_name_col: Column,
+    ) -> list[ColumnElement[Any]]:
+        """Build the ORDER BY expression from an ordering value object.
+
+        Inactive/paused schedules (``next_run_time IS NULL``) always sort last via
+        ``nulls_last()`` regardless of direction, and the primary key ``id`` is always
+        appended as a final tiebreaker for stable pagination.
+        """
+        direction = ordering.order_dir
+        if ordering.order_by is ScheduleSortField.NEXT_RUN_TIME:
+            column: ColumnElement[Any] = apscheduler_jobs.c.next_run_time
+            primary = (column.asc() if direction is SortDirection.ASC else column.desc()).nulls_last()
+        elif ordering.order_by is ScheduleSortField.NAME:
+            column = func.lower(display_name_col)
+            primary = column.asc() if direction is SortDirection.ASC else column.desc()
+        else:
+            column = created_at_col
+            primary = column.asc() if direction is SortDirection.ASC else column.desc()
+        id_order = id_col.asc() if direction is SortDirection.ASC else id_col.desc()
+        return [primary, id_order]
+
     async def list(
         self,
         created_by: str,
@@ -116,6 +145,7 @@ class ScheduleRepository:
         *,
         metadata_filter: dict[str, str] | None = None,
         name_filter: str | None = None,
+        ordering: ScheduleOrdering | None = None,
     ) -> tuple[int, list[tuple[Schedule, datetime | None]]]:
         """Return total count and a page of owned schedules with next_run_times.
 
@@ -148,11 +178,17 @@ class ScheduleRepository:
         count_result = await self._session.execute(count_stmt)
         total = count_result.scalar_one()
 
+        order_by = self._order_by_clause(
+            ordering or ScheduleOrdering(),
+            id_col=id_col,
+            created_at_col=created_at_col,
+            display_name_col=display_name_col,
+        )
         page_stmt = (
             select(Schedule, apscheduler_jobs.c.next_run_time)
             .select_from(outerjoin(schedules_table, apscheduler_jobs, id_col == apscheduler_jobs.c.id))
             .where(*conditions)
-            .order_by(created_at_col.desc())
+            .order_by(*order_by)
             .limit(limit)
             .offset(offset)
         )

@@ -6,6 +6,7 @@ import pytest
 
 from src.lib.db.enums import ScheduleRunStatus
 from src.lib.exceptions.errors import ScheduleNotFoundError, ScheduleRunNotFoundError
+from src.lib.schemas.ordering import RunOrdering
 from src.lib.schemas.pagination import Page, Paginator
 
 
@@ -77,7 +78,7 @@ class TestScheduleRunServiceListRuns:
         paginator = Paginator(limit=5, offset=10, base_path=f"/schedules/{SCHEDULE_ID}/runs")
         await service.list_runs(SCHEDULE_ID, "mock_user_id", paginator)
 
-        run_repo.list_for_schedule.assert_awaited_once_with(SCHEDULE_ID, limit=5, offset=10)
+        run_repo.list_for_schedule.assert_awaited_once_with(SCHEDULE_ID, limit=5, offset=10, ordering=RunOrdering())
 
     async def test_maps_created_at_to_start_time(self, mocker):
         from src.lib.services.schedule_run_service import ScheduleRunService

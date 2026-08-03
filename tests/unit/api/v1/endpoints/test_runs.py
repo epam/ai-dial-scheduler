@@ -112,6 +112,27 @@ class TestListRunsEndpoint:
         assert body["count"] == 0
         assert body["results"] == []
 
+    def test_list_accepts_created_at_ordering(self, client, mock_service):
+        mock_service.list_runs.return_value = empty_page()
+
+        response = client.get(f"/v1/schedules/{SCHEDULE_ID}/runs?order_by=created_at&order_dir=asc")
+
+        assert response.status_code == 200
+
+    def test_list_rejects_next_run_time_ordering(self, client, mock_service):
+        mock_service.list_runs.return_value = empty_page()
+
+        response = client.get(f"/v1/schedules/{SCHEDULE_ID}/runs?order_by=next_run_time")
+
+        assert response.status_code == 422
+
+    def test_list_rejects_name_ordering(self, client, mock_service):
+        mock_service.list_runs.return_value = empty_page()
+
+        response = client.get(f"/v1/schedules/{SCHEDULE_ID}/runs?order_by=name")
+
+        assert response.status_code == 422
+
     def test_list_includes_pagination_links_when_more_pages(self, client, mock_service):
         page = Page(
             count=10,

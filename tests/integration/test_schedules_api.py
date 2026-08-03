@@ -356,6 +356,70 @@ class TestListSchedules:
         assert item["trigger_type"] == "cron"
 
 
+class TestListSchedulesOrdering:
+    async def _create(self, client: httpx.AsyncClient, name: str) -> str:
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "display_name": name})
+        assert response.status_code == 201
+        return response.json()["id"]
+
+    async def test_default_order_is_created_at_desc(self, client: httpx.AsyncClient) -> None:
+        first = await self._create(client, "Ordering First")
+        second = await self._create(client, "Ordering Second")
+
+        response = await client.get("/v1/schedules/?limit=50")
+        ids = [item["id"] for item in response.json()["results"]]
+
+        assert ids.index(second) < ids.index(first)
+
+    async def test_created_at_asc_reverses_order(self, client: httpx.AsyncClient) -> None:
+        first = await self._create(client, "Asc First")
+        second = await self._create(client, "Asc Second")
+
+        response = await client.get("/v1/schedules/?limit=50&order_by=created_at&order_dir=asc")
+        ids = [item["id"] for item in response.json()["results"]]
+
+        assert ids.index(first) < ids.index(second)
+
+    async def test_name_asc_orders_case_insensitively(self, client: httpx.AsyncClient) -> None:
+        await self._create(client, "banana")
+        await self._create(client, "Apple")
+
+        response = await client.get("/v1/schedules/?limit=50&order_by=name&order_dir=asc")
+        names = [item["display_name"] for item in response.json()["results"]]
+
+        apple_idx = names.index("Apple")
+        banana_idx = names.index("banana")
+        assert apple_idx < banana_idx
+
+    async def test_next_run_time_puts_inactive_last(self, client: httpx.AsyncClient) -> None:
+        # No real APScheduler rows exist in the test DB, so every schedule has a
+        # NULL next_run_time and must still be returned (sorted last, stable order).
+        await self._create(client, "Inactive A")
+        await self._create(client, "Inactive B")
+
+        response = await client.get("/v1/schedules/?limit=50&order_by=next_run_time&order_dir=asc")
+        assert response.status_code == 200
+        assert len(response.json()["results"]) >= 2
+
+    async def test_invalid_order_by_returns_422(self, client: httpx.AsyncClient) -> None:
+        response = await client.get("/v1/schedules/?order_by=bogus")
+        assert response.status_code == 422
+
+    async def test_invalid_order_dir_returns_422(self, client: httpx.AsyncClient) -> None:
+        response = await client.get("/v1/schedules/?order_dir=sideways")
+        assert response.status_code == 422
+
+    async def test_pagination_links_preserve_ordering(self, client: httpx.AsyncClient) -> None:
+        for i in range(4):
+            await self._create(client, f"Paged {i}")
+
+        response = await client.get("/v1/schedules/?limit=2&offset=0&order_by=name&order_dir=asc")
+        body = response.json()
+        assert body["next"] is not None
+        assert "order_by=name" in body["next"]
+        assert "order_dir=asc" in body["next"]
+
+
 # ---------------------------------------------------------------------------
 # GET /v1/schedules/{id}
 # ---------------------------------------------------------------------------
