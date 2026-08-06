@@ -15,8 +15,13 @@ RUN apk add --no-cache postgresql-dev \
     && apk add --no-cache --virtual .build-deps alpine-sdk linux-headers gcc python3-dev musl-dev
 
 COPY pyproject.toml uv.lock ./
-RUN pip install uv==0.9.28 \
+# The application runs from .venv, so the build-time installers are dropped afterwards:
+# uv's cache keeps a build-isolation setuptools (CVE-2025-47273) and pip vendors msgpack
+# (GHSA-6v7p-g79w-8964). Neither is needed at runtime.
+RUN pip install --no-cache-dir uv==0.9.28 \
     && uv sync --frozen --no-dev \
+    && uv cache clean \
+    && pip uninstall -y uv pip \
     && apk del .build-deps
 
 COPY src/ ./src

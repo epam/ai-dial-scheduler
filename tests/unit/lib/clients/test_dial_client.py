@@ -346,6 +346,21 @@ class TestPutConversation:
         assert call.kwargs["headers"]["Authorization"] == "Bearer token"
         assert call.kwargs["json"]["folderId"] == "conversations/bkt-1/.scheduler/sched-1"
 
+    async def test_percent_escapes_in_path_reach_the_wire_intact(self):
+        # The caller hands over an already-encoded final segment. httpx must neither re-encode the
+        # '%' nor decode the escapes. Assert on raw_path -- URL.path shows a *decoded* view and
+        # would look like a double-decoding bug that isn't there.
+        mock_http_client = AsyncMock()
+        mock_http_client.put.return_value = make_response(200, {})
+        encoded_segment = "applications%2Fbkt%2FUntitled%20app%201101%5F%5F0.0.1__My%20Schedule__run-1"
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        await client.put_conversation(_CREDS, f"bkt-1/.scheduler/sched-1/{encoded_segment}", _make_conversation())
+
+        raw_path = httpx.URL(mock_http_client.put.call_args.args[0]).raw_path
+        assert raw_path == f"/v1/conversations/bkt-1/.scheduler/sched-1/{encoded_segment}".encode()
+        assert b"%25" not in raw_path
+
     async def test_non_2xx_raises_conversation_error(self):
         mock_http_client = AsyncMock()
         request = httpx.Request("PUT", "https://dial.example.com/v1/conversations/bkt-1/x")

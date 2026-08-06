@@ -1,16 +1,19 @@
 """Unit tests for the run-completion conversation builder and orchestration."""
 
+from urllib.parse import unquote
+
 from pydantic import SecretStr
 import pytest
 import structlog.testing
 
+from src.lib.constants import CONVERSATION_NAME_SEPARATOR
 from src.lib.db.enums import TargetType
 from src.lib.exceptions.errors import ConversationCreationError
-from src.lib.schemas.conversation import ConversationBuildInput, DialConversation
+from src.lib.schemas.conversation import ApplicationDetails, ConversationBuildInput, DialConversation
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
-from src.worker.conversation import build_conversation, create_run_conversation
+from src.worker.conversation import build_conversation, create_run_conversation, encode_name_part
 
 
 RUN_ID = "run-conv-001"
@@ -52,6 +55,10 @@ def _result(content: str = "Hi! How can I help?", custom_content=None) -> dict:
 
 
 def make_build_input(**kwargs) -> ConversationBuildInput:
+    """Build a ConversationBuildInput, defaulting deployment_id to model_id (the model-backed case).
+
+    Application-backed cases must pass both explicitly, since that is precisely where the two differ.
+    """
     defaults = dict(
         model_id=DEPLOYMENT_ID,
         bucket=BUCKET,
@@ -60,10 +67,57 @@ def make_build_input(**kwargs) -> ConversationBuildInput:
         display_name=DISPLAY_NAME,
     )
     defaults.update(kwargs)
+    defaults.setdefault("deployment_id", defaults["model_id"])
     return ConversationBuildInput(**defaults)
 
 
 _BUILD_INPUT = make_build_input()
+
+
+class TestEncodeNamePart:
+    """FR-004/FR-007/FR-008: the encoding primitive shared by every name part."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "gpt-4o",
+            "applications/bkt/Untitled app 1101__0.0.1",
+            "Привет",
+            "Daily Report Sync",
+            "a__b/c",
+            "100% done",
+            "",
+            "_leading_and_trailing_",
+            "a" * 80,
+        ],
+    )
+    def test_round_trip_is_exact(self, value):
+        assert unquote(encode_name_part(value)) == value
+
+    @pytest.mark.parametrize(
+        "value",
+        ["a__b", "applications/bkt/Untitled app 1101__0.0.1", "_", "__", "x_y"],
+    )
+    def test_never_emits_the_segment_separator(self, value):
+        # Underscore is RFC 3986 unreserved, so quote() alone would leave "__" intact and
+        # a deployment id containing it would inject a false separator (research R-002).
+        assert "__" not in encode_name_part(value)
+        assert "_" not in encode_name_part(value)
+
+    def test_reserved_characters_are_percent_encoded(self):
+        encoded = encode_name_part("applications/bkt/my app")
+        assert "/" not in encoded
+        assert " " not in encoded
+        assert encoded == "applications%2Fbkt%2Fmy%20app"
+
+    def test_underscore_encoded_as_percent_5f(self):
+        assert encode_name_part("a_b") == "a%5Fb"
+
+    def test_exact_output_for_characters_javascript_encodes_differently(self):
+        # Pins the contract's byte-level output. JavaScript's encodeURIComponent leaves !'()*
+        # literal, so any consumer mirroring this rule in JS must encode those five explicitly
+        # or it will compute a different -- and non-existent -- path.
+        assert encode_name_part("a!'()*b~-._") == "a%21%27%28%29%2Ab~-.%5F"
 
 
 class TestBuildConversationModel:
@@ -157,6 +211,138 @@ class TestBuildConversationModel:
         conv_a = build_conversation(make_properties(), _result(), make_build_input(run_id="run-a"))
         conv_b = build_conversation(make_properties(), _result(), make_build_input(run_id="run-b"))
         assert conv_a.name != conv_b.name
+
+
+_APP_DEPLOYMENT = "applications/bkt/Untitled app 1101__0.0.1"
+_APP_REFERENCE = "c9e5decf-1284-421e-ab84-c790beea837d"
+
+
+def _app_build_input(**kwargs) -> ConversationBuildInput:
+    defaults = dict(deployment_id=_APP_DEPLOYMENT, model_id=_APP_REFERENCE)
+    defaults.update(kwargs)
+    return make_build_input(**defaults)
+
+
+class TestPathUsesDeploymentIdNotReference:
+    """US1: the path identifies the scheduled deployment, never an application's reference."""
+
+    def test_application_path_carries_deployment_id(self):
+        conv = build_conversation(make_properties(), _result(), _app_build_input())
+        assert unquote(conv.name.split("__")[0]) == _APP_DEPLOYMENT
+
+    def test_application_reference_absent_from_name_and_id(self):
+        # FR-003/SC-001: the reference must not leak into the storage location in any form.
+        conv = build_conversation(make_properties(), _result(), _app_build_input())
+        assert _APP_REFERENCE not in conv.name
+        assert _APP_REFERENCE not in conv.id
+        assert _APP_REFERENCE not in conv.folderId
+
+    def test_reference_still_recorded_in_document(self):
+        # FR-010/SC-007: reopening an application conversation must behave exactly as before.
+        conv = build_conversation(make_properties(), _result(), _app_build_input())
+        assert conv.model.id == _APP_REFERENCE
+        assert all(message.model.id == _APP_REFERENCE for message in conv.messages)
+
+    def test_two_apps_sharing_a_backing_model_are_distinguishable(self):
+        conv_a = build_conversation(
+            make_properties(), _result(), _app_build_input(deployment_id="applications/bkt/app-a")
+        )
+        conv_b = build_conversation(
+            make_properties(), _result(), _app_build_input(deployment_id="applications/bkt/app-b")
+        )
+        assert conv_a.model.id == conv_b.model.id == _APP_REFERENCE
+        assert conv_a.name != conv_b.name
+        assert conv_a.id != conv_b.id
+
+    def test_model_deployment_uses_the_same_rule(self):
+        # FR-002: one rule, no branch by deployment kind.
+        conv = build_conversation(make_properties(), _result(), make_build_input(model_id="gpt-4o"))
+        assert unquote(conv.name.split("__")[0]) == "gpt-4o"
+        assert conv.model.id == "gpt-4o"
+
+
+class TestNameSegmentsSurviveReservedCharacters:
+    """US2/US3: adversarial deployment ids and schedule names stay one decodable segment."""
+
+    def test_slashes_do_not_split_the_final_segment(self):
+        conv = build_conversation(make_properties(), _result(), _app_build_input())
+        assert "/" not in conv.name
+        assert conv.id.rsplit("/", 1)[0] == conv.folderId
+        assert conv.id.rsplit("/", 1)[1] == conv.name
+
+    @pytest.mark.parametrize(
+        ("deployment_id", "display_name"),
+        [
+            (_APP_DEPLOYMENT, "hello"),
+            ("gpt-4o", "a__b/c"),
+            ("app__1", "name__2"),
+            ("Привет-модель", "Привет"),
+            ("gpt-4o", "a" * 80),
+            # Spec edge case: empty / whitespace-only name must not make the parts ambiguous.
+            ("gpt-4o", ""),
+            ("gpt-4o", "   "),
+            # Input that already looks percent-encoded must not be double-decoded on the way back.
+            ("a%5Fb", "%2F%2E%2E"),
+            # Spec edge case: traversal-shaped values stay inert.
+            ("..", ".."),
+            (".", "."),
+        ],
+    )
+    def test_name_always_splits_into_exactly_three_parts(self, deployment_id, display_name):
+        conv = build_conversation(
+            make_properties(),
+            _result(),
+            make_build_input(deployment_id=deployment_id, model_id=deployment_id, display_name=display_name),
+        )
+        parts = conv.name.split("__")
+        assert len(parts) == 3
+        assert unquote(parts[0]) == deployment_id
+        assert unquote(parts[1]) == display_name
+        assert parts[2] == RUN_ID
+
+    @pytest.mark.parametrize(("deployment_id", "display_name"), [("..", ".."), (".", "."), ("", "")])
+    def test_final_segment_is_never_a_traversal_token(self, deployment_id, display_name):
+        # quote() leaves "." alone, so the segment is only inert because the "__" separators are
+        # always present. That invariant is what makes traversal unreachable -- pin it explicitly
+        # rather than leaving the safety incidental.
+        conv = build_conversation(
+            make_properties(),
+            _result(),
+            make_build_input(deployment_id=deployment_id, model_id="gpt-4o", display_name=display_name),
+        )
+        leaf = conv.id.rsplit("/", 1)[1]
+        assert leaf not in {".", ".."}
+        assert CONVERSATION_NAME_SEPARATOR in leaf
+
+    def test_name_matches_final_path_segment_for_adversarial_input(self):
+        # FR-009: display name and final location segment must not diverge.
+        conv = build_conversation(make_properties(), _result(), _app_build_input(display_name="Daily Report / Sync"))
+        assert conv.id.rsplit("/", 1)[1] == conv.name
+
+
+class TestDisplayNamePreservedNotSlugified:
+    """US3: the schedule name reaches the path verbatim, never flattened."""
+
+    def test_case_and_spaces_preserved(self):
+        conv = build_conversation(make_properties(), _result(), make_build_input(display_name="Daily Report Sync"))
+        name_part = conv.name.split("__")[1]
+        assert unquote(name_part) == "Daily Report Sync"
+        assert name_part == "Daily%20Report%20Sync"
+
+    def test_names_differing_only_by_case_and_punctuation_do_not_collide(self):
+        conv_a = build_conversation(make_properties(), _result(), make_build_input(display_name="Weekly Sync"))
+        conv_b = build_conversation(make_properties(), _result(), make_build_input(display_name="weekly-sync"))
+        assert conv_a.name != conv_b.name
+
+    def test_non_latin_name_is_not_transliterated(self):
+        conv = build_conversation(make_properties(), _result(), make_build_input(display_name="Привет"))
+        assert "privet" not in conv.name
+        assert unquote(conv.name.split("__")[1]) == "Привет"
+
+    def test_long_name_is_not_truncated(self):
+        long_name = "a" * 80
+        conv = build_conversation(make_properties(), _result(), make_build_input(display_name=long_name))
+        assert unquote(conv.name.split("__")[1]) == long_name
 
 
 class TestBuildConversationCustomContent:
@@ -276,17 +462,20 @@ def _app_payload() -> dict:
 
 
 class TestConversationNameEdgeInputs:
-    # US2 / SC-004: edge display names never break naming and stay unique via the run id.
+    # SC-003 / SC-004: edge display names round-trip exactly instead of being flattened.
     @pytest.mark.parametrize(
         ("display_name", "expected_segment"),
         [
-            ("Привет", "privet"),  # non-Latin is transliterated, not dropped
-            ("a" * 80, "a" * 64),  # capped at CONVERSATION_NAME_SEGMENT_MAX_LENGTH
+            # Previously transliterated to "privet"; now preserved.
+            ("Привет", "%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82"),
+            # Previously capped at 64 characters; now kept in full.
+            ("a" * 80, "a" * 80),
         ],
     )
     def test_build_conversation_handles_edge_display_names(self, display_name, expected_segment):
         conv = build_conversation(make_properties(), _result(), make_build_input(display_name=display_name))
         assert conv.name == f"chathub-claude4__{expected_segment}__{RUN_ID}"
+        assert unquote(conv.name.split("__")[1]) == display_name
         # The run id segment always survives verbatim.
         assert conv.name.rsplit("__", 1)[1] == RUN_ID
 
@@ -300,19 +489,32 @@ class TestConversationNameEdgeInputs:
 
 class TestCreateRunConversationApplication:
     async def test_application_deployment_resolves_reference(self, mocker, mock_dial):
-        from src.lib.schemas.conversation import ApplicationDetails
-
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
 
         with structlog.testing.capture_logs():
             await create_run_conversation(make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result())
 
+        # The application lookup is retained: its reference is what the document reopens against.
         mock_dial.get_application.assert_awaited_once()
         assert mock_dial.get_application.call_args.args[1] == _APP_MODEL
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "c9e5decf-1284-421e-ab84-c790beea837d"
-        # The name's deployment segment uses the resolved app reference (same as content), not the app path.
-        assert written.name == f"c9e5decf-1284-421e-ab84-c790beea837d__{DISPLAY_NAME}__{RUN_ID}"
+        # ...but the name's deployment part is the application id itself, encoded -- not the reference.
+        assert written.name == f"applications%2Fbkt%2FUntitled%20app%201101%5F%5F0.0.1__{DISPLAY_NAME}__{RUN_ID}"
+        assert unquote(written.name.split("__")[0]) == _APP_MODEL
+        assert "c9e5decf-1284-421e-ab84-c790beea837d" not in written.name
+
+    async def test_written_path_is_encoded_and_single_segment(self, mock_dial):
+        mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
+
+        with structlog.testing.capture_logs():
+            await create_run_conversation(make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result())
+
+        path = mock_dial.put_conversation.call_args.kwargs["path"]
+        expected_leaf = f"applications%2Fbkt%2FUntitled%20app%201101%5F%5F0.0.1__{DISPLAY_NAME}__{RUN_ID}"
+        assert path == f"{BUCKET}/.scheduler/{SCHEDULE_ID}/{expected_leaf}"
+        # Four segments exactly: the encoded application id contributed no extra separator.
+        assert len(path.split("/")) == 4
 
     async def test_application_reference_failure_raises(self, mock_dial):
         mock_dial.get_application.side_effect = ConversationCreationError("no reference")
@@ -339,6 +541,19 @@ class TestCreateRunConversationModelResolution:
         mock_dial.get_application.assert_not_awaited()
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "gpt-4o"
+
+    @pytest.mark.parametrize("bad_model", [123, ["gpt-4o"], {"id": "gpt-4o"}, ""])
+    async def test_non_string_model_raises_named_conversation_error(self, mock_dial, bad_model):
+        # payload is dict[str, Any]; the value is path-facing now, so it must fail with a named
+        # error rather than an opaque AttributeError/TypeError from startswith()/quote().
+        props = make_properties()
+        object.__setattr__(props, "payload", {"model": bad_model, "messages": []})
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ConversationCreationError, match="payload.model"):
+                await create_run_conversation(make_ctx(), make_creds(), props, _result())
+
+        mock_dial.put_conversation.assert_not_awaited()
 
     async def test_missing_model_raises_conversation_error(self, mock_dial):
         # Construct properties whose payload lacks a model, bypassing schema validation

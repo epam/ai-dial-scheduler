@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/032-add-orderings/plan.md` (Add Ordering for Schedules/Runs List)
+- Current plan: `specs/034-conversation-path-encoding/plan.md` (Conversation Path Encoding for Schedule Executions)
 <!-- SPECKIT END -->

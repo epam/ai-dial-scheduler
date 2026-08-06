@@ -59,7 +59,9 @@ async def execute_with_policy(
     errors carry no status code and are therefore terminal.
 
     Each attempt, retry, and terminal outcome is recorded via structured logs; per-attempt
-    detail is intentionally not persisted to the database.
+    detail is intentionally not persisted to the database. Attempt failures always log at
+    warning level: every error reaching this orchestrator originates outside the scheduler
+    (target status, unreachable URL, timeout), so error level stays reserved for our own faults.
 
     Returns:
         A :class:`RunOutcome` describing the final result and the number of attempts made.
@@ -96,7 +98,7 @@ async def execute_with_policy(
                 schedule_id=ctx.schedule_id,
                 run_id=ctx.run_id,
             )
-            logger.error(
+            logger.warning(
                 AttemptEvent.TIMED_OUT,
                 schedule_id=ctx.schedule_id,
                 run_id=ctx.run_id,
@@ -125,7 +127,7 @@ async def execute_with_policy(
                 continue
 
             if retry is not None and is_retry and attempt == max_attempts:
-                logger.error(
+                logger.warning(
                     AttemptEvent.LAST_RETRY_FAILED,
                     schedule_id=ctx.schedule_id,
                     run_id=ctx.run_id,
@@ -142,7 +144,7 @@ async def execute_with_policy(
                 else:
                     reason = FailureReason.STATUS_NOT_IN_RETRYABLE
                 event = AttemptEvent.FAILED_NON_RETRYABLE if retry is not None else AttemptEvent.FAILED
-                logger.error(
+                logger.warning(
                     event,
                     schedule_id=ctx.schedule_id,
                     run_id=ctx.run_id,

@@ -139,10 +139,11 @@ class TestRetryRunPersistence:
 
         mocker.patch("src.worker.retry.asyncio.sleep", new=mocker.AsyncMock())
         mock_executor = mocker.AsyncMock()
+        # 1 initial + 3 retries; every attempt fails with a retryable status.
         mock_executor.execute = mocker.AsyncMock(
-            side_effect=lambda ctx, _: (_ for _ in ()).throw(
-                ScheduleRunError("502", schedule_id=ctx.schedule_id, run_id=ctx.run_id, status_code=502)
-            )
+            side_effect=[
+                ScheduleRunError("502", schedule_id=RETRY_EXHAUST_ID, run_id="r", status_code=502) for _ in range(4)
+            ]
         )
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
 
@@ -170,6 +171,10 @@ class TestRetryRunPersistence:
         # 1 initial + 3 retries reflected in logs only.
         assert any(log.get("event") == "last_retry_failed" for log in logs)
         assert any(log.get("event") == "run_failed" and log.get("attempts") == 4 for log in logs)
+        # A failing target is not a scheduler defect: the error channel stays clean end-to-end,
+        # and the status code is carried on the event instead of encoded in the level.
+        assert [log for log in logs if log.get("log_level") == "error"] == []
+        assert any(log.get("event") == "run_failed" and log.get("status_code") == 502 for log in logs)
 
         db._engine = None
         db._sessionmaker = None

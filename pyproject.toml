@@ -26,7 +26,6 @@ dependencies = [
     "fastmcp>=3.4.2",
     "cloud-sql-python-connector[pg8000]>=1.13.0,<2",
     "azure-identity>=1.19.0,<2",
-    "python-slugify>=8.0.4",
 ]
 
 
@@ -55,6 +54,11 @@ constraint-dependencies = [
     "starlette>=1.3.1",
     "mcp>=1.28.1",
     "pyasn1>=0.6.4",
+    # Transitive pins raising CVE-flagged versions above their fix. Each is pulled in by a
+    # dependency that permits the vulnerable range, so the floor is set here rather than by
+    # adding a direct dependency.
+    "aiohttp>=3.14.3",       # CVE-2026-69244, via cloud-sql-python-connector
+    "cryptography>=50.0.0",  # CVE-2026-69247, CVE-2026-69249, via azure-identity/google-auth/msal
 ]
 
 

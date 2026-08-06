@@ -28,7 +28,7 @@ async def get_user_id(
     try:
         info = await dial_client.get_user_info(api_key)
     except DialServiceError:
-        logger.info("auth_failed", reason="dial_unavailable")
+        logger.warning("auth_failed", reason="dial_unavailable")
         raise HTTPException(status_code=502, detail="DIAL service unavailable")
 
     user_id = extract_user_id(info, settings.user_id_path_list)
