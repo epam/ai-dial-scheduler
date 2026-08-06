@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+import structlog.testing
 
 from src.lib.exceptions.errors import DialServiceError
 
@@ -82,3 +83,32 @@ class TestGetUserIdRejections:
         response = client.get("/test", headers={"Api-Key": "key"})
 
         assert response.status_code == 502
+
+    def test_dial_unavailable_logged_as_warning(self):
+        """A DIAL outage produces a 502 and must be visible above the per-request info stream."""
+        mock_client = AsyncMock()
+        mock_client.get_user_info.side_effect = DialServiceError("timeout")
+        app = _build_test_app(mock_client, path_list=["userClaims.mail.0"])
+
+        client = TestClient(app, raise_server_exceptions=False)
+        with structlog.testing.capture_logs() as logs:
+            client.get("/test", headers={"Api-Key": "key"})
+
+        failures = [log for log in logs if log.get("event") == "auth_failed"]
+        assert len(failures) == 1
+        assert failures[0]["reason"] == "dial_unavailable"
+        assert failures[0]["log_level"] == "warning"
+
+    def test_missing_identity_stays_info(self):
+        """A client that cannot be identified is a routine 401, not an operational signal."""
+        mock_client = AsyncMock()
+        mock_client.get_user_info.return_value = {"other": "data"}
+        app = _build_test_app(mock_client, path_list=["userClaims.mail.0"])
+
+        client = TestClient(app, raise_server_exceptions=False)
+        with structlog.testing.capture_logs() as logs:
+            client.get("/test", headers={"Api-Key": "key"})
+
+        rejections = [log for log in logs if log.get("event") == "auth_rejected"]
+        assert len(rejections) == 1
+        assert rejections[0]["log_level"] == "info"

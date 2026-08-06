@@ -27,9 +27,9 @@ SCHEDULER_CONVERSATION_FOLDER = ".scheduler"
 # Application deployment ids begin with this prefix; models use their deployment id as-is.
 APPLICATION_DEPLOYMENT_PREFIX = "applications/"
 
-# Run conversation naming convention: {deployment-slug}__{display-name-slug}__{run-id}.
-# The separator cannot occur inside a slugified segment (underscores collapse to hyphens),
-# so the three-part name splits unambiguously.
+# Run conversation naming convention: {deployment-id}__{display-name}__{run-id}, where every part
+# is percent-encoded (underscore included). The separator cannot occur inside an encoded part, so
+# the three-part name always splits unambiguously.
 CONVERSATION_NAME_SEPARATOR = "__"
-# Per-segment cap for the slugified display-name segment; deployment/run id are never truncated.
-CONVERSATION_NAME_SEGMENT_MAX_LENGTH = 64
+# Prefix distinguishing a conversation document id from its storage resource path.
+CONVERSATION_ID_PREFIX = "conversations/"

@@ -73,15 +73,15 @@ async def _maybe_create_conversation(
     """Best-effort DIAL conversation creation after a successful chat completion run.
 
     Only runs for chat completion schedules that opted in via ``create_conversation``. Any
-    failure is logged and swallowed so it never changes the already-successful run outcome
-    (FR-013). No prompt/response content or credentials are logged.
+    failure is logged and swallowed so it never changes the already-successful run outcome.
+    No prompt/response content or credentials are logged.
     """
     if properties.target_type != TargetType.CHAT_COMPLETION or not properties.create_conversation:
         return
     try:
         await create_run_conversation(ctx, credentials, properties, result)
     except Exception as exc:
-        logger.error(
+        logger.warning(
             "conversation_create_failed",
             run_id=ctx.run_id,
             schedule_id=ctx.schedule_id,
@@ -112,7 +112,7 @@ async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
 
     if schedule is None:
         error = RunError(stage="credentials", error_text=f"schedule not found: {schedule_id}")
-        logger.error("credentials_fetch_failed", run_id=run_id, schedule_id=schedule_id, reason="schedule_not_found")
+        logger.warning("credentials_fetch_failed", run_id=run_id, schedule_id=schedule_id, reason="schedule_not_found")
         await _persist_credentials_error(run_id, schedule_id, error)
         raise ScheduleRunError(error.error_text, schedule_id=schedule_id, run_id=run_id)
 
@@ -136,7 +136,7 @@ async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
             error_text=str(exc),
             credentials_response={"status": exc.status_code, "body": exc.response_body},
         )
-        logger.error(
+        logger.warning(
             "credentials_fetch_failed",
             run_id=run_id,
             schedule_id=schedule_id,
@@ -183,7 +183,13 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
             properties = ScheduleProperties(**kwargs)
         except ValidationError as exc:
             err = ScheduleRunError(str(exc), schedule_id=schedule_id, run_id=run_id)
-            logger.error("run_failed", run_id=run_id, schedule_id=schedule_id, error=str(err))
+            logger.warning(
+                "run_failed",
+                run_id=run_id,
+                schedule_id=schedule_id,
+                reason="invalid_schedule_properties",
+                error=str(err),
+            )
             await _persist_error(run_id, schedule_id, str(err))
             raise err from exc
 
@@ -200,11 +206,12 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
             await _maybe_create_conversation(ctx, credentials, properties, result)
         else:
             error = outcome.error or ScheduleRunError("run failed", schedule_id=schedule_id, run_id=run_id)
-            logger.error(
+            logger.warning(
                 "run_failed",
                 run_id=run_id,
                 schedule_id=schedule_id,
                 error=str(error),
+                status_code=error.status_code,
                 attempts=outcome.attempt_count,
             )
             await _persist_error(run_id, schedule_id, str(error))
@@ -212,8 +219,18 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
     except ScheduleRunError:
         raise
     except Exception as exc:
+        # Only unexpected failures reach here: executors and the retry orchestrator raise
+        # ScheduleRunError for every remote/user fault. This is the scheduler's own fault, so it
+        # is the one run failure logged at error level, with a traceback.
         err = ScheduleRunError(str(exc), schedule_id=schedule_id, run_id=run_id)
-        logger.error("run_failed", run_id=run_id, schedule_id=schedule_id, error=str(err))
+        logger.error(
+            "run_failed",
+            run_id=run_id,
+            schedule_id=schedule_id,
+            reason="unexpected_error",
+            error=str(err),
+            exc_info=True,
+        )
         await _persist_error(run_id, schedule_id, str(err))
         raise err from exc
     finally:

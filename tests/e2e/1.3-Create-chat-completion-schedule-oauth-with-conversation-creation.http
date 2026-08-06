@@ -53,8 +53,19 @@ Authorization: Bearer {{user_token}}
 > {%
     const runId = response.body["results"][0]["id"];
     client.global.set("run_id", runId);
-    // Conversation name/path leaf: {deployment}__{display-slug}__{run_id}.
-    client.global.set("conversation_name", "gpt-4.1-mini-2025-04-14__real-dial-streaming-smoke-test__" + runId);
+    // Conversation name/path leaf: encode(deployment_id)__encode(display_name)__encode(run_id).
+    // Must match Python's quote(v, safe="").replace("_", "%5F") EXACTLY, or this file computes a
+    // path the scheduler never wrote and the GET 404s -- a false negative that looks like a
+    // product bug. encodeURIComponent leaves !'()* literal where Python encodes them, hence the
+    // second replace. Script blocks do not share scope, so the application case below repeats it;
+    // keep the two definitions identical.
+    const encode = (v) => encodeURIComponent(v)
+        .replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+        .replace(/_/g, "%5F");
+    client.global.set(
+        "conversation_name",
+        encode("gpt-4.1-mini-2025-04-14") + "__" + encode("Real DIAL streaming smoke test") + "__" + encode(runId)
+    );
 %}
 
 
@@ -84,5 +95,79 @@ Authorization: Bearer {{user_token}}
 
 # @name get_conversation
 GET {{dial_url}}/v1/conversations/{{bucket}}/.scheduler/{{schedule_id}}/{{conversation_name}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### CREATE CHAT COMPLETION SCHEDULE AGAINST AN APPLICATION
+###
+### The case this feature exists for. The application id contains "/" and may contain
+### spaces and "__"; all of it must land in ONE encoded path segment, and the application's
+### resolved model reference must NOT appear in the path (it stays in the document's model).
+### Set {{application_id}} to a real application deployment id, e.g.
+###   applications/<bucket>/Untitled app 1101__0.0.1
+### ============================================================
+
+# @name create_application_schedule
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Отчёт / Weekly Sync",
+  "service_id": "dial-oauth",
+  "trigger": {
+    "date": "{{$isoTimestamp}}"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "{{application_id}}",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview",
+    "create_conversation": true
+  }
+}
+
+> {% client.global.set("app_schedule_id", response.body["id"]) %}
+
+
+### ============================================================
+### LIST RUNS FOR THE APPLICATION SCHEDULE
+### ============================================================
+
+# @name application_schedule_runs
+GET {{baseUrl}}/v1/schedules/{{app_schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {%
+    const runId = response.body["results"][0]["id"];
+    // Keep identical to the definition in the model case above -- see the comment there.
+    const encode = (v) => encodeURIComponent(v)
+        .replace(/[!'()*]/g, (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase())
+        .replace(/_/g, "%5F");
+    client.global.set(
+        "app_conversation_name",
+        encode(client.global.get("application_id")) + "__" + encode("Отчёт / Weekly Sync") + "__" + encode(runId)
+    );
+%}
+
+
+### ============================================================
+### GET THE APPLICATION CONVERSATION
+###
+### Expect 200. Then verify by hand:
+###   - the path segment decodes to the application id exactly (no reference id anywhere)
+###   - the name segment decodes to "Отчёт / Weekly Sync" (not transliterated, not slugified)
+###   - the body's "model".id IS the resolved reference, and the conversation still opens
+###     in DIAL Chat exactly as it did before this change (SC-007)
+### ============================================================
+
+# @name get_application_conversation
+GET {{dial_url}}/v1/conversations/{{bucket}}/.scheduler/{{app_schedule_id}}/{{app_conversation_name}}
 Content-Type: application/json
 Authorization: Bearer {{user_token}}

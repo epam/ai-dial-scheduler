@@ -6,8 +6,10 @@ from structlog.contextvars import clear_contextvars, get_contextvars
 import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
-from src.lib.exceptions.errors import OboCredentialsError, ScheduleRunError
+from src.lib.exceptions.errors import ConversationCreationError, OboCredentialsError, ScheduleRunError
 from src.lib.schemas.credentials import OboCredentials
+from src.lib.schemas.run import RunContext
+from src.lib.schemas.schedule import ScheduleProperties
 
 
 SCHEDULE_ID = "sched-jobs-001"
@@ -828,6 +830,170 @@ class TestExecuteScheduledJobCredentialFailure:
         exec_with_policy.assert_not_called()
 
 
+class TestFailureLogLevel:
+    """Error level is reserved for the scheduler's own faults (DB failures, bugs).
+
+    Failures caused by anything outside this service — DIAL rejecting or not answering an OBO
+    request, a deleted schedule, invalid stored properties, a failing target — log at warning.
+    """
+
+    @staticmethod
+    def _rest_kwargs(**overrides) -> dict:
+        kwargs = dict(
+            schedule_id=SCHEDULE_ID,
+            target_type=TargetType.REST,
+            method=HttpMethod.POST,
+            url="https://example.com",
+            payload={},
+            extra_headers={},
+        )
+        kwargs.update(overrides)
+        return kwargs
+
+    @staticmethod
+    def _events(logs: list[dict], event: str) -> list[dict]:
+        return [log for log in logs if log.get("event") == event]
+
+    @pytest.mark.parametrize("status_code", [404, 500, None])
+    async def test_obo_failure_logged_as_warning(self, mocker, mock_run_repo, mock_credentials, status_code):
+        """DIAL rejecting the OBO request (4xx), failing (5xx), or being unreachable (no status)
+        are all outside this service."""
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.dial_client.get_obo_credentials = mocker.AsyncMock(
+            side_effect=OboCredentialsError("no credentials", status_code=status_code, response_body={})
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mocker.AsyncMock())
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(**self._rest_kwargs())
+
+        failures = self._events(logs, "credentials_fetch_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "warning"
+        assert failures[0]["status_code"] == status_code
+
+    async def test_schedule_not_found_logged_as_warning(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(return_value=None)
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mocker.AsyncMock())
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(**self._rest_kwargs())
+
+        failures = self._events(logs, "credentials_fetch_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "warning"
+        assert failures[0]["reason"] == "schedule_not_found"
+
+    async def test_schedule_lookup_failure_stays_error(self, mocker, mock_run_repo, mock_credentials):
+        """A failed DB read is our own infrastructure failing, so it stays at error level."""
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(side_effect=RuntimeError("db down"))
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mocker.AsyncMock())
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(**self._rest_kwargs())
+
+        failures = self._events(logs, "credentials_fetch_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "error"
+        assert failures[0]["reason"] == "schedule_lookup_failed"
+
+    async def test_invalid_properties_logged_as_warning(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mocker.patch("src.worker.jobs.resolve_executor")
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                # missing required method for REST
+                await execute_scheduled_job(**self._rest_kwargs(method=None))
+
+        failures = self._events(logs, "run_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "warning"
+        assert failures[0]["reason"] == "invalid_schedule_properties"
+
+    @pytest.mark.parametrize("status_code", [403, 502, None])
+    async def test_terminal_target_failure_logged_as_warning_with_status(self, mocker, mock_run_repo, status_code):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("boom", schedule_id=SCHEDULE_ID, run_id="r", status_code=status_code)
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(**self._rest_kwargs())
+
+        failures = self._events(logs, "run_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "warning"
+        # The level no longer distinguishes a client error from a target outage, so the status
+        # code must be on the event for alerting to key on.
+        assert failures[0]["status_code"] == status_code
+
+    async def test_unexpected_executor_error_stays_error_with_traceback(self, mocker, mock_run_repo):
+        """A bug escaping an executor is the scheduler's own fault: error level, with a traceback,
+        and the run is still persisted as an error."""
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(side_effect=AttributeError("bug: no attribute 'foo'"))
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(**self._rest_kwargs())
+
+        failures = self._events(logs, "run_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "error"
+        assert failures[0]["reason"] == "unexpected_error"
+        assert failures[0]["exc_info"] is True
+        mock_run_repo.mark_error.assert_awaited_once()
+        assert "no attribute 'foo'" in mock_run_repo.mark_error.call_args.args[1]
+
+    async def test_persist_failure_stays_error(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_run_repo.mark_success = mocker.AsyncMock(side_effect=Exception("DB gone"))
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(**self._rest_kwargs())
+
+        failures = self._events(logs, "run_persist_failed")
+        assert len(failures) == 1
+        assert failures[0]["log_level"] == "error"
+
+    async def test_target_failure_emits_no_error_level_logs(self, mocker, mock_run_repo):
+        """End-to-end guard: a purely remote failure must not put anything on the error channel."""
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=ScheduleRunError("401", schedule_id=SCHEDULE_ID, run_id="r", status_code=401)
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(**self._rest_kwargs())
+
+        assert [log for log in logs if log.get("log_level") == "error"] == []
+
+
 class TestHeartbeatHandler:
     async def test_logs_job_name_and_executed_at(self):
         from src.worker.jobs import heartbeat
@@ -874,3 +1040,66 @@ class TestHeartbeatHandler:
         await heartbeat()
 
         mock_touch.assert_called_once()
+
+
+class TestMaybeCreateConversationIsBestEffort:
+    """FR-011: a conversation failure is logged and swallowed, never altering the run outcome."""
+
+    @staticmethod
+    def _properties():
+        return ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://dial.example.com/openai/",
+            payload={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+            api_version="2024-02-01",
+            create_conversation=True,
+        )
+
+    @staticmethod
+    def _ctx():
+        return RunContext(run_id="run-fr011", schedule_id=SCHEDULE_ID)
+
+    @staticmethod
+    def _creds():
+        return OboCredentials(header_name="Api-Key", header_value=SecretStr("owner-token"))
+
+    async def test_failure_is_swallowed_and_logged_once(self, mocker):
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch(
+            "src.worker.jobs.create_run_conversation",
+            side_effect=ConversationCreationError("dial unreachable"),
+        )
+
+        with structlog.testing.capture_logs() as logs:
+            # Must not raise: the run has already succeeded by this point.
+            await _maybe_create_conversation(self._ctx(), self._creds(), self._properties(), {"result": {}})
+
+        failures = [log for log in logs if log.get("event") == "conversation_create_failed"]
+        assert len(failures) == 1
+        assert failures[0]["run_id"] == "run-fr011"
+        assert failures[0]["schedule_id"] == SCHEDULE_ID
+        # Best-effort and non-fatal: never on the error channel.
+        assert failures[0]["log_level"] == "warning"
+
+    async def test_failure_log_carries_no_secret_or_prompt_content(self, mocker):
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch("src.worker.jobs.create_run_conversation", side_effect=RuntimeError("boom"))
+        creds = OboCredentials(header_name="Api-Key", header_value=SecretStr("super-secret"))
+
+        with structlog.testing.capture_logs() as logs:
+            await _maybe_create_conversation(self._ctx(), creds, self._properties(), {"result": {}})
+
+        for log in logs:
+            assert "super-secret" not in str(log)
+
+    async def test_skipped_when_not_opted_in(self, mocker):
+        from src.worker.jobs import _maybe_create_conversation
+
+        create = mocker.patch("src.worker.jobs.create_run_conversation")
+        properties = self._properties().model_copy(update={"create_conversation": False})
+
+        await _maybe_create_conversation(self._ctx(), self._creds(), properties, {"result": {}})
+
+        create.assert_not_called()

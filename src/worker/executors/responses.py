@@ -1,6 +1,7 @@
 from typing import Any
 
-from openai import APIStatusError, AsyncAzureOpenAI
+import httpx
+from openai import APIStatusError, AsyncAzureOpenAI, OpenAIError
 
 from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.schemas.credentials import OboCredentials
@@ -49,5 +50,9 @@ class ResponsesExecutor:
             raise ScheduleRunError(
                 str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id, status_code=exc.status_code
             ) from exc
-        except Exception as exc:
+        # Deliberately narrow: SDK/transport failures and payload-shape errors (``payload`` is
+        # free-form, so a bad key raises TypeError and a bad value ValueError) are remote/user
+        # faults and become run errors. Anything else is a bug in this service and must escape
+        # to the job boundary, which logs it at error level with a traceback.
+        except (OpenAIError, httpx.TransportError, TypeError, ValueError) as exc:
             raise ScheduleRunError(str(exc), schedule_id=ctx.schedule_id, run_id=ctx.run_id) from exc

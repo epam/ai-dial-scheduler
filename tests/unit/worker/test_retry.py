@@ -301,3 +301,64 @@ class TestLogging:
         assert len(scheduled) == 1
         assert scheduled[0]["backoff_seconds"] == 7
         assert scheduled[0]["status_code"] == 502
+
+
+class TestFailureLogLevel:
+    """Every failure reaching the orchestrator comes from outside the scheduler, so none of
+    them are error level — error stays reserved for the scheduler's own faults."""
+
+    async def test_timed_out_logged_as_warning(self, mocker):
+        mocker.patch(
+            "src.worker.retry.get_settings",
+            return_value=mocker.MagicMock(worker_http=mocker.MagicMock(timeout_seconds=0.01)),
+        )
+        props = make_properties()
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_with_policy(CTX, CREDS, props, SlowExecutor(delay=0.5))
+
+        timed_out = [log for log in logs if log.get("event") == "attempt_timed_out"]
+        assert len(timed_out) == 1
+        assert timed_out[0]["log_level"] == "warning"
+
+    @pytest.mark.parametrize("status_code", [404, 500, None])
+    async def test_attempt_failed_logged_as_warning(self, status_code):
+        props = make_properties()
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_with_policy(CTX, CREDS, props, ScriptedExecutor(_run_error(status_code)))
+
+        failed = [log for log in logs if log.get("event") == "attempt_failed"]
+        assert len(failed) == 1
+        assert failed[0]["log_level"] == "warning"
+
+    @pytest.mark.parametrize("status_code", [403, 503])
+    async def test_attempt_failed_non_retryable_logged_as_warning(self, status_code, no_sleep):
+        props = make_properties(retry=RetryPolicy(interval_sequence=[2], retryable_errors=[429]))
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_with_policy(CTX, CREDS, props, ScriptedExecutor(_run_error(status_code)))
+
+        failed = [log for log in logs if log.get("event") == "attempt_failed_non_retryable"]
+        assert len(failed) == 1
+        assert failed[0]["log_level"] == "warning"
+
+    async def test_last_retry_failed_logged_as_warning(self, no_sleep):
+        executor = ScriptedExecutor(_run_error(500), _run_error(500))
+        props = make_properties(retry=RetryPolicy(interval_sequence=[2], retryable_errors=[500]))
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_with_policy(CTX, CREDS, props, executor)
+
+        failed = [log for log in logs if log.get("event") == "last_retry_failed"]
+        assert len(failed) == 1
+        assert failed[0]["log_level"] == "warning"
+
+    async def test_no_error_level_logs_emitted(self, no_sleep):
+        executor = ScriptedExecutor(_run_error(500), _run_error(500))
+        props = make_properties(retry=RetryPolicy(interval_sequence=[2], retryable_errors=[500]))
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_with_policy(CTX, CREDS, props, executor)
+
+        assert [log for log in logs if log.get("log_level") == "error"] == []

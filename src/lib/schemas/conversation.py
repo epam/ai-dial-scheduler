@@ -49,10 +49,20 @@ class DialConversation(BaseModel):
 class ConversationBuildInput(BaseModel):
     """Resolved inputs for assembling a conversation document.
 
-    Groups the values derived during orchestration (model id, storage location, ids) so the
-    builder keeps a small parameter list.
+    Groups the values derived during orchestration (deployment/model ids, storage location, ids)
+    so the builder keeps a small parameter list.
+
+    ``deployment_id`` and ``model_id`` are deliberately distinct and must not be conflated:
+
+    - ``deployment_id`` is *path-facing*. It is the deployment exactly as configured on the
+      schedule, and is the only identifier allowed to appear in the conversation's storage path.
+      For an application this is the ``applications/...`` id, never its resolved reference.
+    - ``model_id`` is *document-facing*. It is the resolved model reference written to
+      ``DialConversation.model``, which determines what the chat UI reopens the conversation
+      against. For an application this is its reference; for a model the two fields are equal.
     """
 
+    deployment_id: str
     model_id: str
     bucket: str
     schedule_id: str

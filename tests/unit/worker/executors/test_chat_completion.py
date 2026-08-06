@@ -262,6 +262,28 @@ class TestChatCompletionExecutorFailurePath:
 
         assert exc_info.value.status_code is None
 
+    async def test_sdk_and_transport_errors_become_run_errors(self, mocker):
+        for exc in (openai.APIConnectionError(request=mocker.MagicMock()), httpx.ConnectError("dns failure")):
+            mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+            mock_instance = mocker.MagicMock()
+            mock_client_cls.return_value = mock_instance
+            mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=exc)
+
+            with pytest.raises(ScheduleRunError) as exc_info:
+                await ChatCompletionExecutor().execute(CTX, CREDS, make_properties())
+
+            assert exc_info.value.status_code is None
+
+    async def test_unexpected_error_is_not_wrapped(self, mocker):
+        """A bug is not a run error: it must escape so the job boundary logs it at error level."""
+        mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
+        mock_instance = mocker.MagicMock()
+        mock_client_cls.return_value = mock_instance
+        mock_instance.chat.completions.create = mocker.AsyncMock(side_effect=AttributeError("bug"))
+
+        with pytest.raises(AttributeError):
+            await ChatCompletionExecutor().execute(CTX, CREDS, make_properties())
+
 
 class TestChatCompletionExecutorTimeout:
     async def test_effective_timeout_passed_through_when_set(self, mocker):
