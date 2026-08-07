@@ -302,7 +302,7 @@ class TestGetApplication:
 
         assert details.reference == "ref-1"
 
-    async def test_uses_application_id_verbatim_and_user_credential(self):
+    async def test_escapes_application_id_segments_and_uses_user_credential(self):
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"reference": "ref-1"})
 
@@ -311,8 +311,19 @@ class TestGetApplication:
 
         call = mock_http_client.get.call_args
         url = call.args[0]
-        assert url == "https://dial.example.com/v1/applications/bkt/My App__0.0.1"
+        # The id's separators stay separators; only in-segment characters are escaped.
+        assert url == "https://dial.example.com/v1/applications/bkt/My%20App__0.0.1"
         assert call.kwargs["headers"]["Authorization"] == "Bearer token"
+
+    async def test_query_characters_in_an_application_name_cannot_start_a_query_string(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = make_response(200, {"reference": "ref-1"})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        await client.get_application(_CREDS, "applications/bkt/What? app")
+
+        url = mock_http_client.get.call_args.args[0]
+        assert url == "https://dial.example.com/v1/applications/bkt/What%3F%20app"
 
     async def test_non_2xx_raises_conversation_error(self):
         mock_http_client = AsyncMock()
@@ -346,20 +357,37 @@ class TestPutConversation:
         assert call.kwargs["headers"]["Authorization"] == "Bearer token"
         assert call.kwargs["json"]["folderId"] == "conversations/bkt-1/.scheduler/sched-1"
 
-    async def test_percent_escapes_in_path_reach_the_wire_intact(self):
-        # The caller hands over an already-encoded final segment. httpx must neither re-encode the
-        # '%' nor decode the escapes. Assert on raw_path -- URL.path shows a *decoded* view and
-        # would look like a double-decoding bug that isn't there.
+    async def test_raw_segments_are_percent_encoded_for_the_wire(self):
+        # The caller hands over a raw path, exactly as the name is stored. Each segment is escaped
+        # here and only here, so the request target decodes back to the stored id. Assert on
+        # raw_path -- URL.path shows a *decoded* view and would hide the escaping entirely.
         mock_http_client = AsyncMock()
         mock_http_client.put.return_value = make_response(200, {})
-        encoded_segment = "applications%2Fbkt%2FUntitled%20app%201101%5F%5F0.0.1__My%20Schedule__run-1"
+        raw_leaf = "Untitled app 1101__0.0.1__hi! how are you?__run-1"
 
         client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
-        await client.put_conversation(_CREDS, f"bkt-1/.scheduler/sched-1/{encoded_segment}", _make_conversation())
+        await client.put_conversation(
+            _CREDS, f"bkt-1/.scheduler/sched-1/applications/bkt/{raw_leaf}", _make_conversation()
+        )
 
         raw_path = httpx.URL(mock_http_client.put.call_args.args[0]).raw_path
-        assert raw_path == f"/v1/conversations/bkt-1/.scheduler/sched-1/{encoded_segment}".encode()
-        assert b"%25" not in raw_path
+        assert raw_path == (
+            b"/v1/conversations/bkt-1/.scheduler/sched-1/applications/bkt/"
+            b"Untitled%20app%201101__0.0.1__hi%21%20how%20are%20you%3F__run-1"
+        )
+        # Separators stay separators: no encoded slash ever reaches the wire.
+        assert b"%2F" not in raw_path
+
+    async def test_literal_percent_in_a_name_is_escaped_not_passed_through(self):
+        # A stored name containing '%' must arrive as '%25' so DIAL decodes it back to '%'.
+        mock_http_client = AsyncMock()
+        mock_http_client.put.return_value = make_response(200, {})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        await client.put_conversation(_CREDS, "bkt-1/.scheduler/sched-1/100% done__run-1", _make_conversation())
+
+        raw_path = httpx.URL(mock_http_client.put.call_args.args[0]).raw_path
+        assert raw_path == b"/v1/conversations/bkt-1/.scheduler/sched-1/100%25%20done__run-1"
 
     async def test_non_2xx_raises_conversation_error(self):
         mock_http_client = AsyncMock()

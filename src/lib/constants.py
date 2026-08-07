@@ -27,9 +27,9 @@ SCHEDULER_CONVERSATION_FOLDER = ".scheduler"
 # Application deployment ids begin with this prefix; models use their deployment id as-is.
 APPLICATION_DEPLOYMENT_PREFIX = "applications/"
 
-# Run conversation naming convention: {deployment-id}__{display-name}__{run-id}, where every part
-# is percent-encoded (underscore included). The separator cannot occur inside an encoded part, so
-# the three-part name always splits unambiguously.
+# Run conversation naming convention: {deployment-name}__{display-name}__{run-id}, where the parts
+# are stored raw (only path separators are escaped), mirroring how DIAL Chat names its own
+# conversations. The deployment id's folder segments are nested in the path instead.
 CONVERSATION_NAME_SEPARATOR = "__"
 # Prefix distinguishing a conversation document id from its storage resource path.
 CONVERSATION_ID_PREFIX = "conversations/"

@@ -69,17 +69,27 @@ As a user, I want the conversation's location to carry my schedule's name exactl
 
 ## Requirements *(mandatory)*
 
+> **Revision (2026-08-07) — encoding moved from the stored name to the request URL.** The first
+> implementation percent-encoded the name itself (`applications%2Fbkt%2FMy%20App%5F%5F0.0.1__…`).
+> DIAL rejected those writes with 400: it stores resource names raw and decodes the request path
+> back to them, so an encoded name and its request target could never agree, and encoded slashes
+> are not accepted in a path at all. The implementation now mirrors DIAL Chat exactly — a real
+> conversation path is
+> `conversations/{bucket}/applications/{bucket}/Planning%20Assistant__0.0.1__hi!%20how%20are%20you%3F__{uuid}`,
+> i.e. a raw stored name percent-encoded once, per segment, only in the URL, with the deployment
+> id's own separators left as real folders. FR-004, FR-008 and FR-009 below are amended accordingly.
+
 ### Functional Requirements
 
 - **FR-001**: When creating a conversation after a schedule execution, the system MUST identify the deployment in the conversation's storage location using the deployment id configured on the schedule.
 - **FR-002**: FR-001 MUST apply identically whether the schedule targets a model or an application — one rule, no branching by deployment type.
 - **FR-003**: The system MUST NOT substitute an application's underlying model reference for the application's own deployment id anywhere in the conversation's storage location.
-- **FR-004**: The system MUST URL-encode the deployment id before placing it in the conversation's storage location, such that reserved characters — including path separators — and non-ASCII characters are percent-encoded and the id occupies exactly one location segment.
+- **FR-004** *(amended)*: The system MUST place the deployment id in the conversation's storage location the way DIAL itself does: the id's path separators become real location segments (an `applications/{bucket}/{app name}` id nests under the schedule folder as `applications/{bucket}`), and only its final part joins the conversation name. The name is stored raw; percent-encoding is applied once, per segment, when the request URL is built, so no `%2F` ever appears in a path.
 - **FR-005**: When creating a conversation after a schedule execution, the system MUST carry the schedule's name into the conversation's storage location URL-encoded, preserving the name exactly as configured.
 - **FR-006**: The system MUST NOT apply slugification — lowercasing, whitespace-to-hyphen substitution, transliteration, or stripping of characters — to the schedule name when constructing the conversation's storage location.
 - **FR-007**: URL-decoding the deployment-id portion and the schedule-name portion of a conversation's storage location MUST yield the exact original deployment id and schedule name respectively.
-- **FR-008**: The parts of the conversation's storage location MUST remain unambiguously separable after encoding, so the deployment id, schedule name, and run identifier can each be read back individually.
-- **FR-009**: The conversation's display name MUST remain byte-identical to the final segment of its storage location — that is, it MUST carry the same URL-encoded deployment id and URL-encoded schedule name. Display name and final location segment MUST NOT diverge.
+- **FR-008** *(amended)*: The conversation name MUST occupy exactly one location segment — path separators inside a name part are escaped, and `%` is escaped first so the escaping stays reversible. Beyond that, the name carries the same `__` ambiguity DIAL Chat's own names carry (an application id's final part is itself `{name}__{version}`); the run identifier is always the trailing part and the schedule identifier is a separate location segment, so a conversation's origin is still determinable.
+- **FR-009**: The conversation's display name MUST remain byte-identical to the final segment of its storage location. Display name and final location segment MUST NOT diverge.
 - **FR-010**: For an application-backed schedule, the deployment recorded inside the conversation document — the one the chat interface reopens the conversation against — MUST remain the application's underlying model reference, unchanged from current behaviour. The prohibition on the underlying model reference in FR-003 applies to the storage location only, not to the conversation document's contents.
 - **FR-011**: A failure to create the conversation MUST NOT fail or alter the outcome of the schedule run that produced it; the failure MUST be recorded for diagnosis.
 - **FR-012**: Conversations created before this change MUST remain accessible at their existing locations; the system MUST NOT relocate or rename them.
@@ -112,5 +122,5 @@ As a user, I want the conversation's location to carry my schedule's name exactl
 - Every schedule has a non-empty display name in normal operation; empty or whitespace-only names are treated as a defensive edge case rather than an expected input.
 - The underlying conversation storage accepts percent-encoded segments and preserves them byte-for-byte, so a location written with encoded segments can be read back and decoded without loss.
 - Truncation of over-long segments, if the storage system requires it, is an implementation concern and is not expected to affect the typical case.
-- Decision (confirmed): the conversation's display name stays identical to the final location segment, so users will see percent-escapes in the chat list for names and application ids containing special characters. This was chosen deliberately over a separately-humanised display name, to keep name and location in lockstep.
+- Decision (confirmed): the conversation's display name stays identical to the final location segment. Under the amended encoding this costs nothing in readability — the name is stored raw, so the chat list shows the schedule name as typed, with no percent-escapes except for a literal `/`, `\` or `%`.
 - Decision (confirmed): resolving an application to its underlying model reference remains necessary, because the conversation document still records that reference as the deployment it reopens against. Only the storage location stops using it.

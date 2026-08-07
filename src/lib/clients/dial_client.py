@@ -1,4 +1,5 @@
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
@@ -129,7 +130,7 @@ class DialClient:
             ConversationCreationError: On any non-2xx, transport error, or a body missing
                 ``reference``.
         """
-        path = APPLICATION_DETAILS_PATH_TEMPLATE.format(application_id=application_id)
+        path = APPLICATION_DETAILS_PATH_TEMPLATE.format(application_id=_encode_resource_path(application_id))
         url = f"{self._base_url}{path}"
         headers = {credentials.header_name: credentials.header_value.get_secret_value()}
         try:
@@ -154,13 +155,15 @@ class DialClient:
         Args:
             credentials: The run owner's on-behalf-of credentials.
             path: The conversation resource path (``{bucket}/{folder...}/{name}``) without the
-                ``/v1/conversations/`` prefix.
+                ``/v1/conversations/`` prefix, with raw (unescaped) segments — this method
+                percent-encodes them for the URL.
             conversation: The conversation document to store.
 
         Raises:
             ConversationCreationError: On any non-2xx response or transport error.
         """
-        url = f"{self._base_url}{CONVERSATION_PATH_TEMPLATE.format(conversation_path=path)}"
+        encoded_path = _encode_resource_path(path)
+        url = f"{self._base_url}{CONVERSATION_PATH_TEMPLATE.format(conversation_path=encoded_path)}"
         headers = {credentials.header_name: credentials.header_value.get_secret_value()}
         try:
             response = await self._http_client.put(
@@ -176,6 +179,24 @@ class DialClient:
             ) from exc
         except httpx.HTTPError as exc:
             raise ConversationCreationError(f"conversation write failed: {exc}") from exc
+
+
+def _encode_resource_path(path: str) -> str:
+    """Percent-encode a DIAL resource path for use in a request URL, one segment at a time.
+
+    Segment separators are preserved; everything else — spaces, ``?``, ``#``, ``%``, non-ASCII — is
+    escaped, so a bucket, folder or conversation name carrying such characters cannot leak into the
+    URL's structure as an extra segment or a query string. This is the only place percent-encoding
+    is applied: DIAL stores resource names raw and decodes the path back to them, so escaping here
+    keeps the stored ``id`` and the request target identical.
+
+    Args:
+        path: The raw resource path, with ``/`` between segments.
+
+    Returns:
+        The path with every segment percent-encoded.
+    """
+    return "/".join(quote(segment, safe="") for segment in path.split("/"))
 
 
 def _safe_body(response: httpx.Response) -> Any:
