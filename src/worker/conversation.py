@@ -1,6 +1,5 @@
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
 
 from src.lib.clients.dial_client import DialClient
 from src.lib.constants import (
@@ -55,38 +54,54 @@ def _build_history_messages(
 
 
 def encode_name_part(value: str) -> str:
-    """Percent-encode one part of a conversation name so it stays a single, decodable segment.
+    """Make one part of a conversation name safe to sit inside a single storage path segment.
 
-    Encodes every character outside the RFC 3986 unreserved set (``safe=""``), then encodes the
-    underscore as well. The extra step is load-bearing, not cosmetic: underscore *is* unreserved,
-    so ``quote`` leaves it alone, and parts are joined by ``CONVERSATION_NAME_SEPARATOR`` (``__``).
-    A deployment id such as ``applications/bkt/Untitled app 1101__0.0.1`` — a real id shape — would
-    otherwise inject a fourth separator into a three-part name, so splitting the name back apart
-    would silently yield the wrong pieces. Encoding ``_`` makes ``__`` impossible inside a part.
-
-    The replacement cannot corrupt an input that already looks encoded: ``quote`` maps every literal
-    ``%`` to ``%25`` first, so any underscore still present came from a literal underscore.
+    The stored name is kept *raw* — spaces, punctuation and non-ASCII characters are preserved
+    literally, exactly as DIAL Chat stores its own conversation names. Percent-encoding belongs to
+    the request URL, not to the resource name (see ``DialClient``), so only the two characters that
+    a single path segment genuinely cannot carry are escaped: ``/`` and ``\\``. ``%`` is escaped
+    first so the transformation stays reversible — a literal ``%`` in the input can never be
+    confused with an escape this function introduced.
 
     Args:
-        value: The raw deployment id or schedule display name.
+        value: The raw deployment name part or schedule display name.
 
     Returns:
-        The encoded part; ``urllib.parse.unquote`` returns the exact original string.
+        The name part; ``urllib.parse.unquote`` returns the exact original string.
     """
-    return quote(value, safe="").replace("_", "%5F")
+    return value.replace("%", "%25").replace("/", "%2F").replace("\\", "%5C")
+
+
+def _deployment_location(deployment_id: str) -> tuple[str, str]:
+    """Split a deployment id into its folder prefix and its final name part.
+
+    DIAL never percent-encodes a deployment id's separators into a single segment; it lets them
+    stay real folders. ``applications/{bucket}/{app name}`` therefore contributes the folder path
+    ``applications/{bucket}`` and the name part ``{app name}``. A model deployment id has no
+    separator, so it yields an empty folder path and itself as the name part — one rule, no
+    branching by deployment kind.
+
+    Args:
+        deployment_id: The deployment id configured on the schedule.
+
+    Returns:
+        ``(folder_path, name_part)``; ``folder_path`` is empty when the id has no separator.
+    """
+    prefix, separator, last = deployment_id.rpartition("/")
+    return (prefix if separator else "", last)
 
 
 def _conversation_name(build_input: ConversationBuildInput) -> str:
-    """Return the conversation display name ``{deployment}__{name}__{run-id}``.
+    """Return the conversation display name ``{deployment-name}__{schedule-name}__{run-id}``.
 
-    Every part is URL-encoded verbatim — no slugification, no truncation — so each decodes back to
-    its exact original, and none can contain the ``__`` separator. The deployment id is the one
-    configured on the schedule, never an application's resolved reference. The run id is encoded
-    too: that is the identity function on a UUID, but it keeps the three-part split guarantee from
-    resting on the shape of a value produced elsewhere.
+    Parts are stored verbatim — no percent-encoding, no slugification, no truncation — so the name
+    reads exactly as the user configured it, matching how DIAL Chat names its own conversations.
+    The deployment part is the final segment of the id configured on the schedule (its folder
+    segments live in the path instead), never an application's resolved reference.
     """
+    _, deployment_name = _deployment_location(build_input.deployment_id)
     segments = (
-        encode_name_part(build_input.deployment_id),
+        encode_name_part(deployment_name),
         encode_name_part(build_input.display_name),
         encode_name_part(build_input.run_id),
     )
@@ -97,13 +112,17 @@ def conversation_resource_path(build_input: ConversationBuildInput) -> str:
     """Return the conversation storage path (``{bucket}/{folder...}/{name}``).
 
     This is the resource path DIAL uses to store and address the conversation, without the
-    ``conversations/`` prefix. The final segment is the conversation name
-    (``{deployment}__{name}__{run-id}``), which is path-safe because every part is percent-encoded:
-    none can contribute a bare ``/``, so the name always occupies exactly one segment. The
-    document's ``id`` and ``folderId`` are derived from it.
+    ``conversations/`` prefix. It carries raw, unescaped characters; ``DialClient`` percent-encodes
+    each segment when it builds the request URL. The deployment id's own folder segments are nested
+    under the schedule folder, and the final segment is the conversation name. The document's
+    ``id`` and ``folderId`` are derived from it.
     """
-    name = _conversation_name(build_input)
-    return f"{build_input.bucket}/{SCHEDULER_CONVERSATION_FOLDER}/{build_input.schedule_id}/{name}"
+    deployment_folder, _ = _deployment_location(build_input.deployment_id)
+    segments = [build_input.bucket, SCHEDULER_CONVERSATION_FOLDER, build_input.schedule_id]
+    if deployment_folder:
+        segments.append(deployment_folder)
+    segments.append(_conversation_name(build_input))
+    return "/".join(segments)
 
 
 def build_conversation(

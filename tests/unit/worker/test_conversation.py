@@ -75,19 +75,20 @@ _BUILD_INPUT = make_build_input()
 
 
 class TestEncodeNamePart:
-    """FR-004/FR-007/FR-008: the encoding primitive shared by every name part."""
+    """FR-007: the name-part primitive keeps names raw but path-safe."""
 
     @pytest.mark.parametrize(
         "value",
         [
             "gpt-4o",
-            "applications/bkt/Untitled app 1101__0.0.1",
+            "Untitled app 1101__0.0.1",
             "Привет",
             "Daily Report Sync",
             "a__b/c",
             "100% done",
             "",
             "_leading_and_trailing_",
+            "hi! how are you?",
             "a" * 80,
         ],
     )
@@ -96,28 +97,28 @@ class TestEncodeNamePart:
 
     @pytest.mark.parametrize(
         "value",
-        ["a__b", "applications/bkt/Untitled app 1101__0.0.1", "_", "__", "x_y"],
+        ["Daily Report Sync", "hi! how are you?", "Привет", "a_b", "100%"],
     )
-    def test_never_emits_the_segment_separator(self, value):
-        # Underscore is RFC 3986 unreserved, so quote() alone would leave "__" intact and
-        # a deployment id containing it would inject a false separator (research R-002).
-        assert "__" not in encode_name_part(value)
-        assert "_" not in encode_name_part(value)
+    def test_never_emits_a_path_separator(self, value):
+        # A name part must occupy exactly one storage path segment.
+        assert "/" not in encode_name_part(value)
+        assert "\\" not in encode_name_part(value)
 
-    def test_reserved_characters_are_percent_encoded(self):
-        encoded = encode_name_part("applications/bkt/my app")
-        assert "/" not in encoded
-        assert " " not in encoded
-        assert encoded == "applications%2Fbkt%2Fmy%20app"
+    def test_characters_dial_stores_literally_are_left_alone(self):
+        # DIAL Chat stores "Planning Assistant__0.0.1__hi! how are you?__{uuid}" raw and escapes
+        # only in the request URL; spaces, punctuation and underscores must survive untouched.
+        assert encode_name_part("Planning Assistant__0.0.1") == "Planning Assistant__0.0.1"
+        assert encode_name_part("hi! how are you?") == "hi! how are you?"
+        assert encode_name_part("Привет") == "Привет"
 
-    def test_underscore_encoded_as_percent_5f(self):
-        assert encode_name_part("a_b") == "a%5Fb"
+    def test_only_separators_are_escaped(self):
+        assert encode_name_part("a/b") == "a%2Fb"
+        assert encode_name_part("a\\b") == "a%5Cb"
 
-    def test_exact_output_for_characters_javascript_encodes_differently(self):
-        # Pins the contract's byte-level output. JavaScript's encodeURIComponent leaves !'()*
-        # literal, so any consumer mirroring this rule in JS must encode those five explicitly
-        # or it will compute a different -- and non-existent -- path.
-        assert encode_name_part("a!'()*b~-._") == "a%21%27%28%29%2Ab~-.%5F"
+    def test_literal_percent_escaped_first_so_the_round_trip_holds(self):
+        # Without escaping "%" first, the input "%2F" would decode back to "/".
+        assert encode_name_part("%2F") == "%252F"
+        assert unquote(encode_name_part("%2F")) == "%2F"
 
 
 class TestBuildConversationModel:
@@ -227,8 +228,11 @@ class TestPathUsesDeploymentIdNotReference:
     """US1: the path identifies the scheduled deployment, never an application's reference."""
 
     def test_application_path_carries_deployment_id(self):
+        # The id's folder segments nest under the schedule folder and its final segment opens the
+        # name -- the whole deployment id is still recoverable from the location, as in DIAL Chat.
         conv = build_conversation(make_properties(), _result(), _app_build_input())
-        assert unquote(conv.name.split("__")[0]) == _APP_DEPLOYMENT
+        assert conv.folderId == f"conversations/{BUCKET}/.scheduler/{SCHEDULE_ID}/applications/bkt"
+        assert conv.name == f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
 
     def test_application_reference_absent_from_name_and_id(self):
         # FR-003/SC-001: the reference must not leak into the storage location in any form.
@@ -255,9 +259,11 @@ class TestPathUsesDeploymentIdNotReference:
         assert conv_a.id != conv_b.id
 
     def test_model_deployment_uses_the_same_rule(self):
-        # FR-002: one rule, no branch by deployment kind.
+        # FR-002: one rule, no branch by deployment kind. A model id has no separator, so it
+        # contributes no folder and opens the name by itself.
         conv = build_conversation(make_properties(), _result(), make_build_input(model_id="gpt-4o"))
-        assert unquote(conv.name.split("__")[0]) == "gpt-4o"
+        assert conv.folderId == f"conversations/{BUCKET}/.scheduler/{SCHEDULE_ID}"
+        assert conv.name == f"gpt-4o__{DISPLAY_NAME}__{RUN_ID}"
         assert conv.model.id == "gpt-4o"
 
 
@@ -288,23 +294,23 @@ class TestNameSegmentsSurviveReservedCharacters:
             (".", "."),
         ],
     )
-    def test_name_always_splits_into_exactly_three_parts(self, deployment_id, display_name):
+    def test_name_is_always_one_decodable_segment(self, deployment_id, display_name):
         conv = build_conversation(
             make_properties(),
             _result(),
             make_build_input(deployment_id=deployment_id, model_id=deployment_id, display_name=display_name),
         )
-        parts = conv.name.split("__")
-        assert len(parts) == 3
-        assert unquote(parts[0]) == deployment_id
-        assert unquote(parts[1]) == display_name
-        assert parts[2] == RUN_ID
+        # The deployment id's own folders are path segments; only its final part joins the name.
+        _, _, deployment_name = deployment_id.rpartition("/")
+        assert "/" not in conv.name
+        assert unquote(conv.name) == CONVERSATION_NAME_SEPARATOR.join((deployment_name, display_name, RUN_ID))
+        assert conv.id.rsplit("/", 1)[1] == conv.name
 
     @pytest.mark.parametrize(("deployment_id", "display_name"), [("..", ".."), (".", "."), ("", "")])
     def test_final_segment_is_never_a_traversal_token(self, deployment_id, display_name):
-        # quote() leaves "." alone, so the segment is only inert because the "__" separators are
-        # always present. That invariant is what makes traversal unreachable -- pin it explicitly
-        # rather than leaving the safety incidental.
+        # Name parts are stored raw, so "." survives verbatim: the segment is inert only because
+        # the "__" separators are always present. Pin that invariant rather than leaving the
+        # safety incidental.
         conv = build_conversation(
             make_properties(),
             _result(),
@@ -318,6 +324,7 @@ class TestNameSegmentsSurviveReservedCharacters:
         # FR-009: display name and final location segment must not diverge.
         conv = build_conversation(make_properties(), _result(), _app_build_input(display_name="Daily Report / Sync"))
         assert conv.id.rsplit("/", 1)[1] == conv.name
+        assert unquote(conv.name.split("__")[-2]) == "Daily Report / Sync"
 
 
 class TestDisplayNamePreservedNotSlugified:
@@ -326,8 +333,7 @@ class TestDisplayNamePreservedNotSlugified:
     def test_case_and_spaces_preserved(self):
         conv = build_conversation(make_properties(), _result(), make_build_input(display_name="Daily Report Sync"))
         name_part = conv.name.split("__")[1]
-        assert unquote(name_part) == "Daily Report Sync"
-        assert name_part == "Daily%20Report%20Sync"
+        assert name_part == "Daily Report Sync"
 
     def test_names_differing_only_by_case_and_punctuation_do_not_collide(self):
         conv_a = build_conversation(make_properties(), _result(), make_build_input(display_name="Weekly Sync"))
@@ -467,7 +473,7 @@ class TestConversationNameEdgeInputs:
         ("display_name", "expected_segment"),
         [
             # Previously transliterated to "privet"; now preserved.
-            ("Привет", "%D0%9F%D1%80%D0%B8%D0%B2%D0%B5%D1%82"),
+            ("Привет", "Привет"),
             # Previously capped at 64 characters; now kept in full.
             ("a" * 80, "a" * 80),
         ],
@@ -499,22 +505,22 @@ class TestCreateRunConversationApplication:
         assert mock_dial.get_application.call_args.args[1] == _APP_MODEL
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "c9e5decf-1284-421e-ab84-c790beea837d"
-        # ...but the name's deployment part is the application id itself, encoded -- not the reference.
-        assert written.name == f"applications%2Fbkt%2FUntitled%20app%201101%5F%5F0.0.1__{DISPLAY_NAME}__{RUN_ID}"
-        assert unquote(written.name.split("__")[0]) == _APP_MODEL
+        # ...but the name's deployment part is the application's own name -- not the reference.
+        assert written.name == f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
         assert "c9e5decf-1284-421e-ab84-c790beea837d" not in written.name
+        assert "c9e5decf-1284-421e-ab84-c790beea837d" not in written.id
 
-    async def test_written_path_is_encoded_and_single_segment(self, mock_dial):
+    async def test_written_path_nests_the_application_folders(self, mock_dial):
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
 
         with structlog.testing.capture_logs():
             await create_run_conversation(make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result())
 
         path = mock_dial.put_conversation.call_args.kwargs["path"]
-        expected_leaf = f"applications%2Fbkt%2FUntitled%20app%201101%5F%5F0.0.1__{DISPLAY_NAME}__{RUN_ID}"
-        assert path == f"{BUCKET}/.scheduler/{SCHEDULE_ID}/{expected_leaf}"
-        # Four segments exactly: the encoded application id contributed no extra separator.
-        assert len(path.split("/")) == 4
+        expected_leaf = f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
+        # Mirrors DIAL Chat: the application id's folders are real segments, never a %2F blob.
+        assert path == f"{BUCKET}/.scheduler/{SCHEDULE_ID}/applications/bkt/{expected_leaf}"
+        assert "%2F" not in path
 
     async def test_application_reference_failure_raises(self, mock_dial):
         mock_dial.get_application.side_effect = ConversationCreationError("no reference")

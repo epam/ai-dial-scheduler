@@ -9,7 +9,27 @@ from opentelemetry import trace
 import structlog
 from structlog.stdlib import ProcessorFormatter
 
+from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.settings import get_settings
+
+
+class _ExpectedJobErrorFilter(logging.Filter):
+    """Emit APScheduler's job-exception record at WARNING when the failure is an expected one.
+
+    A run that fails because the target or DIAL rejected it (a 404 from the OBO credentials
+    endpoint, a 500 from the user's URL) raises ``ScheduleRunError`` out of the job. The worker has
+    already logged it at warning and persisted a diagnosable run error, but APScheduler then logs
+    the same failure again at ERROR with a traceback — turning every remote or user fault into an
+    error-level page. Only the scheduler's own unexpected faults belong at ERROR, so downgrade this
+    one record instead of silencing it: the traceback is still emitted, just at warning.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exception = record.exc_info[1] if record.exc_info else None
+        if record.levelno == logging.ERROR and isinstance(exception, ScheduleRunError):
+            record.levelno = logging.WARNING
+            record.levelname = logging.getLevelName(logging.WARNING)
+        return True
 
 
 class _HealthCheckFilter(logging.Filter):
@@ -85,6 +105,9 @@ class LoggingConfig:
                 "health_check": {
                     "()": _HealthCheckFilter,
                 },
+                "expected_job_error": {
+                    "()": _ExpectedJobErrorFilter,
+                },
             },
             "handlers": {
                 "console": {
@@ -101,6 +124,11 @@ class LoggingConfig:
                 "uvicorn": {"level": log_level, "propagate": True},
                 "uvicorn.error": {"level": log_level, "propagate": True},
                 "uvicorn.access": {"level": log_level, "propagate": True, "filters": ["health_check"]},
+                "apscheduler.executors.default": {
+                    "level": log_level,
+                    "propagate": True,
+                    "filters": ["expected_job_error"],
+                },
                 "httpx": {"level": log_level, "propagate": True},
                 "httpcore": {"level": log_level, "propagate": True},
                 "opentelemetry": {"level": otel_log_level, "propagate": True},
