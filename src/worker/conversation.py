@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import unquote
 
 from src.lib.clients.dial_client import DialClient
 from src.lib.constants import (
@@ -196,11 +197,20 @@ async def create_run_conversation(
     settings = get_settings()
     client = DialClient(HttpClientProvider().client, settings.dial_url, settings.worker_http.timeout_seconds)
 
-    deployment = properties.payload.get("model")
+    raw_deployment = properties.payload.get("model")
     # payload is dict[str, Any] and this value is now path-facing, so a non-string would otherwise
     # surface as an opaque AttributeError/TypeError instead of naming the offending field.
-    if not isinstance(deployment, str) or not deployment:
+    if not isinstance(raw_deployment, str) or not raw_deployment:
         raise ConversationCreationError("payload.model must be a non-empty string to create a conversation")
+
+    # DIAL hands out application deployment ids in their URL form, already percent-encoded
+    # ("applications/{bucket}/Planning%20Assistant__0.0.1"). Everything downstream -- the name parts
+    # and the resource path -- works on raw names and is escaped once by DialClient, so the id is
+    # decoded back to its raw form here. Skipping this escapes the id twice: the application lookup
+    # asks for "Planning%2520Assistant__0.0.1" and 404s, and the conversation is stored under the
+    # literal escapes instead of its name. Model deployment ids carry no escapes, so this is a no-op
+    # for them.
+    deployment = unquote(raw_deployment)
 
     is_application = deployment.startswith(APPLICATION_DEPLOYMENT_PREFIX)
     logger.info(

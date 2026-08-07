@@ -121,7 +121,9 @@ class DialClient:
 
         Args:
             credentials: The run owner's on-behalf-of credentials.
-            application_id: The application deployment id (e.g. ``applications/{bucket}/{name}``).
+            application_id: The application deployment id (e.g. ``applications/{bucket}/{name}``)
+                with raw (unescaped) segments — this method percent-encodes them for the URL, so
+                passing DIAL's already-encoded URL form would escape it a second time and 404.
 
         Returns:
             Parsed application details carrying the model ``reference``.
