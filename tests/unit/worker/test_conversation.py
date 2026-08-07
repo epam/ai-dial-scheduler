@@ -534,6 +534,54 @@ class TestCreateRunConversationApplication:
         mock_dial.put_conversation.assert_not_awaited()
 
 
+class TestCreateRunConversationPercentEncodedDeployment:
+    """DIAL stores ``payload.model`` in its URL form, so the id arrives already percent-encoded."""
+
+    # Verbatim from a real schedule whose runs logged "application details request failed with
+    # status 404": the space in the application name reaches the scheduler as %20.
+    _ENCODED_APP_MODEL = "applications/bkt/Planning%20Assistant__0.0.1"
+
+    def _encoded_payload(self) -> dict:
+        return {"model": self._ENCODED_APP_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+
+    async def test_application_is_looked_up_by_its_decoded_id(self, mock_dial):
+        mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
+
+        with structlog.testing.capture_logs():
+            await create_run_conversation(
+                make_ctx(), make_creds(), make_properties(payload=self._encoded_payload()), _result()
+            )
+
+        # DialClient escapes the id itself; handing it the encoded form would ask DIAL for
+        # "Planning%2520Assistant__0.0.1" and 404.
+        assert mock_dial.get_application.call_args.args[1] == "applications/bkt/Planning Assistant__0.0.1"
+
+    async def test_name_and_path_carry_the_decoded_application_name(self, mock_dial):
+        mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
+
+        with structlog.testing.capture_logs():
+            await create_run_conversation(
+                make_ctx(), make_creds(), make_properties(payload=self._encoded_payload()), _result()
+            )
+
+        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        path = mock_dial.put_conversation.call_args.kwargs["path"]
+        expected_leaf = f"Planning Assistant__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
+        assert written.name == expected_leaf
+        assert path == f"{BUCKET}/.scheduler/{SCHEDULE_ID}/applications/bkt/{expected_leaf}"
+        # The escape must not survive into the stored name -- it would display literally in DIAL Chat.
+        assert "%20" not in written.name
+        assert "%25" not in written.id
+
+    async def test_model_deployment_id_is_unaffected(self, mock_dial):
+        with structlog.testing.capture_logs():
+            await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+
+        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        assert written.model.id == "gpt-5.6-sol-2026-07-09-reasoning"
+        assert written.name.split("__")[0] == "gpt-5.6-sol-2026-07-09-reasoning"
+
+
 class TestCreateRunConversationModelResolution:
     async def test_model_taken_from_payload(self, mock_dial):
         with structlog.testing.capture_logs():
