@@ -611,3 +611,215 @@ class TestResumeSchedule:
             test_app.dependency_overrides[get_user_id] = lambda: INTEGRATION_USER_ID
 
         assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# DELETE /v1/schedules/{schedule_id}
+# ---------------------------------------------------------------------------
+
+
+async def _add_run(engine: AsyncEngine, schedule_id: str) -> None:
+    """Give a schedule one run record so deletion takes the soft-delete branch."""
+    from src.lib.db.enums import ScheduleRunStatus
+    from src.lib.models.schedule_run import ScheduleRun
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        session.add(
+            ScheduleRun(
+                id=uuid.uuid4(),
+                status=ScheduleRunStatus.SUCCESS,
+                schedule_id=schedule_id,
+                schedule_snapshot={"display_name": "snapshot"},
+            )
+        )
+        await session.commit()
+
+
+async def _clear_runs(engine: AsyncEngine) -> None:
+    from src.lib.models.schedule_run import ScheduleRun
+
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        await session.execute(sa.delete(ScheduleRun))
+        await session.commit()
+
+
+class TestDeleteScheduleWithoutRuns:
+    async def test_delete_returns_204_and_removes_schedule(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+
+        response = await client.delete(f"/v1/schedules/{schedule_id}")
+
+        assert response.status_code == 204
+        assert response.content == b""
+        mock_scheduler.remove_job.assert_called_once_with(schedule_id)
+        assert (await client.get(f"/v1/schedules/{schedule_id}")).status_code == 404
+
+    async def test_deleted_schedule_absent_from_both_list_filters(self, client: httpx.AsyncClient) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        await client.delete(f"/v1/schedules/{schedule_id}")
+
+        live = await client.get("/v1/schedules/")
+        deleted = await client.get("/v1/schedules/?is_deleted=true")
+
+        assert schedule_id not in {item["id"] for item in live.json()["results"]}
+        assert schedule_id not in {item["id"] for item in deleted.json()["results"]}
+
+    async def test_second_delete_returns_404(self, client: httpx.AsyncClient) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        await client.delete(f"/v1/schedules/{schedule_id}")
+
+        assert (await client.delete(f"/v1/schedules/{schedule_id}")).status_code == 404
+
+    async def test_delete_unknown_id_returns_404(self, client: httpx.AsyncClient) -> None:
+        assert (await client.delete(f"/v1/schedules/{uuid.uuid4()}")).status_code == 404
+
+    async def test_delete_other_users_schedule_returns_404(self, client: httpx.AsyncClient, test_app: FastAPI) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+
+        test_app.dependency_overrides[get_user_id] = lambda: "someone_else"
+        try:
+            response = await client.delete(f"/v1/schedules/{schedule_id}")
+        finally:
+            test_app.dependency_overrides[get_user_id] = lambda: INTEGRATION_USER_ID
+
+        assert response.status_code == 404
+        assert (await client.get(f"/v1/schedules/{schedule_id}")).status_code == 200
+
+    async def test_delete_does_not_affect_other_schedules(self, client: httpx.AsyncClient) -> None:
+        target = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        bystander = (await client.post("/v1/schedules/", json=DATE_REQUEST)).json()["id"]
+
+        await client.delete(f"/v1/schedules/{target}")
+
+        assert (await client.get(f"/v1/schedules/{bystander}")).status_code == 200
+
+    async def test_scheduler_failure_returns_502_and_keeps_schedule_live(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        mock_scheduler.remove_job.side_effect = RuntimeError("job store unreachable")
+
+        response = await client.delete(f"/v1/schedules/{schedule_id}")
+
+        assert response.status_code == 502
+        detail = await client.get(f"/v1/schedules/{schedule_id}")
+        assert detail.status_code == 200
+        assert detail.json()["is_deleted"] is False
+
+    async def test_missing_job_still_deletes(self, client: httpx.AsyncClient, mock_scheduler: MagicMock) -> None:
+        from apscheduler.jobstores.base import JobLookupError
+
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        mock_scheduler.remove_job.side_effect = JobLookupError("gone")
+
+        response = await client.delete(f"/v1/schedules/{schedule_id}")
+
+        assert response.status_code == 204
+        assert (await client.get(f"/v1/schedules/{schedule_id}")).status_code == 404
+
+
+class TestDeleteScheduleWithRuns:
+    async def test_delete_soft_deletes_and_preserves_runs(
+        self, client: httpx.AsyncClient, engine: AsyncEngine, mock_scheduler: MagicMock
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        await _add_run(engine, schedule_id)
+        try:
+            response = await client.delete(f"/v1/schedules/{schedule_id}")
+
+            assert response.status_code == 204
+            mock_scheduler.remove_job.assert_called_once_with(schedule_id)
+
+            detail = await client.get(f"/v1/schedules/{schedule_id}")
+            assert detail.status_code == 200
+            assert detail.json()["is_deleted"] is True
+            assert detail.json()["next_run_time"] is None
+        finally:
+            await _clear_runs(engine)
+
+    async def test_soft_deleted_schedule_leaves_default_list_and_enters_deleted_list(
+        self, client: httpx.AsyncClient, engine: AsyncEngine
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        await _add_run(engine, schedule_id)
+        try:
+            await client.delete(f"/v1/schedules/{schedule_id}")
+
+            live = await client.get("/v1/schedules/")
+            deleted = await client.get("/v1/schedules/?is_deleted=true")
+
+            assert schedule_id not in {item["id"] for item in live.json()["results"]}
+            deleted_items = {item["id"]: item for item in deleted.json()["results"]}
+            assert schedule_id in deleted_items
+            assert deleted_items[schedule_id]["is_deleted"] is True
+        finally:
+            await _clear_runs(engine)
+
+    async def test_every_mutation_on_soft_deleted_schedule_returns_409(
+        self, client: httpx.AsyncClient, engine: AsyncEngine
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        await _add_run(engine, schedule_id)
+        try:
+            await client.delete(f"/v1/schedules/{schedule_id}")
+
+            assert (await client.delete(f"/v1/schedules/{schedule_id}")).status_code == 409
+            assert (await client.put(f"/v1/schedules/{schedule_id}", json=CRON_REQUEST)).status_code == 409
+            assert (await client.post(f"/v1/schedules/{schedule_id}/pause")).status_code == 409
+            assert (await client.post(f"/v1/schedules/{schedule_id}/resume")).status_code == 409
+
+            # Still deleted, still not firing.
+            detail = await client.get(f"/v1/schedules/{schedule_id}")
+            assert detail.json()["is_deleted"] is True
+            assert detail.json()["next_run_time"] is None
+        finally:
+            await _clear_runs(engine)
+
+
+class TestIsDeletedFieldExposure:
+    async def test_created_schedule_reports_not_deleted(self, client: httpx.AsyncClient) -> None:
+        response = await client.post("/v1/schedules/", json=CRON_REQUEST)
+
+        assert response.json()["is_deleted"] is False
+
+    async def test_list_items_include_is_deleted(self, client: httpx.AsyncClient) -> None:
+        await client.post("/v1/schedules/", json=CRON_REQUEST)
+
+        response = await client.get("/v1/schedules/")
+
+        assert all("is_deleted" in item for item in response.json()["results"])
+
+    async def test_is_deleted_in_body_is_ignored_on_create(self, client: httpx.AsyncClient) -> None:
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "is_deleted": True})
+
+        assert response.status_code == 201
+        assert response.json()["is_deleted"] is False
+
+    async def test_is_deleted_in_body_is_ignored_on_update(self, client: httpx.AsyncClient) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+
+        response = await client.put(f"/v1/schedules/{schedule_id}", json={**CRON_REQUEST, "is_deleted": True})
+
+        assert response.status_code == 200
+        assert response.json()["is_deleted"] is False
+
+    async def test_non_boolean_filter_returns_422(self, client: httpx.AsyncClient) -> None:
+        assert (await client.get("/v1/schedules/?is_deleted=maybe")).status_code == 422
+
+    async def test_deleted_list_links_preserve_the_filter(self, client: httpx.AsyncClient, engine: AsyncEngine) -> None:
+        first = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        second = (await client.post("/v1/schedules/", json=DATE_REQUEST)).json()["id"]
+        await _add_run(engine, first)
+        await _add_run(engine, second)
+        try:
+            await client.delete(f"/v1/schedules/{first}")
+            await client.delete(f"/v1/schedules/{second}")
+
+            response = await client.get("/v1/schedules/?is_deleted=true&limit=1")
+
+            assert response.json()["count"] == 2
+            assert "is_deleted=true" in response.json()["next"]
+        finally:
+            await _clear_runs(engine)

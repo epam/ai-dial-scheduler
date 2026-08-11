@@ -6,8 +6,26 @@ class ScheduleNotFoundError(SchedulerError):
     """Raised when a schedule is not found or not owned by the caller."""
 
 
+class ScheduleAlreadyDeletedError(SchedulerError):
+    """Raised when an operation targets a schedule that is already soft-deleted.
+
+    Distinct from :class:`ScheduleNotFoundError`: the schedule exists and is still readable,
+    but it is frozen — it cannot be updated, paused, resumed, deleted again, or restored.
+    Surfaced as HTTP 409, whereas a missing or unowned schedule is a 404.
+    """
+
+
 class JobRegistrationError(SchedulerError):
     """Raised when APScheduler fails to register a job after row persistence."""
+
+
+class JobRemovalError(SchedulerError):
+    """Raised when APScheduler fails to unregister a job during schedule deletion.
+
+    The job is unregistered before any database write, so this leaves the schedule fully
+    intact and still live: the caller receives HTTP 502 and may safely retry. A missing job
+    is *not* an error — it is treated as already unregistered.
+    """
 
 
 class ScheduleRunNotFoundError(SchedulerError):

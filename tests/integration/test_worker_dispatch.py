@@ -45,7 +45,7 @@ async def test_rest_job_fires_end_to_end(scheduler, mocker):
     mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
     mocker.patch("src.worker.jobs.Database")
 
-    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1")
+    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1", is_deleted=False)
     schedule_repo = mocker.MagicMock()
     schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
     mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)

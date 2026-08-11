@@ -160,10 +160,40 @@ async def execute_scheduled_job(schedule_id: str, **kwargs: Any) -> None:
         await _execute_scheduled_job_inner(schedule_id, **kwargs)
 
 
+async def _should_skip_run(schedule_id: str) -> bool:
+    """Return True when the schedule no longer exists or has been soft-deleted.
+
+    The API and the worker are separate processes sharing one job store, so the worker can
+    already have fetched a due job by the time the API unregisters it. Without this check a
+    deleted schedule could still produce a run record. An unexpected lookup failure returns
+    False so a legitimate run is never silently dropped — the foreign key and the credentials
+    lookup remain as backstops.
+    """
+    try:
+        async with Database().sessionmaker() as session:
+            schedule = await ScheduleRepository(session).get_by_id(schedule_id)
+    except Exception as exc:
+        logger.warning("schedule_delete_check_failed", schedule_id=schedule_id, reason=str(exc))
+        return False
+
+    if schedule is None:
+        logger.info("run_skipped_schedule_deleted", schedule_id=schedule_id, reason="schedule_missing")
+        return True
+    if schedule.is_deleted:
+        logger.info("run_skipped_schedule_deleted", schedule_id=schedule_id, reason="schedule_deleted")
+        return True
+    return False
+
+
 async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
     clear_contextvars()
     bind_contextvars(schedule_id=schedule_id)
     logger.info("run_start", schedule_id=schedule_id)
+
+    # Must precede run-record creation: a deleted schedule must produce no run record at all.
+    if await _should_skip_run(schedule_id):
+        clear_contextvars()
+        return
 
     try:
         async with Database().sessionmaker() as session:

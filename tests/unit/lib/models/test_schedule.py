@@ -68,6 +68,32 @@ class TestScheduleModel:
         )
         assert schedule.schedule_metadata == {}
 
+    def test_is_deleted_is_boolean(self) -> None:
+        assert isinstance(Schedule.__table__.c.is_deleted.type, sa.Boolean)
+
+    def test_is_deleted_not_nullable(self) -> None:
+        assert not Schedule.__table__.c.is_deleted.nullable
+
+    def test_is_deleted_has_false_server_default(self) -> None:
+        server_default = Schedule.__table__.c.is_deleted.server_default
+        assert server_default is not None
+        assert "false" in str(server_default.arg).lower()
+
+    def test_is_deleted_not_indexed(self) -> None:
+        indexed = {c.name for ix in Schedule.__table__.indexes for c in ix.columns}
+        assert "is_deleted" not in indexed
+
+    def test_is_deleted_attribute_defaults_to_false(self) -> None:
+        schedule = Schedule(
+            id="x",
+            display_name="x",
+            created_by="u",
+            service_id="dial-oauth",
+            trigger={},
+            kwargs={},
+        )
+        assert schedule.is_deleted is False
+
     def test_created_at_inherits_from_base(self) -> None:
         assert "created_at" in Schedule.__table__.c
 

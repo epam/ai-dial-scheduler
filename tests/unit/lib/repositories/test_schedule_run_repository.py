@@ -202,6 +202,62 @@ class TestScheduleRunRepositoryListForSchedule:
         assert rows == []
 
 
+class TestScheduleRunRepositoryCountForSchedule:
+    async def test_returns_scalar_count(self, mock_session, mocker):
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 3
+        mock_session.execute.return_value = count_result
+
+        total = await ScheduleRunRepository(mock_session).count_for_schedule(SCHEDULE_ID)
+
+        assert total == 3
+        assert mock_session.execute.await_count == 1
+
+    async def test_returns_zero_for_unknown_schedule(self, mock_session, mocker):
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 0
+        mock_session.execute.return_value = count_result
+
+        assert await ScheduleRunRepository(mock_session).count_for_schedule("nope") == 0
+
+    async def test_filters_by_schedule_id_only_with_no_status_predicate(self, mock_session, mocker):
+        """Runs of every status must count, so the WHERE clause must not mention status."""
+        from sqlalchemy.dialects import postgresql
+
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 0
+        mock_session.execute.return_value = count_result
+
+        await ScheduleRunRepository(mock_session).count_for_schedule(SCHEDULE_ID)
+
+        stmt = str(mock_session.execute.await_args.args[0].compile(dialect=postgresql.dialect())).lower()
+        assert "count(*)" in stmt
+        assert "schedule_id" in stmt
+        assert "status" not in stmt
+
+    async def test_list_for_schedule_reuses_count_for_schedule(self, mock_session, mocker):
+        """The refactor must not duplicate the count statement."""
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        page_result = mocker.MagicMock()
+        page_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = page_result
+        repo = ScheduleRunRepository(mock_session)
+        spy = mocker.patch.object(repo, "count_for_schedule", return_value=7)
+
+        total, rows = await repo.list_for_schedule(SCHEDULE_ID, limit=10, offset=0)
+
+        spy.assert_awaited_once_with(SCHEDULE_ID)
+        assert total == 7
+        assert rows == []
+
+
 class TestScheduleRunRepositoryListOrdering:
     @staticmethod
     def _order_by_clause(session) -> str:

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.dependencies.db import get_db_session
 from src.lib.repositories.schedule_repository import ScheduleRepository
+from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
 from src.lib.services.schedule_service import ScheduleService
 
 
@@ -19,4 +20,5 @@ async def get_schedule_service(
     scheduler: Annotated[AsyncIOScheduler, Depends(get_scheduler)],
 ) -> AsyncGenerator[ScheduleService, None]:
     repository = ScheduleRepository(session)
-    yield ScheduleService(repository, scheduler)
+    run_repository = ScheduleRunRepository(session)
+    yield ScheduleService(repository, run_repository, scheduler)

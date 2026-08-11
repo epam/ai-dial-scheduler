@@ -24,6 +24,7 @@ EXPECTED_TOOL_NAMES = {
     "update_schedule_v1_schedules",
     "pause_schedule_v1_schedules",
     "resume_schedule_v1_schedules",
+    "delete_schedule_v1_schedules",
     "list_runs_v1_schedules",
     "get_run_v1_schedules",
 }
@@ -72,7 +73,7 @@ class TestMcpToolListing:
         tool_names = {t.name for t in tools}
         assert tool_names == EXPECTED_TOOL_NAMES
 
-    async def test_exactly_eight_tools(self) -> None:
+    async def test_exactly_nine_tools(self) -> None:
         from fastmcp import Client
 
         from src.api.mcp.server import build_mcp_server
@@ -83,7 +84,7 @@ class TestMcpToolListing:
         async with Client(mcp_server) as client:
             tools = await client.list_tools()
 
-        assert len(tools) == 8
+        assert len(tools) == 9
 
 
 class TestMcpToolInvocation:
@@ -145,6 +146,7 @@ class TestMcpAuth:
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},
+            is_deleted=False,
             created_by="user-a@example.com",
             created_at=now,
             updated_at=now,
@@ -156,6 +158,7 @@ class TestMcpAuth:
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},
+            is_deleted=False,
             created_by="user-b@example.com",
             created_at=now,
             updated_at=now,

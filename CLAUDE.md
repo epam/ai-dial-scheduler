@@ -75,5 +75,5 @@ migrations/versions/    # Alembic migration scripts
 
 <!-- SPECKIT START -->
 ## Active Feature Plan
-- Current plan: `specs/034-conversation-path-encoding/plan.md` (Conversation Path Encoding for Schedule Executions)
+- Current plan: `specs/035-schedule-delete/plan.md` (Support Schedules Delete)
 <!-- SPECKIT END -->

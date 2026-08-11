@@ -9,6 +9,10 @@
   backfilled to "dial-oauth" for schedules that existed before this column was added
 - trigger: json
 - kwargs: json
+- is_deleted: bool <- soft-delete marker, NOT NULL DEFAULT false; set to true by DELETE
+  /schedules/{id} only when the schedule has run history (otherwise the row is deleted outright).
+  Never cleared — there is no restore. Rows that existed before this column was added were
+  backfilled to false
 
 
 ## schedule_runs

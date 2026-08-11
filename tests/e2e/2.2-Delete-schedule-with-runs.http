@@ -1,0 +1,295 @@
+### Variables
+@baseUrl = {{dial_url}}/v1/deployments/applications/{{app_id}}/route
+
+
+### ============================================================
+### LIST SCHEDULES (baseline)
+### ============================================================
+
+# @name list_schedules
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### SIGN IN — API KEY
+### ============================================================
+
+# @name sign_in_api_key
+POST {{dial_url}}/v1/ops/external-service/signin
+Authorization: Bearer {{user_token}}
+
+{
+  "url": "applications/{{app_id}}/external_services/dial-api-key",
+  "credentials_level": "USER",
+  "authentication_type": "API_KEY",
+  "api_key": "{{admin_api_key}}",
+  "offline_usage_consent": true
+}
+
+
+### ============================================================
+### CREATE SCHEDULE (fires once, immediately — will produce a run)
+### ============================================================
+
+# @name create_schedule_with_runs
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "E2E Delete — with runs",
+  "service_id": "dial-api-key",
+  "trigger": {
+    "date": "{{$isoTimestamp}}"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+> {% client.global.set("schedule_id", response.body["id"]) %}
+
+
+### ============================================================
+### LIST SCHEDULE RUNS — wait for at least one run to appear
+### Run this request multiple times until count >= 1
+### ============================================================
+
+# @name list_runs_before_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {%
+  const runs = response.body["results"];
+  client.test("At least one run exists", function () {
+    client.assert(runs.length >= 1, "Expected at least 1 run, got " + runs.length + " — re-run this request");
+  });
+  if (runs.length > 0) {
+    client.global.set("run_id", runs[0]["id"]);
+  }
+%}
+
+
+### ============================================================
+### GET RUN DETAILS — capture the run for later comparison
+### ============================================================
+
+# @name get_run_before_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs/{{run_id}}
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### DELETE SCHEDULE (soft delete — runs exist)
+### Expect: 204 with empty body
+### ============================================================
+
+# @name delete_schedule_with_runs
+DELETE {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Delete returns 204", function () {
+    client.assert(response.status === 204, "Expected 204, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### GET SCHEDULE — should be 200 with is_deleted=true, next_run_time=null
+### ============================================================
+
+# @name get_schedule_after_soft_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("200 after soft delete", function () {
+    client.assert(response.status === 200, "Expected 200, got " + response.status);
+  });
+  client.test("is_deleted is true", function () {
+    client.assert(response.body["is_deleted"] === true, "is_deleted must be true");
+  });
+  client.test("next_run_time is null", function () {
+    client.assert(response.body["next_run_time"] === null, "next_run_time must be null");
+  });
+%}
+
+
+### ============================================================
+### LIST SCHEDULES (default) — soft-deleted schedule must be absent
+### ============================================================
+
+# @name list_default_after_soft_delete
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{user_token}}
+
+> {%
+  const ids = response.body["results"].map(r => r["id"]);
+  client.test("Soft-deleted absent from default list", function () {
+    client.assert(!ids.includes(client.global.get("schedule_id")), "Must not appear in default list");
+  });
+%}
+
+
+### ============================================================
+### LIST SCHEDULES (?is_deleted=true) — soft-deleted schedule must appear
+### ============================================================
+
+# @name list_deleted_after_soft_delete
+GET {{baseUrl}}/v1/schedules/?is_deleted=true
+Authorization: Bearer {{user_token}}
+
+> {%
+  const items = response.body["results"];
+  const found = items.find(r => r["id"] === client.global.get("schedule_id"));
+  client.test("Soft-deleted appears in deleted list", function () {
+    client.assert(found !== undefined, "Must appear in ?is_deleted=true list");
+  });
+  if (found) {
+    client.test("List item has is_deleted=true", function () {
+      client.assert(found["is_deleted"] === true, "List item is_deleted must be true");
+    });
+  }
+%}
+
+
+### ============================================================
+### LIST RUNS — run history must still be accessible after soft delete
+### Expect: 200 with all runs still present
+### ============================================================
+
+# @name list_runs_after_soft_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Runs still listable after soft delete", function () {
+    client.assert(response.status === 200, "Expected 200, got " + response.status);
+  });
+  const runIds = response.body["results"].map(r => r["id"]);
+  client.test("Original run still present", function () {
+    client.assert(runIds.includes(client.global.get("run_id")), "Run must survive soft delete");
+  });
+%}
+
+
+### ============================================================
+### GET RUN DETAILS — individual run must still be accessible
+### Expect: 200
+### ============================================================
+
+# @name get_run_after_soft_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs/{{run_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Run detail still 200 after soft delete", function () {
+    client.assert(response.status === 200, "Expected 200, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### DELETE AGAIN — should be 409 (already soft-deleted)
+### ============================================================
+
+# @name delete_again_after_soft_delete
+DELETE {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Second delete returns 409", function () {
+    client.assert(response.status === 409, "Expected 409, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### PUT ON SOFT-DELETED — should be 409
+### ============================================================
+
+# @name put_after_soft_delete
+PUT {{baseUrl}}/v1/schedules/{{schedule_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Should not work on deleted",
+  "service_id": "dial-api-key",
+  "trigger": {
+    "date": "2030-01-01T09:00:00"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": false
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+> {%
+  client.test("PUT on soft-deleted returns 409", function () {
+    client.assert(response.status === 409, "Expected 409, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### PAUSE ON SOFT-DELETED — should be 409
+### ============================================================
+
+# @name pause_after_soft_delete
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/pause
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Pause on soft-deleted returns 409", function () {
+    client.assert(response.status === 409, "Expected 409, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### RESUME ON SOFT-DELETED — should be 409
+### ============================================================
+
+# @name resume_after_soft_delete
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/resume
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Resume on soft-deleted returns 409", function () {
+    client.assert(response.status === 409, "Expected 409, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### VERIFY SCHEDULE IS STILL SOFT-DELETED (not mutated by guards)
+### ============================================================
+
+# @name get_schedule_final_check
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Still is_deleted=true after guard attempts", function () {
+    client.assert(response.body["is_deleted"] === true, "is_deleted must still be true");
+  });
+  client.test("Still next_run_time=null after guard attempts", function () {
+    client.assert(response.body["next_run_time"] === null, "next_run_time must still be null");
+  });
+%}

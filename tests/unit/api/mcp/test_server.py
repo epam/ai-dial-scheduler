@@ -15,6 +15,7 @@ EXPECTED_TOOL_NAMES = {
     "update_schedule_v1_schedules",
     "pause_schedule_v1_schedules",
     "resume_schedule_v1_schedules",
+    "delete_schedule_v1_schedules",
     "list_runs_v1_schedules",
     "get_run_v1_schedules",
 }
@@ -46,7 +47,7 @@ def _mock_settings() -> MagicMock:
 
 
 class TestBuildMcpServerInventory:
-    async def test_produces_exactly_eight_tools(self) -> None:
+    async def test_produces_exactly_nine_tools(self) -> None:
         from fastmcp import Client
 
         from src.api.mcp.server import build_mcp_server
@@ -57,7 +58,7 @@ class TestBuildMcpServerInventory:
         async with Client(mcp_server) as client:
             tools = await client.list_tools()
 
-        assert len(tools) == 8
+        assert len(tools) == 9
 
     async def test_tool_names_match_contract(self) -> None:
         from fastmcp import Client

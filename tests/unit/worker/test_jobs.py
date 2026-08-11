@@ -30,7 +30,7 @@ def mock_credentials(mocker):
     valid header by default. Individual tests override ``get_obo_credentials`` /
     ``get_by_id`` to exercise credential-failure paths.
     """
-    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1")
+    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1", is_deleted=False)
     schedule_repo = mocker.MagicMock()
     schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
     mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)
@@ -65,6 +65,89 @@ def mock_run_repo(mocker):
     mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
     mocker.patch("src.worker.jobs.Database")
     return mock_repo
+
+
+class TestDeletedScheduleGuard:
+    """A deleted schedule must produce no execution and no run record (FR-006).
+
+    The API and the worker are separate processes sharing one job store, so the worker can
+    already have a due job in flight when the API unregisters it.
+    """
+
+    @staticmethod
+    def _rest_kwargs() -> dict:
+        return {
+            "schedule_id": SCHEDULE_ID,
+            "target_type": TargetType.REST,
+            "method": HttpMethod.POST,
+            "url": "https://example.com",
+            "payload": {},
+            "extra_headers": {},
+        }
+
+    async def test_soft_deleted_schedule_creates_no_run_record(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule.is_deleted = True
+        mock_executor = mocker.AsyncMock()
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(**self._rest_kwargs())
+
+        mock_run_repo.create_in_progress.assert_not_awaited()
+        mock_executor.execute.assert_not_awaited()
+        skipped = [log for log in logs if log.get("event") == "run_skipped_schedule_deleted"]
+        assert len(skipped) == 1
+        assert skipped[0]["reason"] == "schedule_deleted"
+
+    async def test_missing_schedule_creates_no_run_record(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(return_value=None)
+        mock_executor = mocker.AsyncMock()
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(**self._rest_kwargs())
+
+        mock_run_repo.create_in_progress.assert_not_awaited()
+        mock_executor.execute.assert_not_awaited()
+        skipped = [log for log in logs if log.get("event") == "run_skipped_schedule_deleted"]
+        assert len(skipped) == 1
+        assert skipped[0]["reason"] == "schedule_missing"
+
+    async def test_live_schedule_still_executes(self, mocker, mock_run_repo, mock_credentials):
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(**self._rest_kwargs())
+
+        mock_run_repo.create_in_progress.assert_awaited_once()
+        mock_executor.execute.assert_awaited_once()
+        assert not [log for log in logs if log.get("event") == "run_skipped_schedule_deleted"]
+
+    async def test_guard_lookup_failure_does_not_drop_a_legitimate_run(self, mocker, mock_run_repo, mock_credentials):
+        """An unexpected lookup failure must not silently swallow the run."""
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(
+            side_effect=[RuntimeError("db blip"), mock_credentials.schedule]
+        )
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(return_value={"status_code": 200, "body": {}})
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_scheduled_job(**self._rest_kwargs())
+
+        mock_run_repo.create_in_progress.assert_awaited_once()
+        mock_executor.execute.assert_awaited_once()
+        assert any(log.get("event") == "schedule_delete_check_failed" for log in logs)
 
 
 class TestExecuteScheduledJobHappyPath:
@@ -740,10 +823,11 @@ class TestExecuteScheduledJobCredentialFailure:
         assert run_error.credentials_response == {"status": 404, "body": {"error": "not signed in"}}
         assert any(log.get("event") == "credentials_fetch_failed" for log in logs)
 
-    async def test_missing_schedule_marks_credentials_error(self, mocker, mock_run_repo, mock_credentials):
+    async def test_schedule_vanishing_mid_run_marks_credentials_error(self, mocker, mock_run_repo, mock_credentials):
+        """The pre-flight guard sees a live schedule; it is gone by the credentials stage."""
         from src.worker.jobs import execute_scheduled_job
 
-        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(return_value=None)
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(side_effect=[mock_credentials.schedule, None])
         mock_executor = mocker.AsyncMock()
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
 
@@ -874,10 +958,10 @@ class TestFailureLogLevel:
         assert failures[0]["log_level"] == "warning"
         assert failures[0]["status_code"] == status_code
 
-    async def test_schedule_not_found_logged_as_warning(self, mocker, mock_run_repo, mock_credentials):
+    async def test_schedule_vanishing_mid_run_logged_as_warning(self, mocker, mock_run_repo, mock_credentials):
         from src.worker.jobs import execute_scheduled_job
 
-        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(return_value=None)
+        mock_credentials.schedule_repo.get_by_id = mocker.AsyncMock(side_effect=[mock_credentials.schedule, None])
         mocker.patch("src.worker.jobs.resolve_executor", return_value=mocker.AsyncMock())
 
         with structlog.testing.capture_logs() as logs:
