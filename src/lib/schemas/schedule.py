@@ -150,7 +150,13 @@ class ScheduleRequest(BaseModel):
 
 
 class ScheduleResponse(BaseModel):
-    """Full schedule detail returned by Create, Update, and Details endpoints."""
+    """Full schedule detail returned by Create, Update, and Details endpoints.
+
+    ``is_deleted`` is read-only: it is deliberately absent from :class:`ScheduleRequest`, so a
+    value supplied in a create/update body is ignored rather than rejected. It is required here
+    (no default) so that a missing mapping fails loudly instead of reporting a soft-deleted
+    schedule as live.
+    """
 
     id: str
     display_name: str
@@ -160,13 +166,17 @@ class ScheduleResponse(BaseModel):
     trigger: dict[str, Any]
     properties: dict[str, Any]
     metadata: dict[str, Any] = Field(default_factory=dict)
+    is_deleted: bool
     created_by: str
     created_at: datetime
     updated_at: datetime
 
 
 class ScheduleListItem(BaseModel):
-    """Summary row returned in the paginated list response."""
+    """Summary row returned in the paginated list response.
+
+    ``is_deleted`` is required for the same reason as on :class:`ScheduleResponse`.
+    """
 
     id: str
     display_name: str
@@ -175,6 +185,7 @@ class ScheduleListItem(BaseModel):
     next_run_time: datetime | None
     trigger_type: TriggerType
     trigger: dict[str, Any]
+    is_deleted: bool
     created_by: str
     created_at: datetime
     updated_at: datetime

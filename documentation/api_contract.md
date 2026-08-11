@@ -46,6 +46,7 @@ Response
   "next_run_time": "datetime|None",
   "trigger": {},
   "properties": {},
+  "is_deleted": false,
   "created_by": "",
   "created_at": "datetime",
   "updated_at": "datetime"
@@ -109,11 +110,15 @@ Response
   "next_run_time": "datetime|None",
   "trigger": {},
   "properties": {},
+  "is_deleted": false,
   "created_by": "",
   "created_at": "datetime",
   "updated_at": "datetime"
 }
 ```
+
+`is_deleted` is read-only. If it is present in the request body it is **ignored** (not rejected),
+and PUT never changes it. A soft-deleted schedule cannot be updated at all — PUT returns 409.
 
 ## List Schedules
 GET /schedules/
@@ -130,6 +135,7 @@ GET /schedules/
       "service_id": "dial-oauth",
       "next_run_time": "datetime|None",
       "trigger_type": "cron|date",
+      "is_deleted": false,
       "created_by":"user_id",
       "created_at": "datetime",
       "updated_at": "datetime"
@@ -139,6 +145,12 @@ GET /schedules/
   "previous": "/schedules?limit=20&offset=20"
 }
 ```
+
+Filtered by deletion state via the optional `is_deleted` query parameter (boolean, default
+`false`): `false` returns only live schedules, `true` returns only soft-deleted ones. There is no
+"all" value, so a page never mixes the two. Hard-deleted schedules are absent under both values.
+`count` reflects the filter, and `next`/`previous` echo `is_deleted=true` when it is set. A
+non-boolean value returns 422.
 
 
 ## Schedule Details
@@ -153,21 +165,50 @@ GET /schedules/{schedule_id}
   "next_run_time": "datetime|None",
   "trigger": {},
   "properties": {},
+  "is_deleted": false,
   "created_by": "",
   "created_at": "datetime",
   "updated_at": "datetime"
 }
 ```
 
+A soft-deleted schedule is still returned here (200) with `"is_deleted": true` and
+`"next_run_time": null`, so its state and its run history stay reachable to its owner.
+
 
 ## Delete Schedule
-TODO: discuss if we really want to delete something or just pause schedule and mark it as deleted, storing runs.
 DELETE /schedules/{schedule_id}
+
+Returns **204** with an empty body. The outcome depends on run history, chosen by the system with
+no caller-supplied option:
+- **no runs exist** — the scheduler job is unregistered and the schedules row is deleted outright.
+  Afterwards the schedule returns 404 and is absent from every list.
+- **any run exists** (any status, including `in_progress`) — the scheduler job is unregistered and
+  the row is kept with `is_deleted = true`. All run records survive unchanged and stay readable via
+  `GET /schedules/{schedule_id}/runs`; `schedule_runs.schedule_id` is `ON DELETE RESTRICT`, so run
+  history cannot be lost.
+
+Either way the schedule can never fire again, and there is **no way to restore** a deleted or
+soft-deleted schedule.
+
+Errors (the body is a bare JSON string carrying the message, e.g. `"Schedule not found: {id}"`, not
+an object):
+- **404** — unknown schedule, another user's schedule, or one already hard-deleted.
+- **409** — the schedule is already soft-deleted. Re-deleting, updating, pausing, or resuming a
+  soft-deleted schedule is always rejected with 409.
+- **502** — the scheduler could not unregister the job. Nothing was written to the database; the
+  schedule is still live and the request is safe to retry.
+
+The job is unregistered *before* the database write, so a 204 guarantees the schedule cannot fire.
+If the database write fails afterwards the caller gets an error and the schedule is left live-looking
+but non-firing; retrying the DELETE completes the operation.
 
 
 ## Pause/Resume schedule
 POST /schedules/{schedule_id}/pause
 POST /schedules/{schedule_id}/resume
+
+Both return 409 for a soft-deleted schedule.
 
 
 ## Schedule run list

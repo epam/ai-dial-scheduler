@@ -1,7 +1,7 @@
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.metadata_filter import parse_metadata_filter
@@ -9,7 +9,12 @@ from src.api.dependencies.name_filter import parse_name_filter
 from src.api.dependencies.ordering import ScheduleOrderingParams
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
-from src.lib.exceptions.errors import JobRegistrationError, ScheduleNotFoundError
+from src.lib.exceptions.errors import (
+    JobRegistrationError,
+    JobRemovalError,
+    ScheduleAlreadyDeletedError,
+    ScheduleNotFoundError,
+)
 from src.lib.schemas.pagination import Page
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleRequest, ScheduleResponse
 from src.lib.services.schedule_service import ScheduleService
@@ -129,6 +134,8 @@ async def update_schedule(
         return await service.update(schedule_id, request, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+    except ScheduleAlreadyDeletedError as exc:
+        raise HTTPException(status_code=409, detail=f"Schedule already deleted: {schedule_id}") from exc
     except JobRegistrationError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
@@ -144,6 +151,7 @@ async def list_schedules(
     name_filter: NameFilterDep,
     ordering: ScheduleOrderingDep,
     user_id: Annotated[str, Depends(get_user_id)],
+    is_deleted: Annotated[bool, Query()] = False,
 ) -> Page[ScheduleListItem]:
     """Return a paginated, owner-scoped list of schedules.
 
@@ -158,6 +166,12 @@ async def list_schedules(
     Ordering is controlled by `order_by` (`created_at`, `next_run_time`, `name`) and
     `order_dir` (`asc`, `desc`), defaulting to `created_at desc`. Inactive/paused
     schedules (no next run time) always sort last when ordering by `next_run_time`.
+
+    Filtering by deletion state uses the `is_deleted` query parameter, which defaults to
+    `false` so the list shows only live schedules. Set it to `true` to list soft-deleted
+    schedules instead; there is no value that returns both. Schedules that were deleted
+    outright (they had no run history) are absent under either value. `count` reflects the
+    filter, and the `next`/`previous` links preserve a non-default value.
     """
     return await service.list(
         user_id,
@@ -165,6 +179,7 @@ async def list_schedules(
         metadata_filter,
         name_filter=name_filter,
         ordering=ordering.ordering(),
+        is_deleted=is_deleted,
     )
 
 
@@ -192,6 +207,8 @@ async def pause_schedule(
         return await service.pause(schedule_id, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+    except ScheduleAlreadyDeletedError as exc:
+        raise HTTPException(status_code=409, detail=f"Schedule already deleted: {schedule_id}") from exc
 
 
 @router.post("/{schedule_id}/resume", response_model=ScheduleResponse)
@@ -205,3 +222,40 @@ async def resume_schedule(
         return await service.resume(schedule_id, user_id)
     except ScheduleNotFoundError as exc:
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+    except ScheduleAlreadyDeletedError as exc:
+        raise HTTPException(status_code=409, detail=f"Schedule already deleted: {schedule_id}") from exc
+
+
+@router.delete("/{schedule_id}", status_code=204)
+async def delete_schedule(
+    schedule_id: str,
+    service: ScheduleServiceDep,
+    user_id: Annotated[str, Depends(get_user_id)],
+) -> None:
+    """Delete an owned schedule, keeping its run history if it has any.
+
+    The schedule always stops firing. What happens to the record depends on run history:
+    - **no runs** — the schedule is removed entirely and afterwards returns 404.
+    - **any run** — the schedule is kept and marked `is_deleted`; every run record survives
+      and stays readable via `GET /schedules/{schedule_id}/runs`.
+
+    There is no way to restore a deleted or soft-deleted schedule. Deleting an already
+    soft-deleted schedule returns 409, and so do update, pause, and resume.
+
+    A 204 guarantees the schedule can no longer fire. A 502 means the scheduler could not
+    unregister the job and nothing was changed, so the request is safe to retry.
+    """
+    try:
+        await service.delete(schedule_id, user_id)
+    except ScheduleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+    except ScheduleAlreadyDeletedError as exc:
+        raise HTTPException(status_code=409, detail=f"Schedule already deleted: {schedule_id}") from exc
+    except JobRemovalError as exc:
+        # The underlying text comes from the APScheduler job store and can carry SQL and
+        # connection diagnostics, so it stays in the log (emitted by the service) and never
+        # reaches the client.
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to unregister the schedule's job; nothing was changed. Retry the request.",
+        ) from exc

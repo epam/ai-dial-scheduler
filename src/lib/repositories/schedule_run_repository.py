@@ -64,6 +64,24 @@ class ScheduleRunRepository:
         await self._session.commit()
         return row
 
+    async def count_for_schedule(self, schedule_id: str) -> int:
+        """Return the number of run records belonging to a schedule.
+
+        Counts runs of every status — ``in_progress`` included — because any run at all means
+        the schedule has history worth preserving, which is what selects the soft-delete branch
+        when the schedule is deleted.
+
+        Args:
+            schedule_id: The schedule whose runs are counted.
+
+        Returns:
+            The run count, or 0 when the schedule has no runs or does not exist.
+        """
+        runs_table = ScheduleRun.__table__  # type: ignore[attr-defined]
+        count_stmt = select(func.count()).select_from(runs_table).where(runs_table.c.schedule_id == schedule_id)
+        result = await self._session.execute(count_stmt)
+        return result.scalar_one()
+
     async def list_for_schedule(
         self,
         schedule_id: str,
@@ -84,9 +102,7 @@ class ScheduleRunRepository:
         created_at_col = runs_table.c.created_at
         id_col = runs_table.c.id
 
-        count_stmt = select(func.count()).select_from(runs_table).where(schedule_id_col == schedule_id)
-        count_result = await self._session.execute(count_stmt)
-        total = count_result.scalar_one()
+        total = await self.count_for_schedule(schedule_id)
 
         ascending = ordering.order_dir is SortDirection.ASC
         created_at_order = created_at_col.asc() if ascending else created_at_col.desc()

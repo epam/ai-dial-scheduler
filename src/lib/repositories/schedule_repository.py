@@ -1,7 +1,8 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import Column, ColumnElement, func, outerjoin, select
+from sqlalchemy import Column, ColumnElement, CursorResult, delete, func, outerjoin, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes
 
@@ -51,11 +52,86 @@ class ScheduleRepository:
         return schedule
 
     async def delete(self, schedule_id: str) -> None:
-        """Delete a schedule row (compensating transaction)."""
+        """Delete a schedule row, ignoring ownership (compensating transaction).
+
+        Used only to roll back a freshly created row whose job registration failed. The
+        owner-scoped deletion used by the delete endpoint is :meth:`delete_owned`.
+        """
         schedule = await self._session.get(Schedule, schedule_id)
         if schedule is not None:
             await self._session.delete(schedule)
             await self._session.commit()
+
+    async def delete_owned(self, schedule_id: str, created_by: str) -> bool:
+        """Hard-delete an owned, not-yet-deleted schedule row.
+
+        A single conditional statement, so two concurrent deletes cannot both succeed: the
+        ``is_deleted = false`` predicate makes the database the arbiter rather than a
+        read-then-write check in the service.
+
+        Args:
+            schedule_id: Primary key of the schedule to remove.
+            created_by: Owner the schedule must belong to.
+
+        Returns:
+            True when the row was removed; False when nothing matched — an unknown id, another
+            owner's schedule, or a row that is already soft-deleted.
+
+        Raises:
+            sqlalchemy.exc.IntegrityError: When run records still reference the schedule. The
+                ``schedule_runs`` foreign key is ``ON DELETE RESTRICT``, so the database refuses
+                to destroy run history; callers fall back to :meth:`mark_deleted`. The session is
+                rolled back before the exception propagates, because PostgreSQL aborts the whole
+                transaction on a failed statement — without it the caller's fallback UPDATE would
+                fail with "current transaction is aborted".
+
+                The run-history FK is currently the only constraint referencing ``schedules``, so
+                any integrity failure here is that one. Callers log the original error text with
+                the fallback, so if another FK is ever added the misattribution is diagnosable
+                rather than silent.
+        """
+        schedules_table = Schedule.__table__  # type: ignore[attr-defined]
+        stmt = delete(schedules_table).where(
+            schedules_table.c.id == schedule_id,
+            schedules_table.c.created_by == created_by,
+            schedules_table.c.is_deleted.is_(False),
+        )
+        try:
+            result = cast(CursorResult[Any], await self._session.execute(stmt))
+            await self._session.commit()
+        except IntegrityError:
+            await self._session.rollback()
+            raise
+        return bool(result.rowcount == 1)
+
+    async def mark_deleted(self, schedule_id: str, created_by: str) -> bool:
+        """Soft-delete an owned schedule by setting ``is_deleted`` to true.
+
+        Conditional on ``is_deleted = false`` for the same concurrency reason as
+        :meth:`delete_owned`. ``updated_at`` is refreshed by the column's ``onupdate``, which
+        SQLAlchemy applies to Core UPDATE statements.
+
+        Args:
+            schedule_id: Primary key of the schedule to mark.
+            created_by: Owner the schedule must belong to.
+
+        Returns:
+            True when the flag was flipped; False when nothing matched — an unknown id, another
+            owner's schedule, or a schedule that was already soft-deleted.
+        """
+        schedules_table = Schedule.__table__  # type: ignore[attr-defined]
+        stmt = (
+            update(schedules_table)
+            .where(
+                schedules_table.c.id == schedule_id,
+                schedules_table.c.created_by == created_by,
+                schedules_table.c.is_deleted.is_(False),
+            )
+            .values(is_deleted=True)
+        )
+        result = cast(CursorResult[Any], await self._session.execute(stmt))
+        await self._session.commit()
+        return bool(result.rowcount == 1)
 
     async def update(
         self,
@@ -146,6 +222,7 @@ class ScheduleRepository:
         metadata_filter: dict[str, str] | None = None,
         name_filter: str | None = None,
         ordering: ScheduleOrdering | None = None,
+        is_deleted: bool = False,
     ) -> tuple[int, list[tuple[Schedule, datetime | None]]]:
         """Return total count and a page of owned schedules with next_run_times.
 
@@ -157,6 +234,9 @@ class ScheduleRepository:
         ``display_name`` contains it as a case-insensitive substring (``ILIKE``). LIKE
         wildcards (``%``/``_``) in the term are escaped so they match literally. All
         conditions compose with AND.
+
+        ``is_deleted`` selects live schedules (the default) or soft-deleted ones; it is applied
+        to the count as well as the page, so the reported total always matches the filter.
         """
         schedules_table = Schedule.__table__  # type: ignore[attr-defined]
         id_col: Column = schedules_table.c.id  # type: ignore[assignment]
@@ -165,7 +245,9 @@ class ScheduleRepository:
         display_name_col: Column = schedules_table.c.display_name  # type: ignore[assignment]
         metadata_col: Column = schedules_table.c["metadata"]  # type: ignore[assignment]
 
-        conditions = [created_by_col == created_by]
+        is_deleted_col: Column = schedules_table.c.is_deleted  # type: ignore[assignment]
+
+        conditions = [created_by_col == created_by, is_deleted_col.is_(is_deleted)]
         if metadata_filter:
             # JSONB containment (@>) — type-aware, so a string filter matches only
             # string-valued entries, and multiple keys compose with AND.

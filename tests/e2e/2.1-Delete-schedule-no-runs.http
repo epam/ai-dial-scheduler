@@ -1,0 +1,271 @@
+### Variables
+@baseUrl = {{dial_url}}/v1/deployments/applications/{{app_id}}/route
+
+
+### ============================================================
+### LIST SCHEDULES (baseline)
+### ============================================================
+
+# @name list_schedules
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### SIGN IN — API KEY
+### ============================================================
+
+# @name sign_in_api_key
+POST {{dial_url}}/v1/ops/external-service/signin
+Authorization: Bearer {{user_token}}
+
+{
+  "url": "applications/{{app_id}}/external_services/dial-api-key",
+  "credentials_level": "USER",
+  "authentication_type": "API_KEY",
+  "api_key": "{{admin_api_key}}",
+  "offline_usage_consent": true
+}
+
+
+### ============================================================
+### CREATE SCHEDULE WITH FUTURE DATE (no runs will exist)
+### ============================================================
+
+# @name create_schedule_no_runs
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "E2E Delete — no runs",
+  "service_id": "dial-api-key",
+  "trigger": {
+    "date": "2030-01-01T09:00:00"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": false
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+> {%
+  client.global.set("schedule_id", response.body["id"]);
+  client.test("Created with is_deleted=false", function () {
+    client.assert(response.body["is_deleted"] === false, "is_deleted must be false on create");
+  });
+%}
+
+
+### ============================================================
+### GET SCHEDULE DETAIL — verify is_deleted field is present
+### ============================================================
+
+# @name get_schedule_before_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Detail has is_deleted=false", function () {
+    client.assert(response.body["is_deleted"] === false, "is_deleted must be false on detail");
+  });
+%}
+
+
+### ============================================================
+### DELETE SCHEDULE (hard delete — no runs exist)
+### Expect: 204 with empty body
+### ============================================================
+
+# @name delete_schedule_no_runs
+DELETE {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Delete returns 204", function () {
+    client.assert(response.status === 204, "Expected 204, got " + response.status);
+  });
+  client.test("Body is empty", function () {
+    client.assert(response.body === "", "204 body must be empty");
+  });
+%}
+
+
+### ============================================================
+### GET SCHEDULE — should be 404 after hard delete
+### ============================================================
+
+# @name get_schedule_after_hard_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("404 after hard delete", function () {
+    client.assert(response.status === 404, "Expected 404, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### LIST SCHEDULES (default) — deleted schedule must be absent
+### ============================================================
+
+# @name list_after_hard_delete
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{user_token}}
+
+> {%
+  const ids = response.body["results"].map(r => r["id"]);
+  client.test("Hard-deleted schedule absent from default list", function () {
+    client.assert(!ids.includes(client.global.get("schedule_id")), "Must not appear in default list");
+  });
+%}
+
+
+### ============================================================
+### LIST SCHEDULES (?is_deleted=true) — hard-deleted also absent
+### ============================================================
+
+# @name list_deleted_after_hard_delete
+GET {{baseUrl}}/v1/schedules/?is_deleted=true
+Authorization: Bearer {{user_token}}
+
+> {%
+  const ids = response.body["results"].map(r => r["id"]);
+  client.test("Hard-deleted schedule absent from deleted list", function () {
+    client.assert(!ids.includes(client.global.get("schedule_id")), "Must not appear in deleted list");
+  });
+%}
+
+
+### ============================================================
+### DELETE AGAIN — should be 404 (schedule is gone)
+### ============================================================
+
+# @name delete_again_after_hard_delete
+DELETE {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Second delete returns 404", function () {
+    client.assert(response.status === 404, "Expected 404, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### DELETE UNKNOWN ID — should be 404
+### ============================================================
+
+# @name delete_unknown_id
+DELETE {{baseUrl}}/v1/schedules/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Unknown id returns 404", function () {
+    client.assert(response.status === 404, "Expected 404, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### IS_DELETED IN BODY IS IGNORED ON CREATE
+### Sending is_deleted:true must not actually mark the schedule
+### ============================================================
+
+# @name create_with_is_deleted_in_body
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "E2E is_deleted ignored on create",
+  "service_id": "dial-api-key",
+  "trigger": {
+    "date": "2030-06-01T09:00:00"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": false
+    },
+    "api_version": "2025-01-01-preview"
+  },
+  "is_deleted": true
+}
+
+> {%
+  client.global.set("ignored_schedule_id", response.body["id"]);
+  client.test("is_deleted ignored on create", function () {
+    client.assert(response.body["is_deleted"] === false, "is_deleted must be false despite body sending true");
+  });
+%}
+
+
+### ============================================================
+### IS_DELETED IN BODY IS IGNORED ON UPDATE
+### PUT with is_deleted:true must not mark the schedule
+### ============================================================
+
+# @name update_with_is_deleted_in_body
+PUT {{baseUrl}}/v1/schedules/{{ignored_schedule_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "E2E is_deleted ignored on update",
+  "service_id": "dial-api-key",
+  "trigger": {
+    "date": "2030-06-01T09:00:00"
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": false
+    },
+    "api_version": "2025-01-01-preview"
+  },
+  "is_deleted": true
+}
+
+> {%
+  client.test("is_deleted ignored on update", function () {
+    client.assert(response.body["is_deleted"] === false, "is_deleted must be false despite body sending true");
+  });
+%}
+
+
+### ============================================================
+### CLEANUP — delete the schedule created for the immutability test
+### ============================================================
+
+# @name cleanup_ignored_schedule
+DELETE {{baseUrl}}/v1/schedules/{{ignored_schedule_id}}
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### INVALID FILTER VALUE — ?is_deleted=maybe should be 422
+### ============================================================
+
+# @name list_invalid_is_deleted
+GET {{baseUrl}}/v1/schedules/?is_deleted=maybe
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Non-boolean is_deleted returns 422", function () {
+    client.assert(response.status === 422, "Expected 422, got " + response.status);
+  });
+%}

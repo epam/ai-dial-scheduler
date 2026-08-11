@@ -345,6 +345,106 @@ class TestScheduleRepositoryGet:
         assert next_run_time is None
 
 
+class TestScheduleRepositoryDeleteOwned:
+    """Owner-scoped hard delete, guarded against already-soft-deleted rows."""
+
+    @staticmethod
+    def _session_with_rowcount(rowcount: int) -> AsyncMock:
+        session = AsyncMock()
+        result = MagicMock()
+        result.rowcount = rowcount
+        session.execute = AsyncMock(return_value=result)
+        return session
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_row_removed(self):
+        session = self._session_with_rowcount(1)
+
+        assert await ScheduleRepository(session).delete_owned("sched-1", "mock_user_id") is True
+        session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_nothing_matched(self):
+        """Covers wrong owner, unknown id, and an already-soft-deleted row alike."""
+        session = self._session_with_rowcount(0)
+
+        assert await ScheduleRepository(session).delete_owned("sched-1", "other_user") is False
+
+    @pytest.mark.asyncio
+    async def test_integrity_error_rolls_back_before_propagating(self):
+        """PostgreSQL aborts the transaction on a failed statement, so the session must be
+        rolled back here — otherwise the caller's fallback UPDATE dies with
+        "current transaction is aborted"."""
+        from sqlalchemy.exc import IntegrityError
+
+        session = AsyncMock()
+        session.execute = AsyncMock(side_effect=IntegrityError("stmt", {}, Exception("FK violation")))
+
+        with pytest.raises(IntegrityError):
+            await ScheduleRepository(session).delete_owned("sched-1", "mock_user_id")
+
+        session.rollback.assert_awaited_once()
+        session.commit.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_statement_scopes_by_id_owner_and_not_deleted(self):
+        session = self._session_with_rowcount(1)
+
+        await ScheduleRepository(session).delete_owned("sched-1", "mock_user_id")
+
+        stmt = str(session.execute.await_args.args[0].compile(dialect=postgresql.dialect())).lower()
+        assert stmt.startswith("delete from schedules")
+        assert "schedules.id = " in stmt
+        assert "created_by" in stmt
+        assert "is_deleted" in stmt
+
+
+class TestScheduleRepositoryMarkDeleted:
+    """Conditional soft delete: exactly one of two concurrent deletes may win."""
+
+    @staticmethod
+    def _session_with_rowcount(rowcount: int) -> AsyncMock:
+        session = AsyncMock()
+        result = MagicMock()
+        result.rowcount = rowcount
+        session.execute = AsyncMock(return_value=result)
+        return session
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_flag_flipped(self):
+        session = self._session_with_rowcount(1)
+
+        assert await ScheduleRepository(session).mark_deleted("sched-1", "mock_user_id") is True
+        session.commit.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_returns_false_when_already_deleted_or_not_owned(self):
+        session = self._session_with_rowcount(0)
+
+        assert await ScheduleRepository(session).mark_deleted("sched-1", "mock_user_id") is False
+
+    @pytest.mark.asyncio
+    async def test_statement_sets_flag_and_guards_on_not_deleted(self):
+        session = self._session_with_rowcount(1)
+
+        await ScheduleRepository(session).mark_deleted("sched-1", "mock_user_id")
+
+        stmt = str(session.execute.await_args.args[0].compile(dialect=postgresql.dialect())).lower()
+        assert stmt.startswith("update schedules set")
+        assert "is_deleted" in stmt
+        assert "created_by" in stmt
+
+    @pytest.mark.asyncio
+    async def test_statement_refreshes_updated_at(self):
+        """The column's onupdate must apply to the Core UPDATE, not just ORM flushes."""
+        session = self._session_with_rowcount(1)
+
+        await ScheduleRepository(session).mark_deleted("sched-1", "mock_user_id")
+
+        stmt = str(session.execute.await_args.args[0].compile(dialect=postgresql.dialect())).lower()
+        assert "updated_at" in stmt.split("where")[0]
+
+
 class TestScheduleRepositoryList:
     @pytest.mark.asyncio
     async def test_list_returns_count_and_page(self):

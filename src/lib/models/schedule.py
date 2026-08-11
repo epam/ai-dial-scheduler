@@ -1,6 +1,6 @@
 from typing import Any
 
-from sqlalchemy import Column, Index, String, text
+from sqlalchemy import Boolean, Column, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
@@ -25,6 +25,9 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
         schedule_metadata: Business tags stored in the JSONB ``metadata`` column.
             Mapped under ``schedule_metadata`` because ``metadata`` is reserved by
             SQLAlchemy's declarative base. Only string-valued entries are filterable.
+        is_deleted: Soft-delete marker. Set to true by the delete operation only when the
+            schedule has run history; a schedule with no runs is deleted outright instead.
+            Never cleared — deletion is irreversible. Not writable through the API.
     """
 
     id: str = Field(
@@ -50,6 +53,10 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
     schedule_metadata: dict[str, Any] = Field(
         default_factory=dict,
         sa_column=Column("metadata", JSONB(), nullable=False, server_default=text("'{}'::jsonb")),
+    )
+    is_deleted: bool = Field(
+        default=False,
+        sa_column=Column("is_deleted", Boolean(), nullable=False, server_default=text("false")),
     )
 
     __table_args__ = (Index("IX_schedules_metadata", "metadata", postgresql_using="gin"),)
