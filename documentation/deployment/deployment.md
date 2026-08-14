@@ -125,12 +125,11 @@ Populate values:
 - <SCHEDULER_URL> (2 places)- scheduler api url in k8s cluster, default http://dial-scheduler-api.dial-scheduler
 - <SHA256(SCHEDULER_API_KEY)> - sha256 hash of scheduler api-key form ### 0. Create app api key in DIAL
 
-For external services with OAUTH configuration see [dial-scheduler-external-services-devops-setup.md](dial-scheduler-external-services-devops-setup.md)
-
 ### Create Assets App
 1. Open DIAL Admin, Assets-> Applications (<Admin URL>/en/assets-applications)
 2. Create -> Import
 3. Select populated scheduler-app-definition.json
+4. Open application details -> External Services -> DIAL Native -> Grant consent
 
 ### Per-user credentials
 
@@ -142,6 +141,8 @@ not signed in to the external service, the run fails with a credentials-stage er
 target action is never dispatched (see `documentation/api_contract.md` and
 `documentation/scheduled_job_execution.md`). Users sign in to an external service through DIAL's
 standard external-service sign-in flow before creating schedules that depend on it.
+
+For DIAL chat scheduler there is pre-created external service with id `dial-native`
 
 ### API Access
 
