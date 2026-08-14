@@ -53,7 +53,8 @@ Authorization: Bearer {{user_token}}
 > {%
     const runId = response.body["results"][0]["id"];
     client.global.set("run_id", runId);
-    // Conversation name/path leaf: encode(deployment_id)__encode(display_name)__encode(run_id).
+    // Conversation path leaf: encode(deployment_id)__encode(display_name)__encode(run_id).
+    // The document's own "name" is the schedule display name alone -- only the address is three-part.
     // Must match Python's quote(v, safe="").replace("_", "%5F") EXACTLY, or this file computes a
     // path the scheduler never wrote and the GET 404s -- a false negative that looks like a
     // product bug. encodeURIComponent leaves !'()* literal where Python encodes them, hence the
@@ -162,7 +163,8 @@ Authorization: Bearer {{user_token}}
 ###
 ### Expect 200. Then verify by hand:
 ###   - the path segment decodes to the application id exactly (no reference id anywhere)
-###   - the name segment decodes to "Отчёт / Weekly Sync" (not transliterated, not slugified)
+###   - the leaf's middle segment decodes to "Отчёт / Weekly Sync" (not transliterated, not slugified)
+###   - the body's "name" is exactly "Отчёт / Weekly Sync" -- no deployment or run id, no escapes
 ###   - the body's "model".id IS the resolved reference, and the conversation still opens
 ###     in DIAL Chat exactly as it did before this change (SC-007)
 ### ============================================================

@@ -74,6 +74,11 @@ def make_build_input(**kwargs) -> ConversationBuildInput:
 _BUILD_INPUT = make_build_input()
 
 
+def leaf(conv: DialConversation) -> str:
+    """Return the conversation's final storage path segment (the three-part path leaf)."""
+    return conv.id.rsplit("/", 1)[1]
+
+
 class TestEncodeNamePart:
     """FR-007: the name-part primitive keeps names raw but path-safe."""
 
@@ -190,14 +195,21 @@ class TestBuildConversationModel:
         assert conv.id == f"conversations/{BUCKET}/.scheduler/{SCHEDULE_ID}/chathub-claude4__hello__{RUN_ID}"
         assert conv.folderId == f"conversations/{BUCKET}/.scheduler/{SCHEDULE_ID}"
 
-    def test_name_follows_convention(self):
+    def test_name_is_the_schedule_display_name(self):
+        # The document title is what the user reads in DIAL Chat: the display name, nothing else.
         conv = build_conversation(make_properties(), _result(), _BUILD_INPUT)
-        assert conv.name == f"chathub-claude4__hello__{RUN_ID}"
+        assert conv.name == DISPLAY_NAME
 
-    def test_id_final_segment_matches_name(self):
-        # The conversation name is used as the final path segment (path-safe).
+    def test_path_leaf_keeps_the_three_part_convention(self):
         conv = build_conversation(make_properties(), _result(), _BUILD_INPUT)
-        assert conv.id.rsplit("/", 1)[1] == conv.name
+        assert leaf(conv) == f"chathub-claude4__hello__{RUN_ID}"
+
+    def test_name_and_path_leaf_are_independent(self):
+        # The title carries no deployment or run id; only the address does.
+        conv = build_conversation(make_properties(), _result(), _BUILD_INPUT)
+        assert conv.name != leaf(conv)
+        assert RUN_ID not in conv.name
+        assert DEPLOYMENT_ID not in conv.name
 
     def test_folder_is_stable_and_messages_preserved(self):
         # The folder never includes the name; only the leaf segment carries it.
@@ -207,11 +219,14 @@ class TestBuildConversationModel:
         assert conv.messages[0].content == "hi"
         assert conv.messages[1].content == "Hi! How can I help?"
 
-    def test_different_run_ids_produce_different_names(self):
-        # SC-003: uniqueness guaranteed by the run id segment.
+    def test_different_run_ids_produce_different_paths(self):
+        # SC-003: uniqueness guaranteed by the run id segment of the path leaf.
         conv_a = build_conversation(make_properties(), _result(), make_build_input(run_id="run-a"))
         conv_b = build_conversation(make_properties(), _result(), make_build_input(run_id="run-b"))
-        assert conv_a.name != conv_b.name
+        assert leaf(conv_a) != leaf(conv_b)
+        assert conv_a.id != conv_b.id
+        # Runs of one schedule intentionally share a title.
+        assert conv_a.name == conv_b.name == DISPLAY_NAME
 
 
 _APP_DEPLOYMENT = "applications/bkt/Untitled app 1101__0.0.1"
@@ -232,7 +247,7 @@ class TestPathUsesDeploymentIdNotReference:
         # name -- the whole deployment id is still recoverable from the location, as in DIAL Chat.
         conv = build_conversation(make_properties(), _result(), _app_build_input())
         assert conv.folderId == f"conversations/{BUCKET}/.scheduler/{SCHEDULE_ID}/applications/bkt"
-        assert conv.name == f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
+        assert leaf(conv) == f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
 
     def test_application_reference_absent_from_name_and_id(self):
         # FR-003/SC-001: the reference must not leak into the storage location in any form.
@@ -255,15 +270,15 @@ class TestPathUsesDeploymentIdNotReference:
             make_properties(), _result(), _app_build_input(deployment_id="applications/bkt/app-b")
         )
         assert conv_a.model.id == conv_b.model.id == _APP_REFERENCE
-        assert conv_a.name != conv_b.name
+        assert leaf(conv_a) != leaf(conv_b)
         assert conv_a.id != conv_b.id
 
     def test_model_deployment_uses_the_same_rule(self):
         # FR-002: one rule, no branch by deployment kind. A model id has no separator, so it
-        # contributes no folder and opens the name by itself.
+        # contributes no folder and opens the path leaf by itself.
         conv = build_conversation(make_properties(), _result(), make_build_input(model_id="gpt-4o"))
         assert conv.folderId == f"conversations/{BUCKET}/.scheduler/{SCHEDULE_ID}"
-        assert conv.name == f"gpt-4o__{DISPLAY_NAME}__{RUN_ID}"
+        assert leaf(conv) == f"gpt-4o__{DISPLAY_NAME}__{RUN_ID}"
         assert conv.model.id == "gpt-4o"
 
 
@@ -272,9 +287,8 @@ class TestNameSegmentsSurviveReservedCharacters:
 
     def test_slashes_do_not_split_the_final_segment(self):
         conv = build_conversation(make_properties(), _result(), _app_build_input())
-        assert "/" not in conv.name
+        assert "/" not in leaf(conv)
         assert conv.id.rsplit("/", 1)[0] == conv.folderId
-        assert conv.id.rsplit("/", 1)[1] == conv.name
 
     @pytest.mark.parametrize(
         ("deployment_id", "display_name"),
@@ -294,17 +308,18 @@ class TestNameSegmentsSurviveReservedCharacters:
             (".", "."),
         ],
     )
-    def test_name_is_always_one_decodable_segment(self, deployment_id, display_name):
+    def test_leaf_is_always_one_decodable_segment(self, deployment_id, display_name):
         conv = build_conversation(
             make_properties(),
             _result(),
             make_build_input(deployment_id=deployment_id, model_id=deployment_id, display_name=display_name),
         )
-        # The deployment id's own folders are path segments; only its final part joins the name.
+        # The deployment id's own folders are path segments; only its final part joins the leaf.
         _, _, deployment_name = deployment_id.rpartition("/")
-        assert "/" not in conv.name
-        assert unquote(conv.name) == CONVERSATION_NAME_SEPARATOR.join((deployment_name, display_name, RUN_ID))
-        assert conv.id.rsplit("/", 1)[1] == conv.name
+        assert "/" not in leaf(conv)
+        assert unquote(leaf(conv)) == CONVERSATION_NAME_SEPARATOR.join((deployment_name, display_name, RUN_ID))
+        # The title is never escaped -- it is a document field, not a path segment.
+        assert conv.name == display_name
 
     @pytest.mark.parametrize(("deployment_id", "display_name"), [("..", ".."), (".", "."), ("", "")])
     def test_final_segment_is_never_a_traversal_token(self, deployment_id, display_name):
@@ -320,35 +335,39 @@ class TestNameSegmentsSurviveReservedCharacters:
         assert leaf not in {".", ".."}
         assert CONVERSATION_NAME_SEPARATOR in leaf
 
-    def test_name_matches_final_path_segment_for_adversarial_input(self):
-        # FR-009: display name and final location segment must not diverge.
+    def test_display_name_reaches_the_path_leaf_escaped_and_the_title_raw(self):
+        # FR-009: a display name containing a separator must not split the location segment, while
+        # the title keeps the character literally.
         conv = build_conversation(make_properties(), _result(), _app_build_input(display_name="Daily Report / Sync"))
-        assert conv.id.rsplit("/", 1)[1] == conv.name
-        assert unquote(conv.name.split("__")[-2]) == "Daily Report / Sync"
+        assert "/" not in leaf(conv)
+        assert unquote(leaf(conv).split("__")[-2]) == "Daily Report / Sync"
+        assert conv.name == "Daily Report / Sync"
 
 
 class TestDisplayNamePreservedNotSlugified:
-    """US3: the schedule name reaches the path verbatim, never flattened."""
+    """US3: the schedule name reaches the title and the path verbatim, never flattened."""
 
     def test_case_and_spaces_preserved(self):
         conv = build_conversation(make_properties(), _result(), make_build_input(display_name="Daily Report Sync"))
-        name_part = conv.name.split("__")[1]
-        assert name_part == "Daily Report Sync"
+        assert conv.name == "Daily Report Sync"
+        assert leaf(conv).split("__")[1] == "Daily Report Sync"
 
     def test_names_differing_only_by_case_and_punctuation_do_not_collide(self):
         conv_a = build_conversation(make_properties(), _result(), make_build_input(display_name="Weekly Sync"))
         conv_b = build_conversation(make_properties(), _result(), make_build_input(display_name="weekly-sync"))
         assert conv_a.name != conv_b.name
+        assert leaf(conv_a) != leaf(conv_b)
 
     def test_non_latin_name_is_not_transliterated(self):
         conv = build_conversation(make_properties(), _result(), make_build_input(display_name="Привет"))
-        assert "privet" not in conv.name
-        assert unquote(conv.name.split("__")[1]) == "Привет"
+        assert conv.name == "Привет"
+        assert unquote(leaf(conv).split("__")[1]) == "Привет"
 
     def test_long_name_is_not_truncated(self):
         long_name = "a" * 80
         conv = build_conversation(make_properties(), _result(), make_build_input(display_name=long_name))
-        assert unquote(conv.name.split("__")[1]) == long_name
+        assert conv.name == long_name
+        assert unquote(leaf(conv).split("__")[1]) == long_name
 
 
 class TestBuildConversationCustomContent:
@@ -447,8 +466,9 @@ class TestCreateRunConversationOrchestration:
 
         mock_schedule.get_by_id.assert_awaited_once_with(SCHEDULE_ID)
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        assert written.name == DISPLAY_NAME
         # For a model deployment the resolved model id equals the payload model (verbatim segment).
-        assert written.name == f"gpt-5.6-sol-2026-07-09-reasoning__{DISPLAY_NAME}__{RUN_ID}"
+        assert leaf(written) == f"gpt-5.6-sol-2026-07-09-reasoning__{DISPLAY_NAME}__{RUN_ID}"
 
     async def test_bucket_failure_raises_conversation_error(self, mock_dial):
         mock_dial.get_bucket.side_effect = ConversationCreationError("bucket down")
@@ -480,10 +500,10 @@ class TestConversationNameEdgeInputs:
     )
     def test_build_conversation_handles_edge_display_names(self, display_name, expected_segment):
         conv = build_conversation(make_properties(), _result(), make_build_input(display_name=display_name))
-        assert conv.name == f"chathub-claude4__{expected_segment}__{RUN_ID}"
-        assert unquote(conv.name.split("__")[1]) == display_name
+        assert conv.name == display_name
+        assert leaf(conv) == f"chathub-claude4__{expected_segment}__{RUN_ID}"
         # The run id segment always survives verbatim.
-        assert conv.name.rsplit("__", 1)[1] == RUN_ID
+        assert leaf(conv).rsplit("__", 1)[1] == RUN_ID
 
     @pytest.mark.parametrize("display_name", ["Привет", "a" * 80])
     async def test_create_run_conversation_never_raises_on_edge_names(self, mock_dial, mock_schedule, display_name):
@@ -505,8 +525,9 @@ class TestCreateRunConversationApplication:
         assert mock_dial.get_application.call_args.args[1] == _APP_MODEL
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "c9e5decf-1284-421e-ab84-c790beea837d"
-        # ...but the name's deployment part is the application's own name -- not the reference.
-        assert written.name == f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
+        assert written.name == DISPLAY_NAME
+        # ...but the leaf's deployment part is the application's own name -- not the reference.
+        assert leaf(written) == f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
         assert "c9e5decf-1284-421e-ab84-c790beea837d" not in written.name
         assert "c9e5decf-1284-421e-ab84-c790beea837d" not in written.id
 
@@ -567,10 +588,11 @@ class TestCreateRunConversationPercentEncodedDeployment:
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         path = mock_dial.put_conversation.call_args.kwargs["path"]
         expected_leaf = f"Planning Assistant__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
-        assert written.name == expected_leaf
+        assert written.name == DISPLAY_NAME
+        assert leaf(written) == expected_leaf
         assert path == f"{BUCKET}/.scheduler/{SCHEDULE_ID}/applications/bkt/{expected_leaf}"
-        # The escape must not survive into the stored name -- it would display literally in DIAL Chat.
-        assert "%20" not in written.name
+        # The escape must not survive into the stored path -- it would display literally in DIAL Chat.
+        assert "%20" not in written.id
         assert "%25" not in written.id
 
     async def test_model_deployment_id_is_unaffected(self, mock_dial):
@@ -579,7 +601,7 @@ class TestCreateRunConversationPercentEncodedDeployment:
 
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "gpt-5.6-sol-2026-07-09-reasoning"
-        assert written.name.split("__")[0] == "gpt-5.6-sol-2026-07-09-reasoning"
+        assert leaf(written).split("__")[0] == "gpt-5.6-sol-2026-07-09-reasoning"
 
 
 class TestCreateRunConversationModelResolution:

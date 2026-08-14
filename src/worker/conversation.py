@@ -92,13 +92,14 @@ def _deployment_location(deployment_id: str) -> tuple[str, str]:
     return (prefix if separator else "", last)
 
 
-def _conversation_name(build_input: ConversationBuildInput) -> str:
-    """Return the conversation display name ``{deployment-name}__{schedule-name}__{run-id}``.
+def _conversation_leaf(build_input: ConversationBuildInput) -> str:
+    """Return the final storage path segment ``{deployment-name}__{schedule-name}__{run-id}``.
 
-    Parts are stored verbatim — no percent-encoding, no slugification, no truncation — so the name
-    reads exactly as the user configured it, matching how DIAL Chat names its own conversations.
-    The deployment part is the final segment of the id configured on the schedule (its folder
-    segments live in the path instead), never an application's resolved reference.
+    This is the conversation's address, not its title: the run id keeps every run of a schedule at
+    its own path, and the deployment part keeps two schedules targeting different deployments apart.
+    Parts are joined verbatim — no slugification, no truncation — and only path separators are
+    escaped. The deployment part is the final segment of the id configured on the schedule (its
+    folder segments live in the path instead), never an application's resolved reference.
     """
     _, deployment_name = _deployment_location(build_input.deployment_id)
     segments = (
@@ -122,7 +123,7 @@ def conversation_resource_path(build_input: ConversationBuildInput) -> str:
     segments = [build_input.bucket, SCHEDULER_CONVERSATION_FOLDER, build_input.schedule_id]
     if deployment_folder:
         segments.append(deployment_folder)
-    segments.append(_conversation_name(build_input))
+    segments.append(_conversation_leaf(build_input))
     return "/".join(segments)
 
 
@@ -133,7 +134,8 @@ def build_conversation(
 
     The full message history from the schedule payload is included (system prompt goes
     into ``DialConversation.prompt``; all other messages become ``DialMessage`` entries).
-    The assembled assistant response is appended last.
+    The assembled assistant response is appended last. The document's ``name`` is the schedule's
+    display name; the three-part ``{deployment}__{name}__{run-id}`` form is the storage path leaf.
 
     Args:
         properties: The run's schedule properties (source of messages, temperature).
@@ -162,7 +164,10 @@ def build_conversation(
         settings=settings,
     )
 
-    name = _conversation_name(build_input)
+    # The title is the schedule's display name alone -- it is what the user reads in DIAL Chat, so it
+    # carries no deployment or run id noise and needs no escaping (only the path leaf is a segment).
+    # Runs stay distinguishable through the storage path, which keeps the three-part leaf.
+    name = build_input.display_name
     conversation_id = f"{CONVERSATION_ID_PREFIX}{conversation_resource_path(build_input)}"
     folder_id = conversation_id.rsplit("/", 1)[0]
 
@@ -222,7 +227,7 @@ async def create_run_conversation(
 
     # Applications are still resolved to their underlying model reference: the reference is what
     # the conversation document records as its model, so the chat UI reopens the conversation
-    # exactly as before. It is excluded from the storage path only -- see _conversation_name.
+    # exactly as before. It is excluded from the storage path only -- see _conversation_leaf.
     if is_application:
         details = await client.get_application(credentials, deployment)
         model_id = details.reference
