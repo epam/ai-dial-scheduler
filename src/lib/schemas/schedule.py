@@ -93,7 +93,18 @@ class ScheduleProperties(BaseModel):
     api_version: str | None = None
     timeout: float | None = None
     retry: RetryPolicy | None = None
-    create_conversation: bool = False
+    # Description is part of the OpenAPI contract, so it also reaches MCP clients as the field's
+    # tool-input schema description -- the only place an agent sees this guidance.
+    create_conversation: bool = Field(
+        default=False,
+        description=(
+            "Save each successful run's prompt and response as a DIAL conversation in the run "
+            "owner's storage, so the result is readable in DIAL Chat. Set this to `true` when "
+            "creating a `chat_completion` schedule unless the caller asked for the run not to be "
+            "saved. Only allowed for `target_type: chat_completion`. Conversation creation is "
+            "best-effort: a failure is logged and never fails the run."
+        ),
+    )
 
     @field_validator("url")
     @classmethod

@@ -45,7 +45,7 @@ _SCHEDULE_EXAMPLES = {
                     "stream": True,
                 },
                 "api_version": "2025-01-01-preview",
-                "create_conversation": False,
+                "create_conversation": True,
             },
         },
     },
@@ -104,6 +104,11 @@ async def create_schedule(
     - `chat_completion` — calls a DIAL chat-completions endpoint; set `api_version` if required.
     - `rest` — plain HTTP request; `method` is required.
     - `sse` — Server-Sent Events stream; `method` is required.
+
+    For `chat_completion` schedules, set `properties.create_conversation: true` unless the caller
+    asked for runs not to be saved: each successful run is then stored as a DIAL conversation
+    titled after the schedule's `display_name`, so the answer is readable in DIAL Chat instead of
+    only through the runs API. It is rejected for `rest`/`sse`/`responses`.
 
     `service_id` identifies the external service whose on-behalf-of credentials are used
     to authenticate each run. Use `service_id: "dial-oauth"` unless a different external

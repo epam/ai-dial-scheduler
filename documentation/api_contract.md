@@ -64,6 +64,10 @@ has not signed in to that service, the run fails with a credentials-stage error 
 below) and the target request is never sent. Existing schedules created before this field existed
 were backfilled with `service_id = "dial-oauth"`.
 
+For `target_type: chat_completion`, send `properties.create_conversation: true` unless the caller
+asked for runs not to be saved — each successful run is then stored as a DIAL conversation titled
+after `display_name` and readable in DIAL Chat. See [properties.md](./properties.md).
+
 ## Update Schedule
 PUT /schedules/{schedule_id}
 

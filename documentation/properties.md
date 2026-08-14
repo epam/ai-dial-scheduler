@@ -38,7 +38,9 @@ occur; it is not enforced by the database.
 - `create_conversation` — type: bool, defaults to `false`. Only allowed for `target_type`
   `chat_completion`; setting it `true` for `responses`/`rest`/`sse` is rejected with a validation error. When
   `true`, a successful run's prompt and assembled response are saved as a DIAL conversation under
-  the run owner's storage bucket. Failure to create the conversation is non-fatal and does not
-  affect the run outcome.
+  the run owner's storage bucket, titled after the schedule's `display_name`. Failure to create the
+  conversation is non-fatal and does not affect the run outcome. Recommended value for
+  `chat_completion` schedules is `true` — the field's OpenAPI description says so, so MCP clients
+  creating a schedule opt in unless the caller asked for runs not to be saved.
 
 Has a corresponding Pydantic model and is validated before each run start.
