@@ -38,7 +38,7 @@ metadata:
 ```json
 {
   "display_name": "Daily GPT-4o summary",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "description": "Posts a GPT-4o summary of the day's highlights every morning.",
   "trigger": {
     "cron": {
@@ -86,7 +86,7 @@ A one-time `rest` schedule that fires once at a specific instant:
 ```json
 {
   "display_name": "One-off REST ping",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "date": "2026-09-01T12:30:00Z"
   },
@@ -108,7 +108,7 @@ A one-time `rest` schedule that fires once at a specific instant:
 | Field          | Required | Type         | Description                                                                                                                                                        | Available Values | Default Value |
 |----------------|----------|--------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------|---------------|
 | `display_name` | Yes      | String       | Human-readable schedule name. Must not be empty or whitespace-only. Used as the DIAL conversation title when `create_conversation` is `true`.                      | -                | -             |
-| `service_id`   | Yes      | String       | DIAL external service whose per-user on-behalf-of (OBO) credentials authenticate every run of this schedule. See [service_id configuration](#service_id-owner-identity). | e.g. `dial-oauth`, `dial-api-key` | -             |
+| `service_id`   | Yes      | String       | DIAL external service whose per-user on-behalf-of (OBO) credentials authenticate every run of this schedule. See [service_id configuration](#service_id-owner-identity). | e.g. `dial-native` | -             |
 | `description`  | No       | String or null | Free-text notes about the schedule. Max length **1000** chars. `null` when absent.                                                                              | -                | `null`        |
 | `trigger`      | Yes      | Object       | When the schedule fires. Exactly one of `cron`/`date`. See [Trigger configuration](#trigger-configuration).                                                        | -                | -             |
 | `properties`   | Yes      | Object       | What the schedule does when it fires (the target call). Rules depend on `target_type`. See [Properties configuration](#properties-configuration).                  | -                | -             |
@@ -318,18 +318,20 @@ Retry up to twice — 5s then 30s — only on `502` and `503` (three attempts to
 ### service_id (owner identity)
 
 `service_id` is **required** on create and update. It names a DIAL external service (registered in
-the scheduler's app definition under `external_services`, e.g. `dial-oauth`) whose per-user
+the scheduler's app definition under `external_services`, e.g. `dial-native`) whose per-user
 on-behalf-of (OBO) credentials authenticate **every** run of this schedule.
 
 - Before each fire, the worker resolves OBO credentials for the schedule's **owner** (`created_by`,
   taken from the caller's identity at create time) and `service_id`, and applies them as the
   outbound auth header.
-- If the owner has not signed in to that external service, the run is recorded as failed with a
-  **credentials-stage** error (`result.stage == "credentials"`), the target action is **never
-  dispatched**, and the failure does **not** consume the retry budget.
+- If the owner has not enabled offline access, or an administrator has not approved this
+  application for the service, the run is recorded as failed with a **credentials-stage** error
+  (`result.stage == "credentials"`), the target action is **never dispatched**, and the failure
+  does **not** consume the retry budget.
 - The injected auth header always overrides a same-named entry in `properties.extra_headers` —
   callers cannot use `extra_headers` to bypass the authenticated identity.
-- Schedules created before this field existed were backfilled with `service_id = "dial-oauth"`.
+- Schedules created before this field existed were backfilled with `service_id = "dial-oauth"`,
+  then moved to `"dial-native"` when the scheduler adopted DIAL-native offline delegation.
 
 See [documentation/deployment/deployment.md](./documentation/deployment/deployment.md) for
 registering external services and granting consent.

@@ -30,7 +30,7 @@ def mock_credentials(mocker):
     valid header by default. Individual tests override ``get_obo_credentials`` /
     ``get_by_id`` to exercise credential-failure paths.
     """
-    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1", is_deleted=False)
+    schedule = mocker.MagicMock(service_id="dial-native", created_by="user-sub-1", is_deleted=False)
     schedule_repo = mocker.MagicMock()
     schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
     mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)
@@ -765,7 +765,7 @@ class TestExecuteScheduledJobCredentials:
         assert call.args[0] == "svc-key"
         request = call.args[1]
         assert request.owner_user_id == "user-sub-1"
-        assert request.url == "applications/dial_scheduler/external_services/dial-oauth"
+        assert request.url == "applications/dial_scheduler/external_services/dial-native"
 
     async def test_logs_credentials_fetch_lifecycle(self, mocker, mock_run_repo):
         from src.worker.jobs import execute_scheduled_job

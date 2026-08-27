@@ -7,7 +7,7 @@ Request
 ```json
 {
   "display_name": "",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {
       "fields": {
@@ -42,7 +42,7 @@ Response
 {
   "id": "str",
   "display_name": "",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "next_run_time": "datetime|None",
   "trigger": {},
   "properties": {},
@@ -56,13 +56,14 @@ ID is generated uuid4 converted to string, same value used for schedules.id tabl
 Table populated with created_by = user `sub` claim from /v1/info dial endpoint (resolved via
 `USER_ID_PATH_LIST`, default `["sub", "userClaims.sub.0", "project"]`).
 
-`service_id` is **required**. It identifies the DIAL external service (see DIAL's
-external-service sign-in feature) whose on-behalf-of (OBO) credentials authenticate every
-execution of this schedule — e.g. `dial-oauth` or `dial-api-key`. Before each run, the worker
-fetches OBO credentials for the schedule's owner (`created_by`) and `service_id`; if the owner
-has not signed in to that service, the run fails with a credentials-stage error (see Run Details
-below) and the target request is never sent. Existing schedules created before this field existed
-were backfilled with `service_id = "dial-oauth"`.
+`service_id` is **required**. It identifies the DIAL external service whose on-behalf-of (OBO)
+credentials authenticate every execution of this schedule — `dial-native`, a DIAL-native service
+backed by platform-wide offline credentials. Before each run, the worker fetches OBO credentials
+for the schedule's owner (`created_by`) and `service_id`; if the owner has not enabled offline
+access, or an administrator has not approved this application for the service, the run fails with
+a credentials-stage error (see Run Details below) and the target request is never sent. Schedules
+that predate this field were backfilled with `service_id = "dial-oauth"`, then moved to
+`"dial-native"`.
 
 For `target_type: chat_completion`, send `properties.create_conversation: true` unless the caller
 asked for runs not to be saved — each successful run is then stored as a DIAL conversation titled
@@ -75,7 +76,7 @@ Request
 ```json
 {
   "display_name": "",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {
       "fields": {
@@ -110,7 +111,7 @@ Response
 {
   "id": "str",
   "display_name": "",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "next_run_time": "datetime|None",
   "trigger": {},
   "properties": {},
@@ -136,7 +137,7 @@ GET /schedules/
     {
       "id": "str",
       "display_name": "",
-      "service_id": "dial-oauth",
+      "service_id": "dial-native",
       "next_run_time": "datetime|None",
       "trigger_type": "cron|date",
       "is_deleted": false,
@@ -165,7 +166,7 @@ GET /schedules/{schedule_id}
 {
   "id": "str",
   "display_name": "",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "next_run_time": "datetime|None",
   "trigger": {},
   "properties": {},

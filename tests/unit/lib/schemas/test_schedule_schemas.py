@@ -19,7 +19,7 @@ from src.lib.schemas.schedule import (
 def _valid_request_kwargs() -> dict:
     return {
         "display_name": "Test Schedule",
-        "service_id": "dial-oauth",
+        "service_id": "dial-native",
         "trigger": ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         "properties": ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -427,7 +427,7 @@ class TestRetryPolicy:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger={},
             properties=dumped,
@@ -458,7 +458,7 @@ class TestScheduleMetadata:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger={},
             properties={},
@@ -475,7 +475,7 @@ class TestScheduleMetadata:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger={},
             properties={},
@@ -514,7 +514,7 @@ class TestScheduleDescription:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger={},
             properties={},
@@ -531,7 +531,7 @@ class TestScheduleDescription:
         resp = ScheduleResponse(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger={},
             properties={},
@@ -547,7 +547,7 @@ class TestScheduleDescription:
         item = ScheduleListItem(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},
@@ -565,7 +565,7 @@ class TestScheduleDescription:
         item = ScheduleListItem(
             id="x",
             display_name="x",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger_type=TriggerType.DATE,
             trigger={"date": "2026-06-12T09:00:00Z"},
@@ -582,7 +582,7 @@ class TestScheduleRequest:
         with pytest.raises(ValidationError, match="display_name must not be empty"):
             ScheduleRequest(
                 display_name="   ",
-                service_id="dial-oauth",
+                service_id="dial-native",
                 trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
                 properties=ScheduleProperties(
                     target_type=TargetType.CHAT_COMPLETION,

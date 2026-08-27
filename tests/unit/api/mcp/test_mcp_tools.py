@@ -142,7 +142,7 @@ class TestMcpAuth:
         item_a = ScheduleListItem(
             id="a1",
             display_name="User A Schedule",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},
@@ -154,7 +154,7 @@ class TestMcpAuth:
         item_b = ScheduleListItem(
             id="b1",
             display_name="User B Schedule",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},

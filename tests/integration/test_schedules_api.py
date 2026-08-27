@@ -88,7 +88,7 @@ async def cleanup(engine: AsyncEngine) -> AsyncGenerator[None, None]:
 
 CRON_REQUEST: dict[str, Any] = {
     "display_name": "Integration Test Schedule",
-    "service_id": "dial-oauth",
+    "service_id": "dial-native",
     "trigger": {
         "cron": {
             "fields": {"hour": 9, "minute": 0},
@@ -104,7 +104,7 @@ CRON_REQUEST: dict[str, Any] = {
 
 DATE_REQUEST: dict[str, Any] = {
     "display_name": "Date Schedule",
-    "service_id": "dial-oauth",
+    "service_id": "dial-native",
     "trigger": {"date": "2030-01-01T09:00:00"},
     "properties": {
         "target_type": "rest",
@@ -115,7 +115,7 @@ DATE_REQUEST: dict[str, Any] = {
 
 RESPONSES_REQUEST: dict[str, Any] = {
     "display_name": "Responses Schedule",
-    "service_id": "dial-oauth",
+    "service_id": "dial-native",
     "trigger": {
         "cron": {
             "fields": {"hour": 9, "minute": 0},
@@ -143,7 +143,7 @@ class TestCreateSchedule:
         body = response.json()
         assert "id" in body
         assert body["display_name"] == "Integration Test Schedule"
-        assert body["service_id"] == "dial-oauth"
+        assert body["service_id"] == "dial-native"
         assert body["created_by"] == "mock_user_id"
         assert body["next_run_time"] is None  # no real APScheduler row in test DB
         assert "trigger" in body

@@ -12,7 +12,7 @@ from src.lib.schemas.ordering import ScheduleOrdering
 def make_schedule(
     schedule_id: str = "sched-1",
     created_by: str = "mock_user_id",
-    service_id: str = "dial-oauth",
+    service_id: str = "dial-native",
 ) -> Schedule:
     return Schedule(
         id=schedule_id,
@@ -100,7 +100,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={"date": "2026-06-12T09:00:00Z"},
             kwargs={"target_type": "rest", "url": "https://example.com", "method": "POST"},
         )
@@ -108,7 +108,7 @@ class TestScheduleRepositoryUpdate:
         session.commit.assert_awaited_once()
         assert result is not None
         assert result.display_name == "New Name"
-        assert result.service_id == "dial-oauth"
+        assert result.service_id == "dial-native"
 
     @pytest.mark.asyncio
     async def test_update_sets_metadata_when_provided(self):
@@ -123,7 +123,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
             metadata={"tenant": "hcscd"},
@@ -146,7 +146,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
         )
@@ -163,7 +163,7 @@ class TestScheduleRepositoryUpdate:
             "nonexistent",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
         )
@@ -181,7 +181,7 @@ class TestScheduleRepositoryUpdate:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
         )
@@ -203,7 +203,7 @@ class TestScheduleRepositoryDescription:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
             description="fresh notes",
@@ -225,7 +225,7 @@ class TestScheduleRepositoryDescription:
             "sched-1",
             "mock_user_id",
             display_name="New Name",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
             description=None,

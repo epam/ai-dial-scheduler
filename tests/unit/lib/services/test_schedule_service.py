@@ -39,7 +39,7 @@ def make_service(repo, scheduler, run_repo=None) -> ScheduleService:
 def make_request() -> ScheduleRequest:
     return ScheduleRequest(
         display_name="Test Schedule",
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -55,7 +55,7 @@ def make_schedule(schedule_id: str = "test-uuid") -> Schedule:
         id=schedule_id,
         display_name="Test Schedule",
         created_by="mock_user_id",
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger={"cron": {"fields": {"hour": 9}}},
         kwargs={"target_type": "chat_completion", "url": "https://example.com"},
     )
@@ -64,7 +64,7 @@ def make_schedule(schedule_id: str = "test-uuid") -> Schedule:
 def make_request_with_metadata(metadata: dict) -> ScheduleRequest:
     return ScheduleRequest(
         display_name="Test Schedule",
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger=ScheduleTrigger(cron=CronTriggerSpec(fields=CronFields(hour=9))),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -82,7 +82,7 @@ def make_date_request() -> ScheduleRequest:
 
     return ScheduleRequest(
         display_name="Date Schedule",
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger=ScheduleTrigger(date=datetime(2026, 6, 12, 9, 0, tzinfo=timezone.utc)),
         properties=ScheduleProperties(
             target_type=TargetType.CHAT_COMPLETION,
@@ -171,7 +171,7 @@ class TestScheduleServiceServiceId:
             await service.create(make_request(), "mock_user_id")
 
         persisted: Schedule = repo.create.await_args[0][0]
-        assert persisted.service_id == "dial-oauth"
+        assert persisted.service_id == "dial-native"
 
     @pytest.mark.asyncio
     async def test_create_response_includes_service_id(self):
@@ -208,7 +208,7 @@ class TestScheduleServiceServiceId:
         with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
             await service.update("test-uuid", make_request(), "mock_user_id")
 
-        assert repo.update.await_args.kwargs["service_id"] == "dial-oauth"
+        assert repo.update.await_args.kwargs["service_id"] == "dial-native"
 
     @pytest.mark.asyncio
     async def test_update_restores_prior_service_id_on_job_failure(self):

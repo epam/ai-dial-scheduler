@@ -91,7 +91,7 @@ async def cleanup(engine: AsyncEngine) -> AsyncGenerator[None, None]:
 
 CRON_REQUEST: dict[str, Any] = {
     "display_name": "Run List Test Schedule",
-    "service_id": "dial-oauth",
+    "service_id": "dial-native",
     "trigger": {"cron": {"fields": {"hour": 9, "minute": 0}}},
     "properties": {
         "target_type": "chat_completion",

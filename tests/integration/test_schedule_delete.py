@@ -33,7 +33,7 @@ def _make_schedule(sched_id: str, created_by: str = OWNER, is_deleted: bool = Fa
         id=sched_id,
         display_name=f"Schedule {sched_id}",
         created_by=created_by,
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger={"cron": {"fields": {"hour": 9}}},
         kwargs={"target_type": "rest", "url": "https://example.com", "method": "POST"},
         is_deleted=is_deleted,
@@ -76,7 +76,7 @@ class TestIsDeletedColumn:
             await session.execute(
                 sa.text(
                     "INSERT INTO schedules (id, display_name, created_by, service_id, trigger, kwargs, "
-                    "created_at, updated_at) VALUES (:id, 'x', :owner, 'dial-oauth', '{}'::jsonb, "
+                    "created_at, updated_at) VALUES (:id, 'x', :owner, 'dial-native', '{}'::jsonb, "
                     "'{}'::jsonb, now(), now())"
                 ),
                 {"id": sched_id, "owner": OWNER},

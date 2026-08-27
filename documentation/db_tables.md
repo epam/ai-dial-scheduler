@@ -4,9 +4,10 @@
 - updated_at: datetime
 - display_name: str
 - created_by: str
-- service_id: str <- external service (DIAL external-service sign-in) whose on-behalf-of
-  credentials authenticate this schedule's execution, e.g. "dial-oauth"; required on create,
-  backfilled to "dial-oauth" for schedules that existed before this column was added
+- service_id: str <- external service whose on-behalf-of credentials authenticate this
+  schedule's execution, e.g. "dial-native"; required on create, backfilled to "dial-oauth"
+  for schedules that existed before this column was added, then set to "dial-native" for
+  every row when the scheduler adopted DIAL-native offline delegation
 - trigger: json
 - kwargs: json
 - is_deleted: bool <- soft-delete marker, NOT NULL DEFAULT false; set to true by DELETE

@@ -60,6 +60,14 @@ services:
       'aidial.access.admin.rules': '[{"source": "roles", "function": "EQUAL", "targets": ["admin"]}]'
       'aidial.identityProviders.keycloak.loggingKey': 'email'
       'aidial.identityProviders.keycloak.loggingSalt': 'loggingSalt'
+      # Offline credentials client (DIAL_NATIVE external services). Core redeems a stored
+      # refresh token at the token endpoint, so that one must resolve from inside the
+      # container; the authorization endpoint is opened by the browser, so it must not.
+      'aidial.identityProviders.keycloak.offlineClient.clientId': 'dial-credentials-manager'
+      'aidial.identityProviders.keycloak.offlineClient.clientSecret': 'offline-manager-secret'
+      'aidial.identityProviders.keycloak.offlineClient.authorizationEndpoint': 'http://localhost:${KC_PORT}/realms/dial/protocol/openid-connect/auth'
+      'aidial.identityProviders.keycloak.offlineClient.tokenEndpoint': 'http://host.docker.internal:${KC_PORT}/realms/dial/protocol/openid-connect/token'
+      'aidial.identityProviders.keycloak.offlineClient.redirectUri': 'http://localhost:${DIAL_CHAT_HOST_PORT}/callback'
       'aidial.encryption.secret': '${DIAL_CORE_ENCRYPTION_SECRET}'
       'aidial.encryption.key': '${DIAL_CORE_ENCRYPTION_KEY}'
       'aidial.redis.singleServerConfig.address': 'redis://redis:6379'

@@ -22,7 +22,7 @@ Authorization: Bearer {{user_token}}
 
 {
   "display_name": "Real DIAL streaming smoke test",
-  "service_id": "dial-oauth",
+  "service_id": "{{service_id}}",
   "trigger": {
     "date": "{{$isoTimestamp}}"
   },
@@ -117,7 +117,7 @@ Authorization: Bearer {{user_token}}
 
 {
   "display_name": "Отчёт / Weekly Sync",
-  "service_id": "dial-oauth",
+  "service_id": "{{service_id}}",
   "trigger": {
     "date": "{{$isoTimestamp}}"
   },
