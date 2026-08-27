@@ -62,7 +62,7 @@ class TestScheduleModel:
             id="x",
             display_name="x",
             created_by="u",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
         )
@@ -88,7 +88,7 @@ class TestScheduleModel:
             id="x",
             display_name="x",
             created_by="u",
-            service_id="dial-oauth",
+            service_id="dial-native",
             trigger={},
             kwargs={},
         )

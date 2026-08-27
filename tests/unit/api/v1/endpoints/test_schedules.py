@@ -20,7 +20,7 @@ TEST_USER_ID = "alice@example.com"
 
 VALID_REQUEST = {
     "display_name": "Test Schedule",
-    "service_id": "dial-oauth",
+    "service_id": "dial-native",
     "trigger": {
         "cron": {
             "fields": {"hour": 9, "minute": 0},
@@ -38,7 +38,7 @@ VALID_REQUEST = {
 def make_response(
     schedule_id: str = "test-uuid",
     metadata: dict | None = None,
-    service_id: str = "dial-oauth",
+    service_id: str = "dial-native",
     is_deleted: bool = False,
 ) -> ScheduleResponse:
     now = datetime.now(UTC)
@@ -90,7 +90,7 @@ class TestPostSchedule:
         body = response.json()
         assert "id" in body
         assert body["display_name"] == "Test Schedule"
-        assert body["service_id"] == "dial-oauth"
+        assert body["service_id"] == "dial-native"
         assert body["created_by"] == TEST_USER_ID
 
     def test_create_missing_service_id_returns_422(self, client, mock_service):
@@ -389,7 +389,7 @@ class TestListDeletedFilter:
         item = ScheduleListItem(
             id="test-uuid",
             display_name="Test Schedule",
-            service_id="dial-oauth",
+            service_id="dial-native",
             next_run_time=None,
             trigger_type="cron",
             trigger={"cron": {"fields": {"hour": 9}}},

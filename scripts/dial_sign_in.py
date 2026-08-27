@@ -1,14 +1,19 @@
-"""Automate the local DIAL external-service sign-in flow (see README.md, "Per-User Credentials").
+"""Connect offline credentials for the local DIAL stack (see README.md, "Per-User Credentials").
 
-Drives the full flow against a local `dial/docker-compose.yml` stack:
-1. Issue a Keycloak user access token for the test user (password grant).
-2. Drive the Keycloak login form to obtain an OAuth2 authorization code for the
-   scheduler's `dial-oauth` external service (no browser needed).
-3. Call DIAL core's external-service sign-in endpoint with that token and code.
+Drives the two decisions that DIAL_NATIVE offline delegation requires, against a local
+`dial/docker-compose.yml` stack:
+
+1. An admin approves the scheduler application for the external service (layer 2).
+2. The user allows DIAL to act on their behalf while they are away (layer 1) — an
+   authorization-code flow against the offline client, followed by DIAL core's
+   offline-credentials sign-in.
+
+Neither works alone: consent with no credentials has no identity to act with, and
+credentials with no consent reach no application.
 
 Example:
     uv run python scripts/dial_sign_in.py
-    uv run python scripts/dial_sign_in.py --dial-url http://localhost:8081
+    uv run python scripts/dial_sign_in.py --username user --password dial --skip-consent
 """
 
 from __future__ import annotations
@@ -36,8 +41,8 @@ USERNAME = "dial"
 PASSWORD = "dial"
 
 DIAL_URL = "http://localhost:8081"
-REDIRECT_URI = "http://localhost:3100/callback"
-EXTERNAL_SERVICE_URL = "applications/dial_scheduler/external_services/dial-oauth"
+APP_ID = "public/dial_scheduler__1.0.0"
+SERVICE_ID = "dial-native"
 
 
 def _decode_sub(token: str) -> str | None:
@@ -81,22 +86,60 @@ async def issue_token(client: httpx.AsyncClient) -> str:
     return response.json()["access_token"]
 
 
-async def _issue_authorization_code(client: httpx.AsyncClient) -> str:
+async def get_status(client: httpx.AsyncClient, user_token: str) -> dict:
+    """Read the caller's offline-credentials status and connect parameters.
+
+    Args:
+        client: HTTP client used to reach DIAL core.
+        user_token: The bearer token returned by `issue_token`.
+
+    Returns:
+        The status body: `connected`, `available`, and a `connect` block when there is
+        something to do.
+    """
+    response = await client.get(
+        f"{DIAL_URL}/v1/user/offline-credentials",
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+async def grant_consent(client: httpx.AsyncClient, admin_token: str) -> None:
+    """Approve the scheduler application for the external service, as an administrator.
+
+    Approval is installation-wide: it lets the application act as any user who has
+    connected offline credentials, not only the caller.
+
+    Args:
+        client: HTTP client used to reach DIAL core.
+        admin_token: A bearer token for a user holding the DIAL admin role.
+    """
+    response = await client.post(
+        f"{DIAL_URL}/v1/applications/{APP_ID}/external-services/{SERVICE_ID}/consent",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    response.raise_for_status()
+
+
+async def _issue_authorization_code(client: httpx.AsyncClient, connect: dict) -> str:
     """Drive the Keycloak login form to obtain an OAuth2 authorization code.
 
     Args:
         client: HTTP client that keeps cookies across the login redirect chain.
+        connect: The `connect` block published by DIAL core, naming the authorization
+            endpoint, client id, redirect URI and scopes to use.
 
     Returns:
-        The authorization code issued by Keycloak for the `dial-chat` client.
+        The authorization code issued by Keycloak for the offline client.
     """
     auth_response = await client.get(
-        f"{KEYCLOAK_URL}/realms/{REALM}/protocol/openid-connect/auth",
+        connect["authorization_endpoint"],
         params={
             "response_type": "code",
-            "client_id": CLIENT_ID,
-            "redirect_uri": REDIRECT_URI,
-            "scope": "openid offline_access",
+            "client_id": connect["client_id"],
+            "redirect_uri": connect["redirect_uri"],
+            "scope": " ".join(connect["scopes"]),
             "state": uuid.uuid4().hex,
         },
     )
@@ -128,35 +171,22 @@ async def _issue_authorization_code(client: httpx.AsyncClient) -> str:
     return code
 
 
-async def sign_in(client: httpx.AsyncClient, user_token: str) -> dict:
-    """Sign the DIAL user in to the scheduler's `dial-oauth` external service.
-
-    Obtains a fresh authorization code and exchanges it, together with the
-    user's bearer token, for OBO credentials via DIAL core.
+async def connect_offline_credentials(client: httpx.AsyncClient, user_token: str, connect: dict) -> None:
+    """Connect the user's offline credentials from a freshly issued authorization code.
 
     Args:
         client: HTTP client used for both the Keycloak login and the sign-in call.
         user_token: The bearer token returned by `issue_token`.
-
-    Returns:
-        The JSON response body from the DIAL core sign-in call.
+        connect: The `connect` block published by DIAL core.
     """
-    code = await _issue_authorization_code(client)
+    code = await _issue_authorization_code(client, connect)
 
     response = await client.post(
-        f"{DIAL_URL}/v1/ops/external-service/signin",
+        f"{DIAL_URL}/v1/user/offline-credentials/signin",
         headers={"Authorization": f"Bearer {user_token}"},
-        json={
-            "url": EXTERNAL_SERVICE_URL,
-            "credentials_level": "USER",
-            "authentication_type": "OAUTH",
-            "code": code,
-            "redirect_uri": REDIRECT_URI,
-            "offline_usage_consent": True,
-        },
+        json={"code": code, "redirect_uri": connect["redirect_uri"]},
     )
     response.raise_for_status()
-    return response.json()
 
 
 def _parse_args() -> argparse.Namespace:
@@ -165,22 +195,46 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--dial-url", default=DIAL_URL)
     parser.add_argument("--username", default=USERNAME)
     parser.add_argument("--password", default=PASSWORD)
+    parser.add_argument("--app-id", default=APP_ID)
+    parser.add_argument("--service-id", default=SERVICE_ID)
+    parser.add_argument(
+        "--skip-consent",
+        action="store_true",
+        help="Do not grant admin consent (use when the signing-in user is not an administrator)",
+    )
     return parser.parse_args()
 
 
 async def _main() -> None:
     args = _parse_args()
-    global KEYCLOAK_URL, DIAL_URL, USERNAME, PASSWORD  # noqa: PLW0603
+    global KEYCLOAK_URL, DIAL_URL, USERNAME, PASSWORD, APP_ID, SERVICE_ID  # noqa: PLW0603
     KEYCLOAK_URL = args.keycloak_url
     DIAL_URL = args.dial_url
     USERNAME = args.username
     PASSWORD = args.password
+    APP_ID = args.app_id
+    SERVICE_ID = args.service_id
 
     async with httpx.AsyncClient() as client:
         token = await issue_token(client)
-        logger.info("Issued user token (sub=%s): %s", _decode_sub(token), token)
-        result = await sign_in(client, token)
-        logger.info("Sign-in result: %s", result)
+        logger.info("Issued user token for %s (sub=%s)", USERNAME, _decode_sub(token))
+
+        if not args.skip_consent:
+            await grant_consent(client, token)
+            logger.info("Granted admin consent for %s / %s", APP_ID, SERVICE_ID)
+
+        status = await get_status(client, token)
+        if not status.get("available"):
+            raise RuntimeError(
+                "Core publishes no offline client for this user's identity provider; "
+                "check the aidial.identityProviders.*.offlineClient settings"
+            )
+        if status.get("connected"):
+            logger.info("Offline credentials already connected; nothing to do")
+            return
+
+        await connect_offline_credentials(client, token, status["connect"])
+        logger.info("Connected offline credentials: %s", await get_status(client, token))
 
 
 if __name__ == "__main__":

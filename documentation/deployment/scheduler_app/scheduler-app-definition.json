@@ -14,7 +14,7 @@
         "mcpApps": null
       },
       "external_services": {
-        "dial-oauth": {
+        "dial-native": {
           "display_name": "DIAL Native",
           "auth_settings": {
             "authentication_type": "DIAL_NATIVE"

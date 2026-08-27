@@ -157,42 +157,65 @@ DB_AZURE_ENTRA_USER=scheduler-identity
 # DB_AZURE_MANAGED_IDENTITY_CLIENT_ID=<user-assigned-mi-client-id>  # optional
 ```
 
-## Per-User Credentials (external-service sign-in)
+## Per-User Credentials (DIAL-native offline delegation)
 
-Each schedule executes using the credentials of the user who created it, not a shared service
-key. Every schedule carries a `service_id` identifying which DIAL external service (registered
-in `application/external-services`, e.g. `dial-oauth` or `dial-api-key`) supplies those
-credentials. Before each run, the worker requests on-behalf-of (OBO) credentials for the
-schedule's owner and `service_id` from DIAL
-(`POST /v1/ops/external-service/obo-credentials`) and applies the returned header to the outgoing
-request — the shared `DIAL_API_KEY` is never sent to the target.
+A schedule runs days after the user set it up. Nobody is present, but the task must call DIAL
+**as that user**, with that user's current permissions. Each schedule therefore executes using
+the credentials of the user who created it, never a shared service key.
+
+Every schedule carries a `service_id` naming a DIAL external service registered in the
+scheduler's app definition — `dial-native`, of type `DIAL_NATIVE`. Before each run the worker
+requests on-behalf-of (OBO) credentials for the schedule's owner and `service_id`
+(`POST /v1/ops/external-service/obo-credentials`, authenticated with the scheduler's own project
+key) and applies the returned header to the outgoing request. The shared `DIAL_API_KEY` is never
+sent to the target.
+
+**Two decisions, made by two people.** Neither works alone — credentials with no consent reach no
+application, and consent with no credentials has no identity to act with:
+
+| Who | Decides | Recorded as |
+|---|---|---|
+| The **user** | may DIAL act as me while I am away? | offline credentials, held platform-wide rather than per app (`/v1/user/offline-credentials`) |
+| A DIAL **admin** | may *this app* use that, for anyone? | one consent record per (app, service) (`/v1/applications/{appId}/external-services/{id}/consent`) |
+
+Admin approval is installation-wide: it reaches every user who has enabled offline credentials,
+not only users who opted into this app.
 
 - **`service_id` is required** on `POST /v1/schedules/` and `PUT /v1/schedules/{id}`; requests
-  without it are rejected with `422`. Use `"dial-oauth"` unless a different external service is
+  without it are rejected with `422`. Use `"dial-native"` unless a different external service is
   required (this is also what MCP clients are instructed to use by default).
-- **If the owner has not signed in** to the requested external service (or DIAL rejects the OBO
-  lookup), the run is recorded as `error` with the credentials-lookup response in the result —
-  the target request is never sent, and this does not consume the schedule's retry budget.
+- **If either decision is missing** — the owner never enabled offline access (`409`), or no admin
+  has approved the app (`403`) — the run is recorded as `error` with the credentials-lookup
+  response in the result. The target request is never sent, and this does not consume the
+  schedule's retry budget.
+- Revoking either one stops runs immediately: a user signing out stops their schedules in every
+  app, and an admin withdrawing consent stops that app for every user.
 - Schedules that existed before this feature were backfilled with `service_id = "dial-oauth"` by
-  migration `add_service_id_to_schedules`.
+  migration `add_service_id_to_schedules`, then moved to `dial-native` by
+  `set_service_id_to_dial_native`.
 
-### Testing against a real DIAL sign-in (`scripts/dial_sign_in.py`)
+### Connecting credentials locally (`scripts/dial_sign_in.py`)
 
-To exercise a schedule end-to-end with real OBO credentials, a user must first sign in to the
-`dial-oauth` external service. `scripts/dial_sign_in.py` automates this against the local
-`dial/docker-compose.yml` stack (Keycloak + DIAL core): it obtains a Keycloak user token,
-drives the login form to get an authorization code, and calls DIAL's
-`POST /v1/ops/external-service/signin` for
-`applications/dial_scheduler/external_services/dial-oauth`.
+To exercise a schedule end-to-end with real OBO credentials, both decisions must be recorded.
+`scripts/dial_sign_in.py` does both against the local `dial/docker-compose.yml` stack (Keycloak +
+DIAL core): it obtains a Keycloak user token, grants admin consent for the app, reads the
+`connect` parameters DIAL publishes, drives the login form to get an authorization code, and
+posts it to `POST /v1/user/offline-credentials/signin`.
 
 ```bash
 uv run python scripts/dial_sign_in.py
-# uv run python scripts/dial_sign_in.py --dial-url http://localhost:8081 --keycloak-url http://localhost:8900
+# a non-admin user, once an admin has already consented:
+# uv run python scripts/dial_sign_in.py --username user --password dial --skip-consent
 ```
 
 The script prints the token's `sub` claim — create a schedule whose owner resolves to that same
-`sub` (via `USER_ID_PATH_LIST`) so the worker's OBO fetch can find the sign-in and resolve
-credentials.
+`sub` (via `USER_ID_PATH_LIST`) so the worker's OBO fetch resolves that user's credentials.
+
+The local stack needs a confidential Keycloak client for this (`dial-credentials-manager`, in
+`dial/keycloak/import/realm-config.json`) and matching
+`aidial.identityProviders.keycloak.offlineClient.*` settings on DIAL core (in
+`dial/docker-compose.yml`). If `GET /v1/user/offline-credentials` reports `"available": false`,
+those core settings are missing or wrong.
 
 ## Observability / OTLP
 

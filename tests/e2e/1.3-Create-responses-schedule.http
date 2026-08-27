@@ -12,27 +12,27 @@ Authorization: Bearer {{user_token}}
 
 
 ### ============================================================
-### CREATE CHAT COMPLETION SCHEDULE (fires once, immediately)
+### CREATE RESPONSES SCHEDULE (fires once, immediately)
 ### ============================================================
 
-# @name create_chat_completion_schedule
+# @name create_responses_schedule
 POST {{baseUrl}}/v1/schedules/
 Content-Type: application/json
 Authorization: Bearer {{user_token}}
 
 {
-  "display_name": "Real DIAL streaming smoke test",
-  "service_id": "dial-oauth",
+  "display_name": "Real DIAL responses smoke test",
+  "service_id": "{{service_id}}",
   "trigger": {
     "date": "{{$isoTimestamp}}"
   },
   "properties": {
-    "target_type": "chat_completion",
-    "url": "{{dial_url}}/openai/",
+    "target_type": "responses",
+    "url": "{{dial_url}}/openai/v1",
     "payload": {
-      "messages": [{"role": "user", "content": "hello, how are you?"}],
-      "model": "gpt-4.1-mini-2025-04-14",
-      "stream": true
+      "input": "hello, how are you?",
+      "model": "gpt-5.6-luna-2026-07-09",
+      "stream": false
     },
     "api_version": "2025-01-01-preview"
   }

@@ -135,14 +135,18 @@ Populate values:
 
 Each schedule executes using the credentials of the user who created it, not a shared service
 key: `POST /schedules/` requires a `service_id` naming one of the app's registered
-`external_services` (e.g. `dial-api-key` above). Before a schedule fires, the worker fetches
-on-behalf-of credentials for the schedule's owner and `service_id` from DIAL; if that owner has
-not signed in to the external service, the run fails with a credentials-stage error and the
-target action is never dispatched (see `documentation/api_contract.md` and
-`documentation/scheduled_job_execution.md`). Users sign in to an external service through DIAL's
-standard external-service sign-in flow before creating schedules that depend on it.
+`external_services` — `dial-native` in the definition above. Before a schedule fires, the worker
+fetches on-behalf-of credentials for the schedule's owner and `service_id` from DIAL.
 
-For DIAL chat scheduler there is pre-created external service with id `dial-native`
+Two separate approvals must be in place, or the run fails with a credentials-stage error and the
+target action is never dispatched (see `documentation/api_contract.md` and
+`documentation/scheduled_job_execution.md`):
+
+- **The admin consent above** — granted once per application, it reaches every user in the
+  installation who has enabled offline access, not only users who opted into this app. Withdrawing
+  it stops the app for every user immediately.
+- **The user's offline credentials** — each user enables offline access for themselves in DIAL
+  Chat before creating schedules. Signing out stops their scheduled runs in every app.
 
 ### API Access
 

@@ -26,7 +26,7 @@ def _make_schedule(sched_id: str) -> Schedule:
         id=sched_id,
         display_name="Test Schedule",
         created_by="test-user",
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger={"type": "interval", "seconds": 60},
         kwargs={"arg": "value"},
     )

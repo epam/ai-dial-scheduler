@@ -12,9 +12,9 @@
 
 # service_id is required on every create/update body. It selects the external service
 # (registered in application/external-services) whose per-user on-behalf-of credentials
-# authenticate the schedule's execution — "dial-oauth" (OAUTH) or "dial-api-key" (API_KEY).
-# The requesting user must have signed in to that external service (see scripts/dial_sign_in.py)
-# or the run will fail with a credentials-stage error.
+# authenticate the schedule's execution — "dial-native" (DIAL_NATIVE offline delegation).
+# The requesting user must have connected offline credentials (see scripts/dial_sign_in.py),
+# and an admin must have approved this app, or the run fails with a credentials-stage error.
 
 # Paste the id returned by a Create request before running Update / Detail requests.
 @scheduleId = bb16ca12-1cff-4c1c-bd36-83c02d41ef19
@@ -34,7 +34,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Real DIAL streaming smoke test",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"second": "*/30"}}
   },
@@ -59,7 +59,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Real DIAL streaming smoke test with api key",
-  "service_id": "dial-api-key",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"second": "*/30"}}
   },
@@ -85,7 +85,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST success",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"second": "*"}}
   },
@@ -107,7 +107,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST error",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"second": "*/10"}}
   },
@@ -129,7 +129,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo SSE success",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"second": "*/5"}}
   },
@@ -151,7 +151,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo SSE error",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"second": "*/10"}}
   },
@@ -173,7 +173,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST with retry",
-  "service_id": "dial-api-key",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"minute": "*"}}
   },
@@ -199,7 +199,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Echo REST with metadata",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"day": "1"}}
   },
@@ -251,7 +251,7 @@ Authorization: Bearer {{authValue}}
 
 {
   "display_name": "Updated schedule",
-  "service_id": "dial-oauth",
+  "service_id": "dial-native",
   "trigger": {
     "cron": {"fields": {"minute": "*"}}
   },

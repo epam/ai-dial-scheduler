@@ -30,7 +30,7 @@ def _make_schedule(sched_id: str | None = None, *, created_by: str = "test-user"
         id=sched_id or str(uuid.uuid4()),
         display_name="Test Schedule",
         created_by=created_by,
-        service_id="dial-oauth",
+        service_id="dial-native",
         trigger={"cron": {"fields": {"hour": 9}}},
         kwargs={"target_type": "chat_completion", "url": "https://example.com"},
     )
@@ -157,7 +157,7 @@ class TestScheduleRepositoryUpdate:
                 schedule.id,
                 "test-user",
                 display_name="Updated Name",
-                service_id="dial-oauth",
+                service_id="dial-native",
                 trigger={"date": "2026-12-01T09:00:00"},
                 kwargs={"target_type": "rest", "url": "https://new.example.com", "method": "POST"},
             )
@@ -178,7 +178,7 @@ class TestScheduleRepositoryUpdate:
                 schedule.id,
                 "test-user",
                 display_name="New Name",
-                service_id="dial-oauth",
+                service_id="dial-native",
                 trigger=schedule.trigger,
                 kwargs=schedule.kwargs,
             )
@@ -199,7 +199,7 @@ class TestScheduleRepositoryUpdate:
                 schedule.id,
                 "test-user",
                 display_name="Restored Name",
-                service_id="dial-oauth",
+                service_id="dial-native",
                 trigger=schedule.trigger,
                 kwargs=schedule.kwargs,
                 updated_at=prior_updated_at,
@@ -219,7 +219,7 @@ class TestScheduleRepositoryUpdate:
                 schedule.id,
                 "other-user",
                 display_name="Hijacked",
-                service_id="dial-oauth",
+                service_id="dial-native",
                 trigger=schedule.trigger,
                 kwargs=schedule.kwargs,
             )

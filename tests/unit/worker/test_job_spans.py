@@ -28,7 +28,7 @@ def mock_run_repo(mocker):
 
 @pytest.fixture(autouse=True)
 def mock_credentials(mocker):
-    schedule = mocker.MagicMock(service_id="dial-oauth", created_by="user-sub-1", is_deleted=False)
+    schedule = mocker.MagicMock(service_id="dial-native", created_by="user-sub-1", is_deleted=False)
     schedule_repo = mocker.MagicMock()
     schedule_repo.get_by_id = mocker.AsyncMock(return_value=schedule)
     mocker.patch("src.worker.jobs.ScheduleRepository", return_value=schedule_repo)
