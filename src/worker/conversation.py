@@ -184,7 +184,7 @@ def build_conversation(
 
 async def create_run_conversation(
     ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties, result: dict[str, Any]
-) -> None:
+) -> str:
     """Create a DIAL conversation for a completed chat completion run.
 
     Resolves the owner's bucket and, for applications, the underlying model reference, builds the
@@ -198,6 +198,9 @@ async def create_run_conversation(
         credentials: The run owner's on-behalf-of credentials.
         properties: The run's schedule properties.
         result: The stored run result.
+
+    Returns:
+        The addressable DIAL conversation id (``conversations/...``) of the created conversation.
     """
     settings = get_settings()
     client = DialClient(HttpClientProvider().client, settings.dial_url, settings.worker_http.timeout_seconds)
@@ -254,3 +257,4 @@ async def create_run_conversation(
     resource_path = conversation.id.removeprefix(CONVERSATION_ID_PREFIX)
     await client.put_conversation(credentials=credentials, path=resource_path, conversation=conversation)
     logger.info("conversation_create_succeeded", run_id=ctx.run_id, schedule_id=ctx.schedule_id)
+    return conversation.id

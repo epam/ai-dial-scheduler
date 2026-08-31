@@ -18,6 +18,7 @@ class RunListItem(BaseModel):
     status: ScheduleRunStatus
     start_time: datetime
     end_time: datetime | None
+    conversation_id: str | None = None
 
 
 class RunScheduleSummary(BaseModel):
@@ -33,3 +34,4 @@ class RunResponse(BaseModel):
     end_time: datetime | None
     result: dict[str, Any] | None
     schedule: RunScheduleSummary
+    conversation_id: str | None = None

@@ -44,6 +44,7 @@ class ScheduleRunService:
                 status=run.status,
                 start_time=run.created_at,
                 end_time=run.end_time,
+                conversation_id=run.conversation_id,
             )
             for run in runs
         ]
@@ -73,4 +74,5 @@ class ScheduleRunService:
                 trigger=schedule.trigger,
                 properties=schedule.kwargs,
             ),
+            conversation_id=run.conversation_id,
         )

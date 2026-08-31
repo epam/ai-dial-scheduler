@@ -12,6 +12,7 @@ from src.lib.schemas.pagination import Page, Paginator
 
 SCHEDULE_ID = "sched-svc-001"
 RUN_ID = str(uuid.uuid4())
+CONV_ID = "conversations/bkt/.scheduler/sched-svc-001/gpt-4o__hello__run-001"
 
 
 def make_schedule(mocker):
@@ -22,7 +23,7 @@ def make_schedule(mocker):
     return schedule
 
 
-def make_run(mocker, run_id: str = RUN_ID, schedule_id: str = SCHEDULE_ID):
+def make_run(mocker, run_id: str = RUN_ID, schedule_id: str = SCHEDULE_ID, conversation_id: str | None = None):
     run = mocker.MagicMock()
     run.id = uuid.UUID(run_id)
     run.status = ScheduleRunStatus.SUCCESS
@@ -30,6 +31,7 @@ def make_run(mocker, run_id: str = RUN_ID, schedule_id: str = SCHEDULE_ID):
     run.end_time = datetime.now(UTC)
     run.result = {"status_code": 200}
     run.schedule_id = schedule_id
+    run.conversation_id = conversation_id
     return run
 
 
@@ -225,3 +227,92 @@ class TestScheduleRunServiceGetRun:
         assert result.end_time is None
         assert result.result is None
         assert result.status == ScheduleRunStatus.IN_PROGRESS
+
+
+class TestScheduleRunServiceConversationIdMapping:
+    """Tests that list_runs and get_run map conversation_id through correctly (cases 16, 17)."""
+
+    async def test_list_runs_maps_set_conversation_id(self, mocker):
+        """Case 16 (set): list_runs maps run.conversation_id into RunListItem."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        run = make_run(mocker, conversation_id=CONV_ID)
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.list_for_schedule.return_value = (1, [run])
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        paginator = Paginator(limit=10, offset=0, base_path=f"/schedules/{SCHEDULE_ID}/runs")
+        result = await service.list_runs(SCHEDULE_ID, "mock_user_id", paginator)
+
+        assert result.results[0].conversation_id == CONV_ID
+
+    async def test_list_runs_maps_none_conversation_id(self, mocker):
+        """Case 16 (null): list_runs maps run.conversation_id=None into RunListItem."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        run = make_run(mocker, conversation_id=None)
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.list_for_schedule.return_value = (1, [run])
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        paginator = Paginator(limit=10, offset=0, base_path=f"/schedules/{SCHEDULE_ID}/runs")
+        result = await service.list_runs(SCHEDULE_ID, "mock_user_id", paginator)
+
+        assert result.results[0].conversation_id is None
+
+    async def test_list_runs_maps_mixed_page(self, mocker):
+        """Case 16: page with both set and null conversation_ids maps correctly."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        run_with = make_run(mocker, conversation_id=CONV_ID)
+        run_without = make_run(mocker, conversation_id=None)
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.list_for_schedule.return_value = (2, [run_with, run_without])
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        paginator = Paginator(limit=10, offset=0, base_path=f"/schedules/{SCHEDULE_ID}/runs")
+        result = await service.list_runs(SCHEDULE_ID, "mock_user_id", paginator)
+
+        assert result.results[0].conversation_id == CONV_ID
+        assert result.results[1].conversation_id is None
+
+    async def test_get_run_maps_set_conversation_id(self, mocker):
+        """Case 17 (set): get_run maps run.conversation_id into RunResponse."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        run = make_run(mocker, conversation_id=CONV_ID)
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.get_for_schedule.return_value = run
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        result = await service.get_run(SCHEDULE_ID, "mock_user_id", RUN_ID)
+
+        assert result.conversation_id == CONV_ID
+
+    async def test_get_run_maps_none_conversation_id(self, mocker):
+        """Case 17 (null): get_run maps run.conversation_id=None into RunResponse."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        run = make_run(mocker, conversation_id=None)
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.get_for_schedule.return_value = run
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        result = await service.get_run(SCHEDULE_ID, "mock_user_id", RUN_ID)
+
+        assert result.conversation_id is None

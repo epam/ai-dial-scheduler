@@ -22,6 +22,10 @@ class ScheduleRun(BaseSQLModel, table=True):  # type: ignore[call-arg]
         end_time: Timestamp when the run finished; NULL while in_progress.
         status: Execution outcome constrained to ScheduleRunStatus values.
         result: Result payload; NULL until the run finishes.
+        conversation_id: Addressable DIAL conversation id (``conversations/...``) for the
+            conversation created for this run; ``NULL`` when no conversation was created
+            (creation disabled, run not successful, in-progress, creation or persistence
+            failed, or the run predates this feature).
         schedule_id: FK to schedules.id; ON DELETE RESTRICT preserves run history.
         schedule_snapshot: Point-in-time copy of schedule definition at run time.
     """
@@ -40,6 +44,11 @@ class ScheduleRun(BaseSQLModel, table=True):  # type: ignore[call-arg]
     result: Optional[dict[str, Any]] = Field(
         default=None,
         sa_type=JSONB(),  # type: ignore[call-overload]
+        sa_column_kwargs={"nullable": True},
+    )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        sa_type=String(),  # type: ignore[call-overload]
         sa_column_kwargs={"nullable": True},
     )
     schedule_id: str = Field(

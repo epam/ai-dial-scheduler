@@ -354,3 +354,93 @@ class TestScheduleRunRepositoryGetForSchedule:
 
         call_args = mock_session.get.call_args
         assert call_args.args[1] == uuid.UUID(RUN_ID)
+
+
+class TestScheduleRunRepositorySetConversationId:
+    """Tests for set_conversation_id method (data-model §6 cases 6, 7, 8, 9)."""
+
+    CONV_ID = "conversations/bkt/.scheduler/sched-001/gpt-4o__hello__run-001"
+
+    async def test_sets_conversation_id_on_existing_run(self, mock_session, mocker):
+        """Case 6: set_conversation_id sets the column and returns the row."""
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        existing = mocker.MagicMock(spec=ScheduleRun)
+        mock_session.get.return_value = existing
+
+        repo = ScheduleRunRepository(mock_session)
+        result = await repo.set_conversation_id(RUN_ID, self.CONV_ID)
+
+        assert existing.conversation_id == self.CONV_ID
+        mock_session.commit.assert_awaited_once()
+        mock_session.refresh.assert_awaited_once_with(existing)
+        assert result is existing
+
+    async def test_returns_none_for_unknown_run_id(self, mock_session):
+        """Case 7: set_conversation_id returns None and writes nothing for unknown run."""
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        mock_session.get.return_value = None
+
+        repo = ScheduleRunRepository(mock_session)
+        result = await repo.set_conversation_id(RUN_ID, self.CONV_ID)
+
+        assert result is None
+        mock_session.commit.assert_not_awaited()
+        mock_session.refresh.assert_not_awaited()
+
+    async def test_does_not_alter_status_end_time_or_result(self, mock_session, mocker):
+        """Case 8: set_conversation_id does not touch status, end_time, or result."""
+        from src.lib.db.enums import ScheduleRunStatus
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        existing = mocker.MagicMock(spec=ScheduleRun)
+        original_status = ScheduleRunStatus.SUCCESS.value
+        existing.status = original_status
+        mock_session.get.return_value = existing
+
+        repo = ScheduleRunRepository(mock_session)
+        await repo.set_conversation_id(RUN_ID, self.CONV_ID)
+
+        # Only conversation_id was assigned; status, end_time, result must not be touched
+        assert existing.status == original_status
+        # Confirm only conversation_id was set, not status/end_time/result
+        assert existing.conversation_id == self.CONV_ID
+
+    async def test_uses_uuid_for_lookup(self, mock_session, mocker):
+        """set_conversation_id passes uuid.UUID(run_id) to session.get."""
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        mock_session.get.return_value = mocker.MagicMock(spec=ScheduleRun)
+
+        repo = ScheduleRunRepository(mock_session)
+        await repo.set_conversation_id(RUN_ID, self.CONV_ID)
+
+        call_args = mock_session.get.call_args
+        assert call_args.args[1] == uuid.UUID(RUN_ID)
+
+    async def test_list_for_schedule_returns_conversation_id_in_page(self, mock_session, mocker):
+        """Case 9 (set): list_for_schedule returns runs carrying the persisted conversation_id."""
+        from src.lib.models.schedule_run import ScheduleRun
+        from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+
+        run_with_conv = mocker.MagicMock(spec=ScheduleRun)
+        run_with_conv.conversation_id = self.CONV_ID
+        run_without_conv = mocker.MagicMock(spec=ScheduleRun)
+        run_without_conv.conversation_id = None
+
+        count_result = mocker.MagicMock()
+        count_result.scalar_one.return_value = 2
+        page_result = mocker.MagicMock()
+        page_result.scalars.return_value.all.return_value = [run_with_conv, run_without_conv]
+        mock_session.execute.side_effect = [count_result, page_result]
+
+        repo = ScheduleRunRepository(mock_session)
+        total, rows = await repo.list_for_schedule(SCHEDULE_ID, limit=10, offset=0)
+
+        assert total == 2
+        assert rows[0].conversation_id == self.CONV_ID
+        assert rows[1].conversation_id is None

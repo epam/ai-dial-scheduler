@@ -436,6 +436,34 @@ class TestCreateRunConversationOrchestration:
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert f"/{BUCKET}/" in written.id
 
+    async def test_returns_conversation_id_after_successful_put(self, mock_dial):
+        """Case 10: create_run_conversation returns conversation.id including the conversations/ prefix."""
+        with structlog.testing.capture_logs():
+            result = await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+
+        # Must return the addressable id, not the bare resource path
+        assert isinstance(result, str)
+        assert result.startswith("conversations/")
+        assert f"/{BUCKET}/" in result
+
+    async def test_returned_id_matches_put_path(self, mock_dial):
+        """The returned id must be the same id used for the PUT (no drift)."""
+        from src.lib.constants import CONVERSATION_ID_PREFIX
+
+        with structlog.testing.capture_logs():
+            returned_id = await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+
+        put_path = mock_dial.put_conversation.call_args.kwargs["path"]
+        # The path is the id without the conversations/ prefix
+        assert returned_id == f"{CONVERSATION_ID_PREFIX}{put_path}"
+
+    async def test_returned_id_contains_run_id(self, mock_dial):
+        """The returned id embeds the run_id so each run gets a unique path."""
+        with structlog.testing.capture_logs():
+            result = await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+
+        assert RUN_ID in result
+
     async def test_model_deployment_skips_get_application(self, mock_dial):
         with structlog.testing.capture_logs():
             await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
