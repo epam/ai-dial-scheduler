@@ -79,7 +79,23 @@ async def _maybe_create_conversation(
     if properties.target_type != TargetType.CHAT_COMPLETION or not properties.create_conversation:
         return
     try:
-        await create_run_conversation(ctx, credentials, properties, result)
+        conversation_id = await create_run_conversation(ctx, credentials, properties, result)
+        async with Database().sessionmaker() as session:
+            row = await ScheduleRunRepository(session).set_conversation_id(ctx.run_id, conversation_id)
+        if row is None:
+            logger.warning(
+                "conversation_id_persist_failed",
+                run_id=ctx.run_id,
+                schedule_id=ctx.schedule_id,
+                reason="run_record_missing",
+            )
+        else:
+            logger.info(
+                "conversation_id_persisted",
+                run_id=ctx.run_id,
+                schedule_id=ctx.schedule_id,
+                conversation_id=conversation_id,
+            )
     except Exception as exc:
         logger.warning(
             "conversation_create_failed",

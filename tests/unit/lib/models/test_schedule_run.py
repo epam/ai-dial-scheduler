@@ -60,3 +60,28 @@ class TestScheduleRunModel:
         assert len(check_constraints) == 1
         # Naming convention: CK_%(table_name)s_%(constraint_name)s → CK_schedule_runs_status
         assert check_constraints[0].name == "CK_schedule_runs_status"
+
+    def test_conversation_id_is_varchar_nullable(self) -> None:
+        col = ScheduleRun.__table__.c.conversation_id
+        assert isinstance(col.type, sa.String)
+        assert col.nullable
+
+    def test_conversation_id_has_no_length_cap(self) -> None:
+        col = ScheduleRun.__table__.c.conversation_id
+        assert col.type.length is None
+
+    def test_conversation_id_has_no_server_default(self) -> None:
+        col = ScheduleRun.__table__.c.conversation_id
+        assert col.server_default is None
+
+    def test_conversation_id_defaults_to_none_on_new_instance(self) -> None:
+        run = ScheduleRun(status="in_progress", schedule_id="s-1", schedule_snapshot={})
+        assert run.conversation_id is None
+
+    def test_conversation_id_has_no_index(self) -> None:
+        index_names = {idx.name for idx in ScheduleRun.__table__.indexes if idx.name}
+        assert not any("conversation_id" in name for name in index_names)
+
+    def test_conversation_id_has_no_foreign_key(self) -> None:
+        col = ScheduleRun.__table__.c.conversation_id
+        assert len(col.foreign_keys) == 0

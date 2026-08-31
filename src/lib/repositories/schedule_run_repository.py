@@ -64,6 +64,28 @@ class ScheduleRunRepository:
         await self._session.commit()
         return row
 
+    async def set_conversation_id(self, run_id: str, conversation_id: str) -> ScheduleRun | None:
+        """Persist the DIAL conversation id on an existing run record.
+
+        Fetches the run by primary key, sets ``conversation_id``, commits, and returns the updated
+        row. Returns ``None`` without writing if the run record does not exist. Does not alter
+        ``status``, ``end_time``, or ``result``.
+
+        Args:
+            run_id: UUID string identifying the run to update.
+            conversation_id: The addressable DIAL conversation id to persist.
+
+        Returns:
+            The updated ``ScheduleRun`` row, or ``None`` if not found.
+        """
+        row = await self._session.get(ScheduleRun, uuid.UUID(run_id))
+        if row is None:
+            return None
+        row.conversation_id = conversation_id
+        await self._session.commit()
+        await self._session.refresh(row)
+        return row
+
     async def count_for_schedule(self, schedule_id: str) -> int:
         """Return the number of run records belonging to a schedule.
 

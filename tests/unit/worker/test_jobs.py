@@ -1187,3 +1187,161 @@ class TestMaybeCreateConversationIsBestEffort:
         await _maybe_create_conversation(self._ctx(), self._creds(), properties, {"result": {}})
 
         create.assert_not_called()
+
+
+class TestMaybeCreateConversationPersistId:
+    """Tests for conversation_id persistence in _maybe_create_conversation (data-model §6 cases 11–15)."""
+
+    CONV_ID = "conversations/bkt/.scheduler/sched-001/gpt-4o__hello__run-001"
+
+    @staticmethod
+    def _properties(create_conversation: bool = True, target_type: TargetType = TargetType.CHAT_COMPLETION):
+        return ScheduleProperties(
+            target_type=target_type,
+            url="https://dial.example.com/openai/",
+            payload={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+            api_version="2024-02-01",
+            create_conversation=create_conversation,
+        )
+
+    @staticmethod
+    def _ctx():
+        return RunContext(run_id="run-persist-001", schedule_id=SCHEDULE_ID)
+
+    @staticmethod
+    def _creds():
+        return OboCredentials(header_name="Api-Key", header_value=SecretStr("owner-token"))
+
+    _SENTINEL = object()
+
+    def _setup_repo(self, mocker, return_value=_SENTINEL):
+        """Patch ScheduleRunRepository and Database so set_conversation_id is controllable.
+
+        Pass ``return_value=None`` to simulate the repository returning ``None`` (run row missing).
+        Omit the argument (or pass ``_SENTINEL``) to get a non-None MagicMock (success case).
+        """
+        mock_repo = mocker.AsyncMock()
+        mock_repo.set_conversation_id = mocker.AsyncMock(
+            return_value=mocker.MagicMock() if return_value is self._SENTINEL else return_value
+        )
+        mocker.patch("src.worker.jobs.ScheduleRunRepository", return_value=mock_repo)
+        session = mocker.MagicMock()
+        session.__aenter__ = mocker.AsyncMock(return_value=session)
+        session.__aexit__ = mocker.AsyncMock(return_value=None)
+        database = mocker.MagicMock()
+        database.sessionmaker.return_value = session
+        mocker.patch("src.worker.jobs.Database", return_value=database)
+        return mock_repo
+
+    async def test_successful_creation_calls_set_conversation_id_once(self, mocker):
+        """Case 11: successful conversation creation → set_conversation_id called once."""
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch("src.worker.jobs.create_run_conversation", return_value=self.CONV_ID)
+        mock_repo = self._setup_repo(mocker)
+
+        with structlog.testing.capture_logs():
+            await _maybe_create_conversation(self._ctx(), self._creds(), self._properties(), {"result": {}})
+
+        mock_repo.set_conversation_id.assert_awaited_once_with("run-persist-001", self.CONV_ID)
+
+    async def test_successful_persist_logs_conversation_id_persisted(self, mocker):
+        """Case 11: successful persist logs conversation_id_persisted at info level."""
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch("src.worker.jobs.create_run_conversation", return_value=self.CONV_ID)
+        self._setup_repo(mocker)
+
+        with structlog.testing.capture_logs() as logs:
+            await _maybe_create_conversation(self._ctx(), self._creds(), self._properties(), {"result": {}})
+
+        persisted = [log for log in logs if log.get("event") == "conversation_id_persisted"]
+        assert len(persisted) == 1
+        assert persisted[0]["run_id"] == "run-persist-001"
+        assert persisted[0]["schedule_id"] == SCHEDULE_ID
+        assert persisted[0]["log_level"] == "info"
+
+    async def test_conversation_creation_error_does_not_call_set_conversation_id(self, mocker):
+        """Case 12: ConversationCreationError → set_conversation_id NOT called."""
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch(
+            "src.worker.jobs.create_run_conversation",
+            side_effect=ConversationCreationError("dial unreachable"),
+        )
+        mock_repo = self._setup_repo(mocker)
+
+        with structlog.testing.capture_logs() as logs:
+            await _maybe_create_conversation(self._ctx(), self._creds(), self._properties(), {"result": {}})
+
+        mock_repo.set_conversation_id.assert_not_awaited()
+        failed = [log for log in logs if log.get("event") == "conversation_create_failed"]
+        assert len(failed) == 1
+
+    async def test_db_error_in_set_conversation_id_is_swallowed(self, mocker):
+        """Case 13: set_conversation_id raising DB error → swallowed, logged as warning."""
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch("src.worker.jobs.create_run_conversation", return_value=self.CONV_ID)
+        mock_repo = self._setup_repo(mocker)
+        mock_repo.set_conversation_id.side_effect = RuntimeError("DB gone")
+
+        with structlog.testing.capture_logs() as logs:
+            # Must not raise — best-effort
+            await _maybe_create_conversation(self._ctx(), self._creds(), self._properties(), {"result": {}})
+
+        # The DB error is caught by the existing except; logged as conversation_create_failed
+        failed = [log for log in logs if log.get("event") == "conversation_create_failed"]
+        assert len(failed) == 1
+        assert failed[0]["log_level"] == "warning"
+
+    async def test_set_conversation_id_returning_none_logs_persist_failed(self, mocker):
+        """Case 14: set_conversation_id returning None → conversation_id_persist_failed logged."""
+        from src.worker.jobs import _maybe_create_conversation
+
+        mocker.patch("src.worker.jobs.create_run_conversation", return_value=self.CONV_ID)
+        self._setup_repo(mocker, return_value=None)
+
+        with structlog.testing.capture_logs() as logs:
+            await _maybe_create_conversation(self._ctx(), self._creds(), self._properties(), {"result": {}})
+
+        failed = [log for log in logs if log.get("event") == "conversation_id_persist_failed"]
+        assert len(failed) == 1
+        assert failed[0]["run_id"] == "run-persist-001"
+        assert failed[0]["schedule_id"] == SCHEDULE_ID
+        assert failed[0]["log_level"] == "warning"
+
+    async def test_create_conversation_false_skips_set_conversation_id(self, mocker):
+        """Case 15: create_conversation=False → set_conversation_id not called."""
+        from src.worker.jobs import _maybe_create_conversation
+
+        create = mocker.patch("src.worker.jobs.create_run_conversation")
+        mock_repo = self._setup_repo(mocker)
+        properties = self._properties(create_conversation=False)
+
+        with structlog.testing.capture_logs():
+            await _maybe_create_conversation(self._ctx(), self._creds(), properties, {"result": {}})
+
+        create.assert_not_called()
+        mock_repo.set_conversation_id.assert_not_awaited()
+
+    async def test_non_chat_completion_skips_set_conversation_id(self, mocker):
+        """Case 15: non-chat-completion target_type → set_conversation_id not called."""
+        from src.lib.db.enums import HttpMethod
+        from src.worker.jobs import _maybe_create_conversation
+
+        create = mocker.patch("src.worker.jobs.create_run_conversation")
+        mock_repo = self._setup_repo(mocker)
+        properties = ScheduleProperties(
+            target_type=TargetType.REST,
+            method=HttpMethod.POST,
+            url="https://example.com",
+            payload={},
+            extra_headers={},
+        )
+
+        with structlog.testing.capture_logs():
+            await _maybe_create_conversation(self._ctx(), self._creds(), properties, {"result": {}})
+
+        create.assert_not_called()
+        mock_repo.set_conversation_id.assert_not_awaited()
