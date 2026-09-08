@@ -69,6 +69,12 @@ For `target_type: chat_completion`, send `properties.create_conversation: true` 
 asked for runs not to be saved — each successful run is then stored as a DIAL conversation titled
 after `display_name` and readable in DIAL Chat. See [properties.md](./properties.md).
 
+Creating a schedule for a `service_id` the caller is not currently signed in to is rejected with
+**403** before any row is written — see [Sign-In Status](#sign-in-status) below. This is a
+separate, earlier check than the run-time OBO failure described above: a **403** here means the
+caller must sign in before retrying; a run-time credentials-stage error later means the run itself
+was attempted and failed.
+
 ## Update Schedule
 PUT /schedules/{schedule_id}
 
@@ -124,6 +130,10 @@ Response
 
 `is_deleted` is read-only. If it is present in the request body it is **ignored** (not rejected),
 and PUT never changes it. A soft-deleted schedule cannot be updated at all — PUT returns 409.
+
+The sign-in precondition described under [Insert Schedule](#insert-schedule) applies here too: if
+the caller is not signed in to the (possibly changed) `service_id`, the update is rejected with
+**403** and the existing schedule is left unchanged.
 
 ## List Schedules
 GET /schedules/
@@ -265,3 +275,33 @@ For a failed run, `result` distinguishes *why* it failed via a `stage` key:
 - `{"error_text": "..."}` (no `stage` key) — the target request itself failed after credentials
   were successfully obtained; this is the pre-existing shape and follows the schedule's retry
   policy.
+
+## Sign-In Status
+
+GET /sign-in/status?service_id=dial-native
+
+```json
+{
+  "service_id": "dial-native",
+  "signed_in": false,
+  "state": "signed_in|not_signed_in|unknown",
+  "detail": "human-readable reason, safe to relay verbatim"
+}
+```
+
+Read-only: it changes no sign-in state and no scheduler state. `service_id` is **required**;
+this is the same check the create/update precondition above runs.
+
+`state` is the field to branch on. `signed_in` is a convenience boolean derived from
+`state == "signed_in"` — do not use it to distinguish `not_signed_in` from `unknown`. `unknown`
+means DIAL could not be reached to determine the answer; it is never reported as `not_signed_in`,
+since telling a user to sign in again would not fix an outage.
+
+Since DIAL exposes no dedicated sign-in status endpoint, the answer is determined by attempting
+the same on-behalf-of (OBO) credentials lookup the worker performs at run time (see [Insert
+Schedule](#insert-schedule) and the credentials-stage run error above): a `403` client error from
+DIAL means the user must sign in; a server error or transport failure is the `unknown` case.
+
+This endpoint is exposed over MCP as the `get_sign_in_status` tool, so an assistant can
+front-load the sign-in check before collecting every schedule field rather than discovering the
+problem only after a create/update is rejected.

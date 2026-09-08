@@ -17,6 +17,16 @@ MCP_BACKING_BASE_URL = "http://scheduler.internal"
 OBO_CREDENTIALS_PATH = "/v1/ops/external-service/obo-credentials"
 EXTERNAL_SERVICE_URL_TEMPLATE = "applications/{app_id}/external_services/{service_id}"
 
+# Application details endpoint, whose response carries per-service
+# user_level_auth_status/app_level_auth_status for the calling identity.
+APPLICATION_STATUS_PATH_TEMPLATE = "/v1/applications/{app_id}"
+
+# Client-channel interactive sign-in: lets a not-signed-in check push a popup into the
+# chat session that made the MCP call, via the channel id it forwarded on the request.
+CLIENT_CHANNEL_HEADER = "X-DIAL-CLIENT-CHANNEL-ID"
+CLIENT_CHANNEL_INTERACT_PATH = "/v1/ops/client-channel/interact"
+EXTERNAL_SERVICE_SIGNIN_METHOD = "external-service/signin"
+
 # DIAL storage/deployment endpoints used to create a conversation after a run completes.
 BUCKET_PATH = "/v1/bucket"
 APPLICATION_DETAILS_PATH_TEMPLATE = "/v1/{application_id}"

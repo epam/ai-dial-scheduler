@@ -8,7 +8,7 @@ Requires TEST_DB_URL to be set; all tests are skipped otherwise.
 
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 import uuid
 
 from fastapi import FastAPI
@@ -21,8 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.db import get_db_session
 from src.api.dependencies.scheduler import get_scheduler
+from src.api.dependencies.sign_in import get_sign_in_service
 from src.api.v1.endpoints.schedules import router as schedules_router
 from src.lib.models.schedule import Schedule
+from tests.integration.conftest import make_signed_in_service
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -50,6 +52,7 @@ def test_app(engine: AsyncEngine) -> FastAPI:
 
     app.dependency_overrides[get_db_session] = override_db
     app.dependency_overrides[get_user_id] = override_user_id
+    app.dependency_overrides[get_sign_in_service] = make_signed_in_service
     return app
 
 
@@ -64,6 +67,7 @@ async def client(test_app: FastAPI, mock_scheduler: MagicMock) -> AsyncGenerator
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=test_app),
         base_url="http://test",
+        headers={"Api-Key": "test-key"},
     ) as c:
         yield c
 
@@ -208,6 +212,32 @@ class TestCreateSchedule:
         assert len(remaining) == 0
 
 
+class TestCreateScheduleSignInPrecondition:
+    async def test_create_blocked_when_not_signed_in(
+        self, client: httpx.AsyncClient, test_app: FastAPI, engine: AsyncEngine
+    ) -> None:
+        from src.lib.exceptions.errors import SignInRequiredError
+        from src.lib.schemas.sign_in import SignInStatus
+
+        blocked_service = AsyncMock()
+        blocked_service.require.side_effect = SignInRequiredError(
+            SignInStatus(service_id="dial-native", state="not_signed_in", detail="Please sign in.")
+        )
+
+        test_app.dependency_overrides[get_sign_in_service] = lambda: blocked_service
+        try:
+            response = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        finally:
+            test_app.dependency_overrides[get_sign_in_service] = make_signed_in_service
+
+        assert response.status_code == 403
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            schedules_table = Schedule.__table__  # type: ignore[attr-defined]
+            result = await session.execute(sa.select(Schedule).where(schedules_table.c.created_by == "mock_user_id"))
+            remaining = result.scalars().all()
+        assert len(remaining) == 0
+
+
 class TestCreateResponsesSchedule:
     async def test_create_responses_returns_201_and_echoes_target_type(self, client: httpx.AsyncClient) -> None:
         response = await client.post("/v1/schedules/", json=RESPONSES_REQUEST)
@@ -291,6 +321,34 @@ class TestUpdateSchedule:
 
         assert response.status_code == 502
         # row must be restored to original values
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            row = await session.get(Schedule, schedule_id)
+        assert row is not None
+        assert row.display_name == original_name
+
+    async def test_update_blocked_when_not_signed_in_leaves_row_unchanged(
+        self, client: httpx.AsyncClient, test_app: FastAPI, engine: AsyncEngine
+    ) -> None:
+        from src.lib.exceptions.errors import SignInRequiredError
+        from src.lib.schemas.sign_in import SignInStatus
+
+        create_resp = await client.post("/v1/schedules/", json=CRON_REQUEST)
+        schedule_id = create_resp.json()["id"]
+        original_name = create_resp.json()["display_name"]
+
+        blocked_service = AsyncMock()
+        blocked_service.require.side_effect = SignInRequiredError(
+            SignInStatus(service_id="dial-native", state="not_signed_in", detail="Please sign in.")
+        )
+        test_app.dependency_overrides[get_sign_in_service] = lambda: blocked_service
+        try:
+            response = await client.put(
+                f"/v1/schedules/{schedule_id}", json={**CRON_REQUEST, "display_name": "Should Not Persist"}
+            )
+        finally:
+            test_app.dependency_overrides[get_sign_in_service] = make_signed_in_service
+
+        assert response.status_code == 403
         async with AsyncSession(engine, expire_on_commit=False) as session:
             row = await session.get(Schedule, schedule_id)
         assert row is not None

@@ -194,6 +194,43 @@ not only users who opted into this app.
   migration `add_service_id_to_schedules`, then moved to `dial-native` by
   `set_service_id_to_dial_native`.
 
+### Sign-in as a precondition
+
+Both decisions above must already be in place at the moment a schedule is created or updated:
+
+```
+GET /v1/sign-in/status?service_id=dial-native
+```
+
+This reports which of the three states applies (`signed_in`, `not_signed_in`, or `unknown` when DIAL
+itself could not be reached to tell), using the caller's own identity and the same OBO lookup
+described above. `POST /v1/schedules/` and `PUT /v1/schedules/{id}` run this check before writing
+anything: a schedule is never created or modified while the target `service_id` reports anything
+but `signed_in` — the request is rejected with `403` (`not_signed_in`) or `502` (`unknown`),
+carrying `service_id`/`state`/`detail` fields so the assistant relaying the failure can name the
+service and the required action rather than a generic "creation failed."
+
+A `502` means sign-in state could not be determined — DIAL is unreachable, or something is
+misconfigured; signing in would not help. No credential ever appears in the response or in a log
+line — only the boolean/enum outcome and DIAL's own error text.
+
+This check is a *pre-flight* gate, distinct from the run-time OBO fetch: a `403` here means the
+schedule was never created, while a credentials-stage run error means the schedule exists and was
+attempted, but the worker could not obtain per-run credentials at that later point in time (e.g.
+the owner's offline access was revoked after the schedule was created). Being logged into the
+DIAL Chat UI is not the same as this check's `signed_in` — that requires the owner decision above
+(enabling offline access), not just an active session — so the message names the service being
+checked rather than a bare "sign in," which would look already-done to a user who is logged in.
+
+DIAL tracks a sign-in status internally but only exposes it through an administrative endpoint an
+individual scheduler request cannot call on the caller's own behalf — so this check reuses the
+same OBO probe the worker already performs at run time, rather than a dedicated status lookup.
+
+The endpoint is exposed over MCP as the `get_sign_in_status` tool, so an assistant can front-load
+the sign-in step instead of discovering the problem after collecting every schedule field. Signing
+in itself is a DIAL Chat UI flow outside this service's scope: the scheduler only checks the
+requirement and never mints sign-in URLs or stores credentials.
+
 ### Connecting credentials locally (`scripts/dial_sign_in.py`)
 
 To exercise a schedule end-to-end with real OBO credentials, both decisions must be recorded.
