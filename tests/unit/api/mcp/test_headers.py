@@ -5,7 +5,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 
-from src.lib.constants import API_KEY_HEADER
+from src.lib.constants import API_KEY_HEADER, CLIENT_CHANNEL_HEADER
 
 
 def _make_request(extra_headers: dict[str, str] | None = None) -> httpx.Request:
@@ -76,3 +76,26 @@ class TestForwardApiKey:
 
         for record in caplog.records:
             assert secret_value not in record.getMessage()
+
+
+class TestForwardClientChannelId:
+    async def test_injects_channel_id_when_present(self) -> None:
+        from src.api.mcp.headers import forward_client_channel_id
+
+        request = _make_request()
+        incoming = {CLIENT_CHANNEL_HEADER.lower(): "chan-1"}
+
+        with patch("src.api.mcp.headers.get_http_headers", return_value=incoming):
+            await forward_client_channel_id(request)
+
+        assert request.headers[CLIENT_CHANNEL_HEADER] == "chan-1"
+
+    async def test_no_injection_when_absent(self) -> None:
+        from src.api.mcp.headers import forward_client_channel_id
+
+        request = _make_request()
+
+        with patch("src.api.mcp.headers.get_http_headers", return_value={}):
+            await forward_client_channel_id(request)
+
+        assert CLIENT_CHANNEL_HEADER not in request.headers

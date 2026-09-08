@@ -127,6 +127,7 @@ class Settings(BaseSettings):
     worker_health_dir: str = "/tmp"
     worker_liveness_staleness_seconds: float = 180.0
     worker_readiness_check_interval_seconds: float = 15.0
+    client_channel_signin_timeout_seconds: float = 120.0
 
     db: DatabaseSettings = Field(default_factory=DatabaseSettings)
     api_http: ApiHttpSettings = Field(default_factory=ApiHttpSettings)

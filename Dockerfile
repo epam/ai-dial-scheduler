@@ -9,6 +9,10 @@ ENV HOME=/home/app
 
 WORKDIR $APP_HOME
 
+# Pick up patched Alpine packages (e.g. libuuid/util-linux CVEs) already available in the
+# pinned Alpine release's own repos, independent of when the base image was last rebuilt.
+RUN apk upgrade --no-cache
+
 # postgresql-dev stays outside the virtual group: asyncpg links against libpq at runtime.
 # Build-only tools (compiler, headers) are removed after uv sync to keep the image slim.
 RUN apk add --no-cache postgresql-dev \

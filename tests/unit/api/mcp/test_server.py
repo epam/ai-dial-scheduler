@@ -6,6 +6,7 @@ import fastapi
 
 from src.api.v1.endpoints.runs import router as runs_router
 from src.api.v1.endpoints.schedules import router as schedules_router
+from src.api.v1.endpoints.sign_in import router as sign_in_router
 
 
 EXPECTED_TOOL_NAMES = {
@@ -18,6 +19,7 @@ EXPECTED_TOOL_NAMES = {
     "delete_schedule_v1_schedules",
     "list_runs_v1_schedules",
     "get_run_v1_schedules",
+    "get_sign_in_status",
 }
 
 EXCLUDED_NAME_FRAGMENTS = {"health", "echo"}
@@ -27,6 +29,7 @@ def _build_minimal_app(echo_enabled: bool = False) -> fastapi.FastAPI:
     app = fastapi.FastAPI()
     app.include_router(schedules_router, prefix="/v1")
     app.include_router(runs_router, prefix="/v1")
+    app.include_router(sign_in_router, prefix="/v1")
     if echo_enabled:
         from src.api.v1.endpoints.echo import router as echo_router
 
@@ -47,7 +50,7 @@ def _mock_settings() -> MagicMock:
 
 
 class TestBuildMcpServerInventory:
-    async def test_produces_exactly_nine_tools(self) -> None:
+    async def test_produces_exactly_ten_tools(self) -> None:
         from fastmcp import Client
 
         from src.api.mcp.server import build_mcp_server
@@ -58,7 +61,7 @@ class TestBuildMcpServerInventory:
         async with Client(mcp_server) as client:
             tools = await client.list_tools()
 
-        assert len(tools) == 9
+        assert len(tools) == 10
 
     async def test_tool_names_match_contract(self) -> None:
         from fastmcp import Client

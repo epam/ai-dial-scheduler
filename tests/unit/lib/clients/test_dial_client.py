@@ -1,5 +1,6 @@
 """Unit tests for DialClient — success path (US1) and error mapping (US2)."""
 
+import json
 from unittest.mock import AsyncMock
 
 import httpx
@@ -10,6 +11,7 @@ from src.lib.clients.dial_client import DialClient
 from src.lib.exceptions.errors import ConversationCreationError, DialServiceError, OboCredentialsError
 from src.lib.schemas.conversation import DialConversation, DialMessage, DialModel
 from src.lib.schemas.credentials import OboCredentials, OboCredentialsRequest
+from src.lib.schemas.sign_in import ExternalServiceAuthStatus
 
 
 _DUMMY_REQUEST = httpx.Request("GET", "https://dial.example.com/v1/user/info")
@@ -147,6 +149,86 @@ _OBO_REQUEST = OboCredentialsRequest(
     url="applications/dial_scheduler/external_services/dial-native",
     owner_user_id="user-sub-123",
 )
+
+
+class TestGetExternalServiceAuthStatus:
+    async def test_returns_parsed_auth_status(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = make_response(
+            200,
+            {
+                "external_services": {
+                    "dial-native": {
+                        "auth_settings": {"user_level_auth_status": "SIGNED_IN", "app_level_auth_status": "SIGNED_IN"}
+                    }
+                }
+            },
+        )
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        status = await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
+
+        assert status == ExternalServiceAuthStatus(
+            user_level_auth_status="SIGNED_IN", app_level_auth_status="SIGNED_IN"
+        )
+
+    async def test_calls_correct_url_and_headers(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = make_response(
+            200,
+            {
+                "external_services": {
+                    "dial-native": {
+                        "auth_settings": {
+                            "user_level_auth_status": "SIGNED_OUT",
+                            "app_level_auth_status": "SIGNED_IN",
+                        }
+                    }
+                }
+            },
+        )
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
+
+        call = mock_http_client.get.call_args
+        assert call.args[0] == "https://dial.example.com/v1/applications/public/dial_scheduler"
+        assert call.kwargs["headers"]["Api-Key"] == "caller-key"
+
+    async def test_service_not_declared_raises_dial_service_error(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = make_response(200, {"external_services": {}})
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        with pytest.raises(DialServiceError):
+            await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
+
+    async def test_malformed_auth_settings_raises_dial_service_error(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.get.return_value = make_response(
+            200, {"external_services": {"dial-native": {"auth_settings": {"user_level_auth_status": "BOGUS"}}}}
+        )
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        with pytest.raises(DialServiceError):
+            await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
+
+    async def test_non_2xx_raises_dial_service_error(self):
+        mock_http_client = AsyncMock()
+        request = httpx.Request("GET", "https://dial.example.com/v1/applications/x")
+        mock_http_client.get.return_value = httpx.Response(404, request=request)
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        with pytest.raises(DialServiceError):
+            await client.get_external_service_auth_status("caller-key", "x", "dial-native")
+
+    async def test_transport_error_raises_dial_service_error(self):
+        mock_http_client = AsyncMock()
+        mock_http_client.get.side_effect = httpx.TransportError("connection refused")
+
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        with pytest.raises(DialServiceError):
+            await client.get_external_service_auth_status("caller-key", "x", "dial-native")
 
 
 class TestGetOboCredentialsSuccess:
@@ -405,3 +487,45 @@ class TestPutConversation:
         client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
         with pytest.raises(ConversationCreationError):
             await client.put_conversation(_CREDS, "bkt-1/.scheduler/sched-1/run-1", _make_conversation())
+
+
+def _sse_response(events: list[dict]) -> httpx.Response:
+    body = f"data: {json.dumps(events)}\n\n".encode()
+    return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+
+class TestRequestExternalServiceSignin:
+    async def test_success_result_returns_true(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Api-Key"] == "scheduler-key"
+            assert request.headers["X-DIAL-CLIENT-CHANNEL-ID"] == "chan-1"
+            return _sse_response([{"jsonrpc": "2.0", "result": "success", "id": "1"}])
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = DialClient(http_client, "https://dial.example.com", timeout=5.0)
+            result = await client.request_external_service_signin(
+                "scheduler-key", "chan-1", "applications/x/external_services/y", timeout=5.0
+            )
+        assert result is True
+
+    async def test_denied_result_returns_false(self):
+        def handler(_: httpx.Request) -> httpx.Response:
+            return _sse_response([{"jsonrpc": "2.0", "result": "denied", "id": "1"}])
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = DialClient(http_client, "https://dial.example.com", timeout=5.0)
+            result = await client.request_external_service_signin(
+                "scheduler-key", "chan-1", "applications/x/external_services/y", timeout=5.0
+            )
+        assert result is False
+
+    async def test_transport_error_returns_false(self):
+        def handler(_: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("refused")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            client = DialClient(http_client, "https://dial.example.com", timeout=5.0)
+            result = await client.request_external_service_signin(
+                "scheduler-key", "chan-1", "applications/x/external_services/y", timeout=5.0
+            )
+        assert result is False

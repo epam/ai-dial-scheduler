@@ -1,4 +1,5 @@
 import os
+from unittest.mock import AsyncMock
 
 import pytest
 import pytest_asyncio
@@ -7,6 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from src.lib.models.apscheduler_job import apscheduler_jobs
 from src.lib.models.base import BaseSQLModel
+from src.lib.services.sign_in_service import SignInService
+
+
+def make_signed_in_service() -> SignInService:
+    """A SignInService double reporting every caller as signed in.
+
+    Used as the default `get_sign_in_service` override in DB-backed integration suites that
+    predate the sign-in precondition on schedule create/update, so they stay unaffected by it.
+    """
+    service = AsyncMock(spec=SignInService)
+    service.require.return_value = None
+    return service
 
 
 _TEST_DB_URL = os.environ.get("TEST_DB_URL")

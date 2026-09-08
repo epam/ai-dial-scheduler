@@ -1,3 +1,10 @@
+from typing import TYPE_CHECKING, Literal, cast
+
+
+if TYPE_CHECKING:
+    from src.lib.schemas.sign_in import SignInStatus
+
+
 class SchedulerError(Exception):
     """Base for all scheduler domain exceptions."""
 
@@ -78,3 +85,32 @@ class OboCredentialsError(SchedulerError):
         super().__init__(message)
         self.status_code = status_code
         self.response_body = response_body
+
+
+class SignInRequiredError(SchedulerError):
+    """Raised when a user is not signed in (or sign-in status is undetermined) for a service.
+
+    Wraps a :class:`~src.lib.schemas.sign_in.SignInStatus` whose ``state`` is never
+    ``"signed_in"``, so the raising site (e.g. a schedule create/update precondition) can build
+    a structured HTTP error body without parsing the exception message text.
+    """
+
+    def __init__(self, status: "SignInStatus") -> None:
+        if status.state == "signed_in":
+            raise ValueError("SignInRequiredError requires a status whose state is not 'signed_in'")
+        super().__init__(status.detail)
+        self.status = status
+
+    @property
+    def service_id(self) -> str:
+        return self.status.service_id
+
+    @property
+    def state(self) -> Literal["not_signed_in", "unknown"]:
+        # __init__ rejects a "signed_in" status above, so this narrowing reflects an invariant
+        # enforced at construction time rather than an unchecked assumption.
+        return cast(Literal["not_signed_in", "unknown"], self.status.state)
+
+    @property
+    def detail(self) -> str:
+        return self.status.detail

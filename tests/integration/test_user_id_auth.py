@@ -23,10 +23,12 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from src.api.dependencies.auth import get_dial_client, get_settings_dep
 from src.api.dependencies.db import get_db_session
 from src.api.dependencies.scheduler import get_scheduler
+from src.api.dependencies.sign_in import get_sign_in_service
 from src.api.v1.endpoints.schedules import router as schedules_router
 from src.lib.exceptions.errors import DialServiceError
 from src.lib.models.schedule import Schedule
 from src.lib.settings import Settings
+from tests.integration.conftest import make_signed_in_service
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -68,6 +70,10 @@ def test_app(engine: AsyncEngine) -> FastAPI:
 
     app.dependency_overrides[get_db_session] = override_db
     app.dependency_overrides[get_settings_dep] = make_mock_settings
+    # These tests are about identity resolution, not the external-service sign-in precondition;
+    # bypass it here so per-test get_dial_client overrides (used for identity mocking) don't
+    # also have to satisfy the OBO-credentials probe.
+    app.dependency_overrides[get_sign_in_service] = make_signed_in_service
     return app
 
 

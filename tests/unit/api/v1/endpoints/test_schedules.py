@@ -10,10 +10,12 @@ from src.lib.exceptions.errors import (
     JobRemovalError,
     ScheduleAlreadyDeletedError,
     ScheduleNotFoundError,
+    SignInRequiredError,
 )
 from src.lib.schemas.ordering import ScheduleOrdering
 from src.lib.schemas.pagination import Page, Paginator
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleResponse
+from src.lib.schemas.sign_in import SignInStatus
 
 
 TEST_USER_ID = "alice@example.com"
@@ -63,11 +65,20 @@ def mock_service():
 
 
 @pytest.fixture
-def client(mock_service):
+def mock_sign_in_service():
+    """Defaults to reporting the caller as signed in, so existing tests are unaffected."""
+    service = AsyncMock()
+    service.require.return_value = None
+    return service
+
+
+@pytest.fixture
+def client(mock_service, mock_sign_in_service):
     app = create_api()
 
     from src.api.dependencies.auth import get_user_id
     from src.api.dependencies.scheduler import get_schedule_service
+    from src.api.dependencies.sign_in import get_sign_in_service
 
     async def override_service():
         yield mock_service
@@ -77,7 +88,23 @@ def client(mock_service):
 
     app.dependency_overrides[get_schedule_service] = override_service
     app.dependency_overrides[get_user_id] = override_user_id
-    return TestClient(app)
+    app.dependency_overrides[get_sign_in_service] = lambda: mock_sign_in_service
+    return TestClient(app, headers={"Api-Key": "test-key"})
+
+
+def make_sign_in_required(service_id: str = "dial-native", state: str = "not_signed_in") -> SignInRequiredError:
+    return SignInRequiredError(
+        SignInStatus(
+            service_id=service_id,
+            state=state,
+            detail=(
+                f"You are not signed in to {service_id}. Open the DIAL Scheduler application in "
+                "DIAL Chat and sign in to it, then retry this request."
+                if state == "not_signed_in"
+                else f"Could not determine sign-in status for {service_id}: DIAL is unreachable."
+            ),
+        )
+    )
 
 
 class TestPostSchedule:
@@ -133,6 +160,53 @@ class TestPostSchedule:
         assert response.status_code == 502
 
 
+class TestPostScheduleSignIn:
+    """FR-001/003/004/008 — sign-in is a precondition of creating a schedule."""
+
+    def test_create_without_sign_in_returns_403(self, client, mock_service, mock_sign_in_service):
+        mock_sign_in_service.require.side_effect = make_sign_in_required()
+
+        response = client.post("/v1/schedules/", json=VALID_REQUEST)
+
+        assert response.status_code == 403
+        mock_service.create.assert_not_awaited()
+
+    def test_403_detail_names_the_service_and_the_required_action(self, client, mock_sign_in_service):
+        mock_sign_in_service.require.side_effect = make_sign_in_required()
+
+        response = client.post("/v1/schedules/", json=VALID_REQUEST)
+
+        detail = response.json()
+        assert detail["service_id"] == "dial-native"
+        assert detail["state"] == "not_signed_in"
+        assert "sign in" in detail["detail"].lower()
+
+    def test_create_checks_body_service_id(self, client, mock_sign_in_service, mock_service):
+        mock_service.create.return_value = make_response(service_id="dial-api-key")
+
+        client.post("/v1/schedules/", json={**VALID_REQUEST, "service_id": "dial-api-key"})
+
+        mock_sign_in_service.require.assert_awaited_once_with(TEST_USER_ID, "dial-api-key", "test-key", None)
+
+    def test_dial_unavailable_returns_502(self, client, mock_service, mock_sign_in_service):
+        """An outage must not be reported as a missing sign-in."""
+        mock_sign_in_service.require.side_effect = make_sign_in_required(state="unknown")
+
+        response = client.post("/v1/schedules/", json=VALID_REQUEST)
+
+        assert response.status_code == 502
+        assert response.json()["state"] == "unknown"
+        mock_service.create.assert_not_awaited()
+
+    def test_invalid_body_is_rejected_before_the_sign_in_check(self, client, mock_sign_in_service):
+        bad_request = {k: v for k, v in VALID_REQUEST.items() if k != "service_id"}
+
+        response = client.post("/v1/schedules/", json=bad_request)
+
+        assert response.status_code == 422
+        mock_sign_in_service.require.assert_not_awaited()
+
+
 class TestPutSchedule:
     def test_update_returns_200(self, client, mock_service):
         mock_service.update.return_value = make_response()
@@ -171,6 +245,33 @@ class TestPutSchedule:
         mock_service.update.side_effect = JobRegistrationError("scheduler error")
         response = client.put("/v1/schedules/test-uuid", json=VALID_REQUEST)
         assert response.status_code == 502
+
+
+class TestPutScheduleSignIn:
+    """FR-001/003/004/008 — sign-in is a precondition of updating a schedule."""
+
+    def test_update_without_sign_in_returns_403(self, client, mock_service, mock_sign_in_service):
+        mock_sign_in_service.require.side_effect = make_sign_in_required()
+
+        response = client.put("/v1/schedules/test-uuid", json=VALID_REQUEST)
+
+        assert response.status_code == 403
+        mock_service.update.assert_not_awaited()
+
+    def test_update_checks_body_service_id(self, client, mock_service, mock_sign_in_service):
+        mock_service.update.return_value = make_response(service_id="dial-api-key")
+
+        client.put("/v1/schedules/test-uuid", json={**VALID_REQUEST, "service_id": "dial-api-key"})
+
+        mock_sign_in_service.require.assert_awaited_once_with(TEST_USER_ID, "dial-api-key", "test-key", None)
+
+    def test_dial_unavailable_returns_502(self, client, mock_service, mock_sign_in_service):
+        mock_sign_in_service.require.side_effect = make_sign_in_required(state="unknown")
+
+        response = client.put("/v1/schedules/test-uuid", json=VALID_REQUEST)
+
+        assert response.status_code == 502
+        mock_service.update.assert_not_awaited()
 
 
 def empty_page() -> Page[ScheduleListItem]:

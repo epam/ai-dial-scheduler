@@ -1,7 +1,7 @@
 import json
 from typing import Annotated
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
 
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.metadata_filter import parse_metadata_filter
@@ -9,24 +9,54 @@ from src.api.dependencies.name_filter import parse_name_filter
 from src.api.dependencies.ordering import ScheduleOrderingParams
 from src.api.dependencies.pagination import Pagination
 from src.api.dependencies.scheduler import get_schedule_service
+from src.api.dependencies.sign_in import get_sign_in_service
+from src.lib.constants import API_KEY_HEADER, CLIENT_CHANNEL_HEADER
 from src.lib.exceptions.errors import (
     JobRegistrationError,
     JobRemovalError,
     ScheduleAlreadyDeletedError,
     ScheduleNotFoundError,
+    SignInRequiredError,
 )
 from src.lib.schemas.pagination import Page
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleRequest, ScheduleResponse
 from src.lib.services.schedule_service import ScheduleService
+from src.lib.services.sign_in_service import SignInService
 
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 ScheduleServiceDep = Annotated[ScheduleService, Depends(get_schedule_service)]
+SignInServiceDep = Annotated[SignInService, Depends(get_sign_in_service)]
+ChannelIdDep = Annotated[str | None, Header(alias=CLIENT_CHANNEL_HEADER)]
+ApiKeyDep = Annotated[str, Header(alias=API_KEY_HEADER)]
 PaginationDep = Annotated[Pagination, Depends()]
 MetadataFilterDep = Annotated[dict[str, str], Depends(parse_metadata_filter)]
 NameFilterDep = Annotated[str | None, Depends(parse_name_filter)]
 ScheduleOrderingDep = Annotated[ScheduleOrderingParams, Depends()]
+
+
+async def _require_sign_in(
+    sign_in_service: SignInService,
+    user_id: str,
+    service_id: str,
+    channel_id: str | None,
+    api_key: str,
+) -> None:
+    """Enforce the sign-in precondition on create/update, translating the failure states.
+
+    ``not_signed_in`` and ``unknown`` are deliberately different HTTP statuses (FR-004/FR-008):
+    a 403 is something the user can act on, a 502 is an outage and says nothing about their
+    sign-in state.
+    """
+    try:
+        await sign_in_service.require(user_id, service_id, api_key, channel_id)
+    except SignInRequiredError as exc:
+        status_code = 403 if exc.state == "not_signed_in" else 502
+        # Reuses SignInStatus's own field set (service_id/state/detail/signed_in) so this
+        # rejection body is structurally identical to GET /v1/sign-in/status's response (FR-007).
+        raise HTTPException(status_code=status_code, detail=exc.status.model_dump()) from exc
+
 
 _SCHEDULE_EXAMPLES = {
     "chat_completion": {
@@ -96,7 +126,10 @@ ScheduleRequestBody = Annotated[ScheduleRequest, Body(openapi_examples=_SCHEDULE
 async def create_schedule(
     request: ScheduleRequestBody,
     service: ScheduleServiceDep,
+    sign_in_service: SignInServiceDep,
     user_id: Annotated[str, Depends(get_user_id)],
+    api_key: ApiKeyDep,
+    channel_id: ChannelIdDep = None,
 ) -> ScheduleResponse:
     """Create a new schedule and register it with the job scheduler.
 
@@ -112,8 +145,11 @@ async def create_schedule(
 
     `service_id` identifies the external service whose on-behalf-of credentials are used
     to authenticate each run. Use `service_id: "dial-native"` unless a different external
-    service is required.
+    service is required. Creating a schedule for a service the caller is not signed in to is
+    rejected with `403` and nothing is created. Use `GET /v1/sign-in/status` to check first;
+    on a `403`, relay the returned message to the user — only they can complete the sign-in.
     """
+    await _require_sign_in(sign_in_service, user_id, request.service_id, channel_id, api_key)
     try:
         return await service.create(request, user_id)
     except JobRegistrationError as exc:
@@ -128,13 +164,18 @@ async def update_schedule(
     schedule_id: str,
     request: ScheduleRequestBody,
     service: ScheduleServiceDep,
+    sign_in_service: SignInServiceDep,
     user_id: Annotated[str, Depends(get_user_id)],
+    api_key: ApiKeyDep,
+    channel_id: ChannelIdDep = None,
 ) -> ScheduleResponse:
     """Replace all fields of an existing schedule and re-register it with the job scheduler.
 
     `service_id` is required, same as on create; use `"dial-native"` unless a different
-    external service is required.
+    external service is required. Updating a schedule to target a service the caller is not
+    signed in to is rejected with `403` and the existing schedule is left unchanged.
     """
+    await _require_sign_in(sign_in_service, user_id, request.service_id, channel_id, api_key)
     try:
         return await service.update(schedule_id, request, user_id)
     except ScheduleNotFoundError as exc:

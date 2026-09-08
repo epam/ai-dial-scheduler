@@ -13,6 +13,7 @@ import pytest
 from src.api.dependencies.auth import get_user_id
 from src.api.v1.endpoints.runs import router as runs_router
 from src.api.v1.endpoints.schedules import router as schedules_router
+from src.api.v1.endpoints.sign_in import router as sign_in_router
 from src.lib.schemas.pagination import Page
 from src.lib.schemas.schedule import ScheduleListItem
 
@@ -27,6 +28,7 @@ EXPECTED_TOOL_NAMES = {
     "delete_schedule_v1_schedules",
     "list_runs_v1_schedules",
     "get_run_v1_schedules",
+    "get_sign_in_status",
 }
 
 
@@ -46,13 +48,16 @@ def _build_app_with_mocked_service(mock_service: Any, user_id: str = "user@examp
     """Build a minimal FastAPI app with the schedule/run routers and mocked dependencies."""
     from src.api.dependencies.runs import get_schedule_run_service
     from src.api.dependencies.scheduler import get_schedule_service
+    from src.api.dependencies.sign_in import get_sign_in_service
 
     app = fastapi.FastAPI()
     app.include_router(schedules_router, prefix="/v1")
     app.include_router(runs_router, prefix="/v1")
+    app.include_router(sign_in_router, prefix="/v1")
     app.dependency_overrides[get_user_id] = lambda: user_id
     app.dependency_overrides[get_schedule_service] = lambda: mock_service
     app.dependency_overrides[get_schedule_run_service] = lambda: mock_service
+    app.dependency_overrides[get_sign_in_service] = lambda: mock_service
     return app
 
 
@@ -73,7 +78,7 @@ class TestMcpToolListing:
         tool_names = {t.name for t in tools}
         assert tool_names == EXPECTED_TOOL_NAMES
 
-    async def test_exactly_nine_tools(self) -> None:
+    async def test_exactly_ten_tools(self) -> None:
         from fastmcp import Client
 
         from src.api.mcp.server import build_mcp_server
@@ -84,7 +89,23 @@ class TestMcpToolListing:
         async with Client(mcp_server) as client:
             tools = await client.list_tools()
 
-        assert len(tools) == 9
+        assert len(tools) == 10
+
+    async def test_sign_in_status_tool_has_no_api_key_parameter(self) -> None:
+        """Api-Key is auto-forwarded; it must not leak into a tool's input schema (T012)."""
+        from fastmcp import Client
+
+        from src.api.mcp.server import build_mcp_server
+
+        app = _build_app_with_mocked_service(MagicMock())
+        mcp_server, _ = build_mcp_server(app, _mock_settings())
+
+        async with Client(mcp_server) as client:
+            tools = await client.list_tools()
+
+        tool = next(t for t in tools if t.name == "get_sign_in_status")
+        properties = tool.inputSchema.get("properties", {})
+        assert "api_key" not in {p.lower().replace("-", "_") for p in properties}
 
 
 class TestMcpToolInvocation:
@@ -106,6 +127,55 @@ class TestMcpToolInvocation:
             result = await client.call_tool("list_schedules_v1_schedules", {})
 
         assert result is not None
+
+    async def test_get_sign_in_status_returns_structured_state(self) -> None:
+        """US1's independent test, exercised through the actual MCP surface, not just the REST layer."""
+        from unittest.mock import patch
+
+        from fastmcp import Client
+
+        from src.api.mcp.server import build_mcp_server
+        from src.lib.schemas.sign_in import SignInStatus
+
+        mock_service = AsyncMock()
+        mock_service.check.return_value = SignInStatus(
+            service_id="dial-native", state="not_signed_in", detail="Please sign in."
+        )
+
+        app = _build_app_with_mocked_service(mock_service)
+        mcp_server, _ = build_mcp_server(app, _mock_settings())
+
+        with patch("src.api.mcp.headers.get_http_headers", return_value={"api-key": "test-key"}):
+            async with Client(mcp_server) as client:
+                result = await client.call_tool("get_sign_in_status", {"service_id": "dial-native"})
+
+        assert result.data.state == "not_signed_in"
+        assert result.data.service_id == "dial-native"
+
+    async def test_get_sign_in_status_never_leaks_a_secret(self) -> None:
+        """FR-009 — no OBO credential ever reaches the MCP response, even indirectly."""
+        from unittest.mock import patch
+
+        from fastmcp import Client
+
+        from src.api.mcp.server import build_mcp_server
+        from src.lib.schemas.sign_in import SignInStatus
+
+        mock_service = AsyncMock()
+        mock_service.check.return_value = SignInStatus(
+            service_id="dial-native", state="signed_in", detail="Signed in to dial-native."
+        )
+
+        app = _build_app_with_mocked_service(mock_service)
+        mcp_server, _ = build_mcp_server(app, _mock_settings())
+
+        with patch("src.api.mcp.headers.get_http_headers", return_value={"api-key": "test-key"}):
+            async with Client(mcp_server) as client:
+                result = await client.call_tool("get_sign_in_status", {"service_id": "dial-native"})
+
+        dumped = str(result.data)
+        assert "header_value" not in dumped
+        assert "Api-Key" not in dumped
 
 
 class TestMcpAuth:
