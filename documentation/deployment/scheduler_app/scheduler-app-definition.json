@@ -47,8 +47,7 @@
           "maxRetryAttempts": 1,
           "order": 2147483647,
           "permissions": [
-            "READ",
-            "WRITE"
+            "READ"
           ],
           "attachmentPaths": {
             "requestBody": [],
