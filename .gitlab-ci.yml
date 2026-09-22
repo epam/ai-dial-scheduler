@@ -82,3 +82,12 @@ trigger_deploy_worker:
     project: Clients/dial/dev/dial-scheduler/dial-scheduler-worker
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+trigger_deploy_rds:
+  stage: promote
+  inherit:
+    variables: false
+  trigger:
+    project: Clients/dial/dev/dial-scheduler/dial-scheduler-rds
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
