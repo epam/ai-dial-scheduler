@@ -1,3 +1,5 @@
+from typing import cast
+
 from sqlalchemy.engine import URL, make_url
 
 from src.lib.db.enums import DbAuthMode, DbDriver
@@ -29,17 +31,29 @@ def build_database_url(
     return url.render_as_string(hide_password=hide_password)
 
 
-def build_azure_entra_sync_url(db_settings: DatabaseSettings) -> str:
-    """Build a synchronous (psycopg2) URL for Azure Entra auth without a password.
+def _build_passwordless_sync_url(db_settings: DatabaseSettings, username: str) -> str:
+    """Build a synchronous (psycopg2) URL without a password for workload-identity modes.
 
-    The Entra principal is used as the username; the short-lived access token is injected
-    as the password per connection by a ``do_connect`` listener, never baked into the URL.
+    The short-lived token is injected as the password per connection by a ``do_connect``
+    listener, so it is never baked into the URL.
     """
     url = URL.create(
         drivername=DbDriver.SYNC.value,
-        username=db_settings.db_azure_entra_user,
+        username=username,
         host=db_settings.db_host,
         port=db_settings.db_port,
         database=db_settings.db_name,
     )
     return url.render_as_string(hide_password=False)
+
+
+def build_azure_entra_sync_url(db_settings: DatabaseSettings) -> str:
+    """Build a synchronous (psycopg2) URL for Azure Entra auth, using the Entra principal."""
+    # Validated as non-None for azure_entra mode by DatabaseSettings.validate_auth_requirements.
+    return _build_passwordless_sync_url(db_settings, cast(str, db_settings.db_azure_entra_user))
+
+
+def build_aws_iam_sync_url(db_settings: DatabaseSettings) -> str:
+    """Build a synchronous (psycopg2) URL for AWS RDS IAM auth, using the IAM database user."""
+    # Validated as non-None for aws_iam mode by DatabaseSettings.validate_auth_requirements.
+    return _build_passwordless_sync_url(db_settings, cast(str, db_settings.db_aws_iam_user))

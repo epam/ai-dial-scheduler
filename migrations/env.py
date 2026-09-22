@@ -44,8 +44,8 @@ def _get_db_settings() -> DatabaseSettings:
 def run_migrations_offline() -> None:
     db_settings = _get_db_settings()
     # Only URL-based modes can express a static connection string. Workload-identity modes
-    # (gcp_iam, azure_entra) inject short-lived credentials at connect time and are handled by the
-    # online path via Database().init_engine(); they have no meaningful static URL to advertise here.
+    # (gcp_iam, azure_entra, aws_iam) inject short-lived credentials at connect time and are handled
+    # by the online path via Database().init_engine(); they have no meaningful static URL here.
     if db_settings.db_auth_mode not in _URL_BASED_MODES:
         raise RuntimeError(
             f"Offline migrations are not supported for DB auth mode "

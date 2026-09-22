@@ -126,8 +126,9 @@ uv run pytest --cov=src --cov-report=term-missing
 ## Database authentication
 
 The database connection (async engine, the APScheduler job store, and Alembic) authenticates
-according to `DB_AUTH_MODE`. Four modes are supported; `password` is the default. See
-`specs/022-db-workload-identity-auth/contracts/db-auth-config.md` for the full contract.
+according to `DB_AUTH_MODE`. Five modes are supported; `password` is the default. See
+`specs/022-db-workload-identity-auth/contracts/db-auth-config.md` and
+`specs/038-db-aws-iam-auth/contracts/db-auth-config.md` for the full contract.
 
 | Mode | Required env | Notes |
 |------|--------------|-------|
@@ -135,8 +136,9 @@ according to `DB_AUTH_MODE`. Four modes are supported; `password` is the default
 | `connection-string` | `DB_URL` | Verbatim SQLAlchemy URL. |
 | `gcp_iam` | `DB_GCP_INSTANCE_CONNECTION_NAME`, `DB_GCP_IAM_USER` | Cloud SQL IAM via the workload's Google service account. Optional `DB_GCP_PRIVATE_IP=true`. No password stored. |
 | `azure_entra` | `DB_AZURE_ENTRA_USER` | Microsoft Entra token via the workload's managed identity. Uses `DB_HOST`/`DB_NAME`/`DB_PORT` (shared defaults). Optional `DB_AZURE_MANAGED_IDENTITY_CLIENT_ID` for a user-assigned identity. No password stored. |
+| `aws_iam` | `DB_AWS_IAM_USER` | AWS RDS/Aurora IAM auth token signed with the workload's AWS credentials (IRSA, instance profile, …). Uses `DB_HOST`/`DB_NAME`/`DB_PORT` (shared defaults). Optional `DB_AWS_REGION` — falls back to `AWS_REGION`, then `AWS_DEFAULT_REGION`/shared config. No password stored. |
 
-For `gcp_iam` and `azure_entra` the service uses the platform-provided workload identity to obtain
+For `gcp_iam`, `azure_entra` and `aws_iam` the service uses the platform-provided workload identity to obtain
 short-lived credentials that are refreshed automatically for new connections — no database password
 is configured or stored. Missing required variables for the selected mode cause a fail-fast startup
 error naming every missing field.
@@ -155,6 +157,13 @@ DB_HOST=scheduler-pg.postgres.database.azure.com
 DB_NAME=scheduler
 DB_AZURE_ENTRA_USER=scheduler-identity
 # DB_AZURE_MANAGED_IDENTITY_CLIENT_ID=<user-assigned-mi-client-id>  # optional
+
+# AWS RDS / Aurora PostgreSQL — IAM database authentication
+DB_AUTH_MODE=aws_iam
+DB_HOST=scheduler-pg.abc123.eu-central-1.rds.amazonaws.com
+DB_NAME=scheduler
+DB_AWS_IAM_USER=scheduler_iam
+# DB_AWS_REGION=eu-central-1  # optional; falls back to AWS_REGION / AWS_DEFAULT_REGION
 ```
 
 ## Per-User Credentials (DIAL-native offline delegation)
@@ -300,7 +309,7 @@ Alternatively, the `api` and `worker` services can apply migrations themselves o
 | `DB_PORT` | `5432` | No       | PostgreSQL port |
 | `DB_NAME` | `app` | No       | Database name |
 | `DB_USER` | `app` | Yes      | Database username |
-| `DB_AUTH_MODE` | `password` | No       | Auth mode: `password` or `connection-string` |
+| `DB_AUTH_MODE` | `password` | No       | Auth mode: `password`, `connection-string`, `gcp_iam`, `azure_entra` or `aws_iam` |
 | `DB_PASSWORD` | — | Yes      | Database password |
 | `DB_URL` | — | Yes      | Full SQLAlchemy connection string |
 | `DB_DRIVER` | `postgresql+asyncpg` | No       | SQLAlchemy driver dialect |
@@ -331,7 +340,7 @@ The `api` service runs the FastAPI application.
 | `DB_PORT` | `5432` | No | PostgreSQL port |
 | `DB_NAME` | `app` | No | Database name |
 | `DB_USER` | `app` | Yes | Database username |
-| `DB_AUTH_MODE` | `password` | No | Auth mode: `password` or `connection-string` |
+| `DB_AUTH_MODE` | `password` | No | Auth mode: `password`, `connection-string`, `gcp_iam`, `azure_entra` or `aws_iam` |
 | `DB_PASSWORD` | — | Yes | Database password |
 | `DB_URL` | — | Yes | Full SQLAlchemy connection string |
 | `DB_DRIVER` | `postgresql+asyncpg` | No | SQLAlchemy driver dialect |
@@ -376,7 +385,7 @@ The `worker` service runs the APScheduler background process that executes sched
 | `DB_PORT` | `5432` | No | PostgreSQL port |
 | `DB_NAME` | `app` | No | Database name |
 | `DB_USER` | `app` | Yes | Database username |
-| `DB_AUTH_MODE` | `password` | No | Auth mode: `password` or `connection-string` |
+| `DB_AUTH_MODE` | `password` | No | Auth mode: `password`, `connection-string`, `gcp_iam`, `azure_entra` or `aws_iam` |
 | `DB_PASSWORD` | — | Yes | Database password |
 | `DB_URL` | — | Yes | Full SQLAlchemy connection string |
 | `DB_DRIVER` | `postgresql+asyncpg` | No | SQLAlchemy driver dialect |

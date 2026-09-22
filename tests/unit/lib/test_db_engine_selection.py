@@ -36,12 +36,14 @@ def test_url_based_modes_use_url_engine(fresh_database, mocker, mode):
     url_based = mocker.patch.object(fresh_database, "_init_engine_url_based", return_value=MagicMock())
     gcp = mocker.patch.object(fresh_database, "_init_engine_gcp_iam", return_value=MagicMock())
     azure = mocker.patch.object(fresh_database, "_init_engine_azure_entra", return_value=MagicMock())
+    aws = mocker.patch.object(fresh_database, "_init_engine_aws_iam", return_value=MagicMock())
 
     fresh_database.init_engine(force_fresh=True)
 
     url_based.assert_called_once()
     gcp.assert_not_called()
     azure.assert_not_called()
+    aws.assert_not_called()
 
 
 def test_gcp_iam_mode_uses_gcp_engine(fresh_database, mocker):
@@ -49,12 +51,14 @@ def test_gcp_iam_mode_uses_gcp_engine(fresh_database, mocker):
     url_based = mocker.patch.object(fresh_database, "_init_engine_url_based", return_value=MagicMock())
     gcp = mocker.patch.object(fresh_database, "_init_engine_gcp_iam", return_value=MagicMock())
     azure = mocker.patch.object(fresh_database, "_init_engine_azure_entra", return_value=MagicMock())
+    aws = mocker.patch.object(fresh_database, "_init_engine_aws_iam", return_value=MagicMock())
 
     fresh_database.init_engine(force_fresh=True)
 
     gcp.assert_called_once()
     url_based.assert_not_called()
     azure.assert_not_called()
+    aws.assert_not_called()
 
 
 def test_azure_entra_mode_uses_azure_engine(fresh_database, mocker):
@@ -62,12 +66,29 @@ def test_azure_entra_mode_uses_azure_engine(fresh_database, mocker):
     url_based = mocker.patch.object(fresh_database, "_init_engine_url_based", return_value=MagicMock())
     gcp = mocker.patch.object(fresh_database, "_init_engine_gcp_iam", return_value=MagicMock())
     azure = mocker.patch.object(fresh_database, "_init_engine_azure_entra", return_value=MagicMock())
+    aws = mocker.patch.object(fresh_database, "_init_engine_aws_iam", return_value=MagicMock())
 
     fresh_database.init_engine(force_fresh=True)
 
     azure.assert_called_once()
     url_based.assert_not_called()
     gcp.assert_not_called()
+    aws.assert_not_called()
+
+
+def test_aws_iam_mode_uses_aws_engine(fresh_database, mocker):
+    mocker.patch.object(engine_module, "get_settings", return_value=_settings_with_mode(DbAuthMode.AWS_IAM))
+    url_based = mocker.patch.object(fresh_database, "_init_engine_url_based", return_value=MagicMock())
+    gcp = mocker.patch.object(fresh_database, "_init_engine_gcp_iam", return_value=MagicMock())
+    azure = mocker.patch.object(fresh_database, "_init_engine_azure_entra", return_value=MagicMock())
+    aws = mocker.patch.object(fresh_database, "_init_engine_aws_iam", return_value=MagicMock())
+
+    fresh_database.init_engine(force_fresh=True)
+
+    aws.assert_called_once()
+    url_based.assert_not_called()
+    gcp.assert_not_called()
+    azure.assert_not_called()
 
 
 def _capture_async_creator(mocker, captured: dict):
@@ -242,6 +263,186 @@ def test_url_based_mode_skips_server_settings_when_schema_is_none(fresh_database
     fresh_database._init_engine_url_based()
 
     assert "connect_args" not in captured
+
+
+def _aws_settings(mocker) -> SimpleNamespace:
+    settings = _settings_with_mode(DbAuthMode.AWS_IAM)
+    settings.db.db_host = "pg.eu-central-1.rds.amazonaws.com"
+    settings.db.db_port = 5432
+    settings.db.db_name = "scheddb"
+    settings.db.db_aws_iam_user = "scheduler_iam"
+    settings.db.db_aws_region = "eu-central-1"
+    mocker.patch.object(engine_module, "get_settings", return_value=settings)
+    return settings
+
+
+class TestAwsIamAsyncEngine:
+    async def test_getconn_uses_fresh_token_as_password_over_tls(self, fresh_database, mocker):
+        _aws_settings(mocker)
+        provider = MagicMock()
+        provider.get_token_password = mocker.AsyncMock(return_value="rds-token")
+        mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=provider)
+        connect_mock = mocker.AsyncMock(return_value="aws-conn")
+        mocker.patch.object(engine_module.asyncpg, "connect", connect_mock)
+        captured: dict = {}
+        _capture_async_creator(mocker, captured)
+
+        fresh_database._init_engine_aws_iam()
+        result = await captured["async_creator"]()
+
+        assert captured["url"] == "postgresql+asyncpg://"
+        assert result == "aws-conn"
+        _, kwargs = connect_mock.call_args
+        assert kwargs["password"] == "rds-token"
+        assert kwargs["ssl"] == "require"
+        assert kwargs["user"] == "scheduler_iam"
+        assert kwargs["host"] == "pg.eu-central-1.rds.amazonaws.com"
+        assert kwargs["port"] == 5432
+        assert kwargs["database"] == "scheddb"
+
+    async def test_each_connection_requests_a_new_token(self, fresh_database, mocker):
+        _aws_settings(mocker)
+        provider = MagicMock()
+        provider.get_token_password = mocker.AsyncMock(side_effect=["first", "second"])
+        mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=provider)
+        connect_mock = mocker.AsyncMock(return_value="aws-conn")
+        mocker.patch.object(engine_module.asyncpg, "connect", connect_mock)
+        captured: dict = {}
+        _capture_async_creator(mocker, captured)
+
+        fresh_database._init_engine_aws_iam()
+        await captured["async_creator"]()
+        await captured["async_creator"]()
+
+        passwords = [call.kwargs["password"] for call in connect_mock.call_args_list]
+        assert passwords == ["first", "second"]
+
+    async def test_getconn_sets_search_path_when_schema_configured(self, fresh_database, mocker):
+        settings = _aws_settings(mocker)
+        settings.db.db_schema = "myschema"
+        provider = MagicMock()
+        provider.get_token_password = mocker.AsyncMock(return_value="rds-token")
+        mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=provider)
+        fake_conn = MagicMock()
+        fake_conn.execute = mocker.AsyncMock()
+        mocker.patch.object(engine_module.asyncpg, "connect", mocker.AsyncMock(return_value=fake_conn))
+        captured: dict = {}
+        _capture_async_creator(mocker, captured)
+
+        fresh_database._init_engine_aws_iam()
+        await captured["async_creator"]()
+
+        fake_conn.execute.assert_called_once_with('SET search_path TO "myschema"')
+
+    async def test_getconn_skips_search_path_when_schema_is_none(self, fresh_database, mocker):
+        _aws_settings(mocker)
+        provider = MagicMock()
+        provider.get_token_password = mocker.AsyncMock(return_value="rds-token")
+        mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=provider)
+        fake_conn = MagicMock()
+        fake_conn.execute = mocker.AsyncMock()
+        mocker.patch.object(engine_module.asyncpg, "connect", mocker.AsyncMock(return_value=fake_conn))
+        captured: dict = {}
+        _capture_async_creator(mocker, captured)
+
+        fresh_database._init_engine_aws_iam()
+        await captured["async_creator"]()
+
+        fake_conn.execute.assert_not_called()
+
+    async def test_connection_is_terminated_when_search_path_fails(self, fresh_database, mocker):
+        settings = _aws_settings(mocker)
+        settings.db.db_schema = "myschema"
+        provider = MagicMock()
+        provider.get_token_password = mocker.AsyncMock(return_value="rds-token")
+        mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=provider)
+        fake_conn = MagicMock()
+        fake_conn.execute = mocker.AsyncMock(side_effect=RuntimeError("no such schema"))
+        mocker.patch.object(engine_module.asyncpg, "connect", mocker.AsyncMock(return_value=fake_conn))
+        mock_logger = mocker.patch.object(engine_module, "logger")
+        captured: dict = {}
+        _capture_async_creator(mocker, captured)
+
+        fresh_database._init_engine_aws_iam()
+        with pytest.raises(RuntimeError):
+            await captured["async_creator"]()
+
+        fake_conn.terminate.assert_called_once()
+        # A schema failure must not be reported as a credentials failure.
+        mock_logger.error.assert_called_once()
+        args, call_kwargs = mock_logger.error.call_args
+        assert args[0] == "DB connection setup failed."
+        assert call_kwargs.get("mode") == "aws_iam"
+        assert "no such schema" not in str(call_kwargs)
+
+    async def test_getconn_reraises_and_logs_without_secrets(self, fresh_database, mocker):
+        _aws_settings(mocker)
+        provider = MagicMock()
+        provider.get_token_password = mocker.AsyncMock(side_effect=RuntimeError("sts denied for arn:secret"))
+        mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=provider)
+        mock_logger = mocker.patch.object(engine_module, "logger")
+        captured: dict = {}
+        _capture_async_creator(mocker, captured)
+
+        fresh_database._init_engine_aws_iam()
+        with pytest.raises(RuntimeError):
+            await captured["async_creator"]()
+
+        mock_logger.error.assert_called_once()
+        call_kwargs = mock_logger.error.call_args.kwargs
+        assert call_kwargs.get("mode") == "aws_iam"
+        assert call_kwargs.get("error_type") == "RuntimeError"
+        assert "arn:secret" not in str(call_kwargs)
+
+    def test_region_resolution_failure_surfaces_at_engine_construction(self, fresh_database, mocker):
+        _aws_settings(mocker)
+        mocker.patch.object(
+            engine_module,
+            "AsyncAwsRdsTokenProvider",
+            side_effect=ValueError("AWS region could not be resolved; set DB_AWS_REGION."),
+        )
+
+        with pytest.raises(ValueError, match="DB_AWS_REGION"):
+            fresh_database._init_engine_aws_iam()
+
+    def test_provider_is_reused_across_engine_rebuilds(self, fresh_database, mocker):
+        _aws_settings(mocker)
+        factory = mocker.patch.object(engine_module, "AsyncAwsRdsTokenProvider", return_value=MagicMock())
+        _capture_async_creator(mocker, {})
+
+        fresh_database._init_engine_aws_iam()
+        fresh_database._init_engine_aws_iam()
+
+        factory.assert_called_once()
+
+
+class TestAwsCredentialRelease:
+    def test_release_closes_and_clears_provider(self, fresh_database):
+        provider = MagicMock()
+        fresh_database._aws_credential = provider
+
+        fresh_database._release_credentials_best_effort()
+
+        provider.close.assert_called_once()
+        assert fresh_database._aws_credential is None
+
+    async def test_dispose_closes_and_clears_provider(self, fresh_database):
+        provider = MagicMock()
+        fresh_database._aws_credential = provider
+
+        await fresh_database.dispose()
+
+        provider.close.assert_called_once()
+        assert fresh_database._aws_credential is None
+
+    def test_release_tolerates_close_failure(self, fresh_database):
+        provider = MagicMock()
+        provider.close.side_effect = RuntimeError("boom")
+        fresh_database._aws_credential = provider
+
+        fresh_database._release_credentials_best_effort()
+
+        assert fresh_database._aws_credential is None
 
 
 class TestReleaseCredentialsBestEffort:

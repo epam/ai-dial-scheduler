@@ -42,6 +42,13 @@ class DatabaseSettings(BaseSettings):
     db_azure_entra_user: str | None = None
     db_azure_managed_identity_client_id: str | None = None
 
+    # AWS RDS / Aurora PostgreSQL IAM workload-identity auth
+    db_aws_iam_user: str | None = None
+    # Optional: falls back to AWS_REGION, then to botocore's own resolution
+    # (AWS_DEFAULT_REGION, shared config file). Resolution happens in the token provider,
+    # which fails fast if no region can be determined.
+    db_aws_region: str | None = None
+
     @model_validator(mode="after")
     def validate_auth_requirements(self) -> "DatabaseSettings":
         required_fields_by_mode: dict[DbAuthMode, tuple[str, ...]] = {
@@ -49,12 +56,14 @@ class DatabaseSettings(BaseSettings):
             DbAuthMode.CONNECTION_STRING: ("db_url",),
             DbAuthMode.GCP_IAM: ("db_gcp_instance_connection_name", "db_gcp_iam_user"),
             DbAuthMode.AZURE_ENTRA: ("db_azure_entra_user",),
+            DbAuthMode.AWS_IAM: ("db_aws_iam_user",),
         }
         # Workload-identity modes are secretless: a configured password/URL is contradictory and
         # must be rejected (see contracts/db-auth-config.md "Must NOT be set").
         forbidden_fields_by_mode: dict[DbAuthMode, tuple[str, ...]] = {
             DbAuthMode.GCP_IAM: ("db_password", "db_url"),
             DbAuthMode.AZURE_ENTRA: ("db_password", "db_url"),
+            DbAuthMode.AWS_IAM: ("db_password", "db_url"),
         }
 
         required_fields = required_fields_by_mode.get(self.db_auth_mode, ())
