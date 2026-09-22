@@ -6,6 +6,7 @@ class DbAuthMode(StrEnum):
     CONNECTION_STRING = "connection-string"
     GCP_IAM = "gcp_iam"
     AZURE_ENTRA = "azure_entra"
+    AWS_IAM = "aws_iam"
 
 
 class DbDriver(StrEnum):

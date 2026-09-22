@@ -3,10 +3,16 @@ from typing import Any, cast
 from sqlalchemy import create_engine, event
 from sqlalchemy.engine import Engine
 
-from src.lib.db.credentials import AzureTokenProvider, create_gcp_connector, gcp_ip_type
+from src.lib.db.credentials import (
+    AwsRdsTokenProvider,
+    AzureTokenProvider,
+    SyncTokenProvider,
+    create_gcp_connector,
+    gcp_ip_type,
+)
 from src.lib.db.enums import DbAuthMode, DbDriver
 from src.lib.db.schema import attach_schema_listener
-from src.lib.db.url import build_azure_entra_sync_url, build_database_url
+from src.lib.db.url import build_aws_iam_sync_url, build_azure_entra_sync_url, build_database_url
 from src.lib.settings import DatabaseSettings
 from src.lib.utils.logging import logger
 
@@ -26,6 +32,8 @@ def build_sync_engine(db_settings: DatabaseSettings) -> Engine:
         engine = _build_gcp_engine(db_settings)
     elif mode == DbAuthMode.AZURE_ENTRA:
         engine = _build_azure_engine(db_settings)
+    elif mode == DbAuthMode.AWS_IAM:
+        engine = _build_aws_engine(db_settings)
     else:
         raise ValueError(f"Unsupported DB auth mode for sync engine: {mode}")
 
@@ -79,35 +87,57 @@ def _build_gcp_engine(db_settings: DatabaseSettings) -> Engine:
     return engine
 
 
-def _inject_azure_token(provider: AzureTokenProvider, cparams: dict[str, Any]) -> None:
-    """Inject a fresh Entra token as the connection password for a new DBAPI connection."""
+def _inject_token_password(provider: SyncTokenProvider, cparams: dict[str, Any], mode: DbAuthMode) -> None:
+    """Inject a fresh short-lived token as the connection password for a new DBAPI connection."""
     try:
         cparams["password"] = provider.get_token_password()
     except Exception as exc:
         # Log mode + exception type only — never the exception args, which could carry secrets.
         logger.error(
             "DB credential acquisition failed.",
-            mode=DbAuthMode.AZURE_ENTRA.value,
+            mode=mode.value,
             error_type=type(exc).__name__,
         )
         raise
 
 
-def _build_azure_engine(db_settings: DatabaseSettings) -> Engine:
-    provider = AzureTokenProvider(client_id=db_settings.db_azure_managed_identity_client_id)
-    url = build_azure_entra_sync_url(db_settings)
-    # Azure Database for PostgreSQL mandates TLS; require it on the client rather than relying on
-    # psycopg2's default 'prefer' (which would silently allow a non-TLS fallback). This mirrors the
-    # async path's ssl="require".
-    engine = create_engine(url, connect_args={"sslmode": "require"}, **_common_engine_kwargs(db_settings))
+def _attach_token_password_listeners(engine: Engine, provider: SyncTokenProvider, mode: DbAuthMode) -> None:
+    """Wire per-connection token injection and provider teardown onto a passwordless engine."""
 
     @event.listens_for(engine, "do_connect")
     def _provide_token(_dialect: Any, _conn_rec: Any, _cargs: Any, cparams: dict[str, Any]) -> None:
-        _inject_azure_token(provider, cparams)
+        _inject_token_password(provider, cparams, mode)
 
     @event.listens_for(engine, "engine_disposed")
     def _close_provider(_engine: Any) -> None:
         provider.close()
 
+
+def _build_token_password_engine(db_settings: DatabaseSettings, url: str) -> Engine:
+    """Create a passwordless psycopg2 engine that receives a fresh token per connection.
+
+    Managed PostgreSQL offerings mandate TLS; require it on the client rather than relying on
+    psycopg2's default 'prefer' (which would silently allow a non-TLS fallback). This mirrors the
+    async path's ssl="require".
+    """
+    return create_engine(url, connect_args={"sslmode": "require"}, **_common_engine_kwargs(db_settings))
+
+
+def _build_azure_engine(db_settings: DatabaseSettings) -> Engine:
+    provider = AzureTokenProvider(client_id=db_settings.db_azure_managed_identity_client_id)
+    engine = _build_token_password_engine(db_settings, build_azure_entra_sync_url(db_settings))
+    _attach_token_password_listeners(engine, provider, DbAuthMode.AZURE_ENTRA)
+
     logger.info("Building sync DB engine.", mode=DbAuthMode.AZURE_ENTRA.value)
+    return engine
+
+
+def _build_aws_engine(db_settings: DatabaseSettings) -> Engine:
+    # Constructing the provider resolves the AWS region eagerly, so a misconfigured region fails
+    # here at engine build time rather than on the first connection attempt.
+    provider = AwsRdsTokenProvider(db_settings)
+    engine = _build_token_password_engine(db_settings, build_aws_iam_sync_url(db_settings))
+    _attach_token_password_listeners(engine, provider, DbAuthMode.AWS_IAM)
+
+    logger.info("Building sync DB engine.", mode=DbAuthMode.AWS_IAM.value)
     return engine

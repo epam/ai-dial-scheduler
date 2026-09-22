@@ -1,7 +1,8 @@
 import pytest
+from sqlalchemy.engine import make_url
 
 from src.lib.db.enums import DbDriver
-from src.lib.db.url import build_azure_entra_sync_url, build_database_url
+from src.lib.db.url import build_aws_iam_sync_url, build_azure_entra_sync_url, build_database_url
 from src.lib.settings import DatabaseSettings, Settings
 
 
@@ -75,3 +76,34 @@ class TestBuildAzureEntraSyncUrl:
         assert url.startswith("postgresql+psycopg2://")
         assert "scheduler-identity@srv.postgres.database.azure.com" in url
         assert "scheddb" in url
+
+
+class TestBuildAwsIamSyncUrl:
+    def test_builds_passwordless_psycopg2_url_with_iam_user(self, monkeypatch):
+        monkeypatch.delenv("DB_PASSWORD", raising=False)
+        monkeypatch.delenv("DB_URL", raising=False)
+        monkeypatch.setenv("DB_AUTH_MODE", "aws_iam")
+        monkeypatch.setenv("DB_AWS_IAM_USER", "scheduler_iam")
+        monkeypatch.setenv("DB_HOST", "pg.eu-central-1.rds.amazonaws.com")
+        monkeypatch.setenv("DB_PORT", "5432")
+        monkeypatch.setenv("DB_NAME", "scheddb")
+        db_settings = DatabaseSettings(_env_file=None)
+
+        url = build_aws_iam_sync_url(db_settings)
+
+        assert url.startswith("postgresql+psycopg2://")
+        assert "scheduler_iam@pg.eu-central-1.rds.amazonaws.com" in url
+        assert "scheddb" in url
+
+    def test_url_carries_no_password(self, monkeypatch):
+        monkeypatch.delenv("DB_PASSWORD", raising=False)
+        monkeypatch.delenv("DB_URL", raising=False)
+        monkeypatch.setenv("DB_AUTH_MODE", "aws_iam")
+        monkeypatch.setenv("DB_AWS_IAM_USER", "scheduler_iam")
+        monkeypatch.setenv("DB_HOST", "pg.eu-central-1.rds.amazonaws.com")
+        db_settings = DatabaseSettings(_env_file=None)
+
+        url = build_aws_iam_sync_url(db_settings)
+
+        assert ":@" not in url
+        assert make_url(url).password is None

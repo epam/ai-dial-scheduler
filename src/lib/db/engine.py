@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 import threading
 from typing import Any, cast
 
@@ -6,7 +7,13 @@ import asyncpg
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import Pool
 
-from src.lib.db.credentials import AsyncAzureTokenProvider, create_gcp_connector, gcp_ip_type
+from src.lib.db.credentials import (
+    AsyncAwsRdsTokenProvider,
+    AsyncAzureTokenProvider,
+    AsyncTokenProvider,
+    create_gcp_connector,
+    gcp_ip_type,
+)
 from src.lib.db.enums import DbAuthMode
 from src.lib.db.schema import _set_search_path_statement
 from src.lib.db.url import build_database_url
@@ -48,6 +55,41 @@ async def _close_azure_credential_with_timeout(provider: AsyncAzureTokenProvider
         pass
 
 
+@dataclass(frozen=True)
+class TokenPasswordConnection:
+    """Everything needed to open an asyncpg connection authenticated by a short-lived token."""
+
+    mode: DbAuthMode
+    user: str
+    provider: AsyncTokenProvider
+
+
+async def _apply_search_path(conn: Any, schema: str | None, mode: DbAuthMode) -> Any:
+    """Set ``search_path`` on a freshly opened connection and return it.
+
+    On failure the connection is terminated before re-raising: leaving it open would leak a
+    server-side connection outside the pool's accounting, since the pool never took ownership.
+    ``terminate()`` is used rather than ``close()`` because it is synchronous and immediate — it
+    cannot stall this recovery path on an unresponsive server, cannot mask the original error with
+    a close failure, and stays correct when the failure was a cancellation.
+    """
+    if schema is None:
+        return conn
+
+    try:
+        await conn.execute(_set_search_path_statement(schema))
+    except BaseException as exc:
+        conn.terminate()
+        # A distinct message from credential acquisition: this failure is a bad db_schema, not auth.
+        logger.error(
+            "DB connection setup failed.",
+            mode=mode.value,
+            error_type=type(exc).__name__,
+        )
+        raise
+    return conn
+
+
 class Database:
     _instance: "Database | None" = None
 
@@ -64,6 +106,7 @@ class Database:
         self._sessionmaker: async_sessionmaker[AsyncSession] | None = None
         self._gcp_connector: Any | None = None
         self._azure_credential: AsyncAzureTokenProvider | None = None
+        self._aws_credential: AsyncAwsRdsTokenProvider | None = None
         self._initialized = True
 
     def init_engine(self, *, poolclass: type[Pool] | None = None, force_fresh: bool = False) -> AsyncEngine:
@@ -86,6 +129,8 @@ class Database:
             engine = self._init_engine_gcp_iam(poolclass=poolclass)
         elif mode == DbAuthMode.AZURE_ENTRA:
             engine = self._init_engine_azure_entra(poolclass=poolclass)
+        elif mode == DbAuthMode.AWS_IAM:
+            engine = self._init_engine_aws_iam(poolclass=poolclass)
         else:
             raise ValueError(f"Unsupported DB auth mode: {mode}")
 
@@ -146,9 +191,6 @@ class Database:
                     ip_type=ip_type,
                     enable_iam_auth=True,
                 )
-                if schema is not None:
-                    await conn.execute(_set_search_path_statement(schema))
-                return conn
             except Exception as exc:
                 # Log mode + exception type only — never the exception args, which could carry secrets.
                 logger.error(
@@ -157,6 +199,44 @@ class Database:
                     error_type=type(exc).__name__,
                 )
                 raise
+            return await _apply_search_path(conn, schema, DbAuthMode.GCP_IAM)
+
+        return create_async_engine(
+            "postgresql+asyncpg://", async_creator=getconn, **self._engine_kwargs(poolclass=poolclass)
+        )
+
+    def _init_engine_token_password(
+        self, config: TokenPasswordConnection, *, poolclass: type[Pool] | None = None
+    ) -> AsyncEngine:
+        """Build an engine whose connections authenticate with a freshly issued token.
+
+        A new token is obtained for every NEW connection. PostgreSQL validates the token only at
+        connect time, so already-pooled connections keep working past token expiry — token TTL is
+        therefore independent of pool_recycle and no special recycling is required here.
+        """
+        settings = get_settings()
+        schema = settings.db.db_schema
+
+        async def getconn() -> Any:
+            try:
+                token = await config.provider.get_token_password()
+                conn = await asyncpg.connect(
+                    host=settings.db.db_host,
+                    port=settings.db.db_port,
+                    user=config.user,
+                    password=token,
+                    database=settings.db.db_name,
+                    ssl="require",
+                )
+            except Exception as exc:
+                # Log mode + exception type only — never the exception args, which could carry secrets.
+                logger.error(
+                    "DB credential acquisition failed.",
+                    mode=config.mode.value,
+                    error_type=type(exc).__name__,
+                )
+                raise
+            return await _apply_search_path(conn, schema, config.mode)
 
         return create_async_engine(
             "postgresql+asyncpg://", async_creator=getconn, **self._engine_kwargs(poolclass=poolclass)
@@ -166,39 +246,29 @@ class Database:
         settings = get_settings()
         if self._azure_credential is None:
             self._azure_credential = AsyncAzureTokenProvider(client_id=settings.db.db_azure_managed_identity_client_id)
-        provider = self._azure_credential
 
-        # A fresh token is fetched for every NEW connection. Tokens are only checked by PostgreSQL
-        # at connect time, so already-pooled connections keep working past token expiry — token TTL
-        # is therefore independent of pool_recycle and no special recycling is required here.
-        schema = settings.db.db_schema
-
-        async def getconn() -> Any:
-            try:
-                token = await provider.get_token_password()
-                conn = await asyncpg.connect(
-                    host=settings.db.db_host,
-                    port=settings.db.db_port,
-                    user=settings.db.db_azure_entra_user,
-                    password=token,
-                    database=settings.db.db_name,
-                    ssl="require",
-                )
-                if schema is not None:
-                    await conn.execute(_set_search_path_statement(schema))
-                return conn
-            except Exception as exc:
-                # Log mode + exception type only — never the exception args, which could carry secrets.
-                logger.error(
-                    "DB credential acquisition failed.",
-                    mode=DbAuthMode.AZURE_ENTRA.value,
-                    error_type=type(exc).__name__,
-                )
-                raise
-
-        return create_async_engine(
-            "postgresql+asyncpg://", async_creator=getconn, **self._engine_kwargs(poolclass=poolclass)
+        # Validated as non-None for azure_entra mode by DatabaseSettings.validate_auth_requirements.
+        config = TokenPasswordConnection(
+            mode=DbAuthMode.AZURE_ENTRA,
+            user=cast(str, settings.db.db_azure_entra_user),
+            provider=self._azure_credential,
         )
+        return self._init_engine_token_password(config, poolclass=poolclass)
+
+    def _init_engine_aws_iam(self, *, poolclass: type[Pool] | None = None) -> AsyncEngine:
+        settings = get_settings()
+        # Constructing the provider resolves the AWS region eagerly, so a misconfigured region
+        # fails here at engine construction rather than on the first connection attempt.
+        if self._aws_credential is None:
+            self._aws_credential = AsyncAwsRdsTokenProvider(settings.db)
+
+        # Validated as non-None for aws_iam mode by DatabaseSettings.validate_auth_requirements.
+        config = TokenPasswordConnection(
+            mode=DbAuthMode.AWS_IAM,
+            user=cast(str, settings.db.db_aws_iam_user),
+            provider=self._aws_credential,
+        )
+        return self._init_engine_token_password(config, poolclass=poolclass)
 
     @property
     def engine(self) -> AsyncEngine:
@@ -219,6 +289,7 @@ class Database:
             self._sessionmaker = None
         await self._dispose_gcp_connector()
         await self._dispose_azure_credential()
+        self._release_aws_credential()
 
     async def _dispose_gcp_connector(self) -> None:
         if self._gcp_connector is not None:
@@ -239,6 +310,23 @@ class Database:
             finally:
                 self._azure_credential = None
 
+    def _release_aws_credential(self) -> None:
+        """Close the AWS token provider, if any.
+
+        Synchronous and unguarded by a timeout: closing a boto3 client is a local operation that
+        performs no network I/O and cannot hang, so it is safe from both sync and async contexts.
+        """
+        if self._aws_credential is None:
+            return
+
+        provider = self._aws_credential
+        self._aws_credential = None
+        try:
+            provider.close()
+        except Exception:
+            # Best-effort teardown: a failure to close the client must never mask the caller's flow.
+            logger.warning("Failed to close the AWS RDS token provider; proceeding.")
+
     def _release_credentials_best_effort(self) -> None:
         """Release workload-identity resources on a synchronous re-init (force_fresh).
 
@@ -247,8 +335,11 @@ class Database:
         ``_close_azure_credential_with_timeout`` — either scheduled on the running loop or run
         to completion (with its own timeout) via ``asyncio.run``. This prevents leaking the
         connector's refresh tasks and the credential's transport when the engine is rebuilt,
-        without hanging the caller if either ``close()`` blocks.
+        without hanging the caller if either ``close()`` blocks. The AWS provider needs no such
+        care and is released directly.
         """
+        self._release_aws_credential()
+
         if self._gcp_connector is not None:
             connector = self._gcp_connector
             self._gcp_connector = None
