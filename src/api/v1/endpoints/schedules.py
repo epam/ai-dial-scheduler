@@ -204,6 +204,17 @@ async def list_schedules(
     ordering: ScheduleOrderingDep,
     user_id: Annotated[str, Depends(get_user_id)],
     is_deleted: Annotated[bool, Query()] = False,
+    model: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Filter by the schedule's model, as a case-insensitive substring of "
+                "`properties.payload.model` — for example `gpt-4` matches `gpt-4o` and "
+                "`gpt-4.1-mini`. Schedules whose payload carries no model (REST and SSE "
+                "targets) never match, so this also narrows the list to model-backed targets."
+            ),
+        ),
+    ] = None,
 ) -> Page[ScheduleListItem]:
     """Return a paginated, owner-scoped list of schedules.
 
@@ -214,6 +225,11 @@ async def list_schedules(
     Supports filtering by name via the `name` query parameter; only schedules whose
     `display_name` contains the given value as a case-insensitive substring are
     returned. Composes with metadata filters and pagination using AND.
+
+    Supports filtering by model via the `model` query parameter, matched the same way
+    against each schedule's `properties.payload.model`. Each row also carries a `model`
+    field, which is omitted for schedules whose payload has none — REST and SSE targets,
+    most commonly — so it must not be relied on as always present.
 
     Ordering is controlled by `order_by` (`created_at`, `next_run_time`, `name`) and
     `order_dir` (`asc`, `desc`), defaulting to `created_at desc`. Inactive/paused
@@ -232,6 +248,7 @@ async def list_schedules(
         name_filter=name_filter,
         ordering=ordering.ordering(),
         is_deleted=is_deleted,
+        model_filter=(model or "").strip() or None,
     )
 
 

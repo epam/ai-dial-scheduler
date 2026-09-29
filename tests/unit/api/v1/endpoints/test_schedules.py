@@ -317,6 +317,7 @@ class TestGetSchedules:
             name_filter=None,
             ordering=ScheduleOrdering(),
             is_deleted=False,
+            model_filter=None,
         )
 
     def test_list_passes_metadata_filter_to_service(self, client, mock_service):
@@ -608,3 +609,40 @@ class TestRunScheduleNow:
         client.post("/v1/schedules/sched-1/run")
 
         assert order == ["create", "launch"]
+
+
+class TestListModelFilter:
+    def test_model_query_param_is_forwarded(self, client, mock_service):
+        mock_service.list.return_value = empty_page()
+
+        client.get("/v1/schedules/?model=gpt-4")
+
+        assert mock_service.list.await_args.kwargs["model_filter"] == "gpt-4"
+
+    def test_absent_model_param_forwards_none(self, client, mock_service):
+        mock_service.list.return_value = empty_page()
+
+        client.get("/v1/schedules/")
+
+        assert mock_service.list.await_args.kwargs["model_filter"] is None
+
+    def test_surrounding_whitespace_is_trimmed(self, client, mock_service):
+        mock_service.list.return_value = empty_page()
+
+        client.get("/v1/schedules/?model=%20gpt-4%20")
+
+        assert mock_service.list.await_args.kwargs["model_filter"] == "gpt-4"
+
+    def test_whitespace_only_model_is_treated_as_absent(self, client, mock_service):
+        mock_service.list.return_value = empty_page()
+
+        client.get("/v1/schedules/?model=%20%20")
+
+        assert mock_service.list.await_args.kwargs["model_filter"] is None
+
+    def test_model_is_declared_in_the_openapi_schema(self, client):
+        """Unlike `name`, this filter must be visible to MCP clients."""
+        spec = client.get("/openapi.json").json()
+        params = spec["paths"]["/v1/schedules/"]["get"]["parameters"]
+
+        assert "model" in {p["name"] for p in params if p["in"] == "query"}

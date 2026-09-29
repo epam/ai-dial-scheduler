@@ -148,6 +148,7 @@ GET /schedules/
       "id": "str",
       "display_name": "",
       "service_id": "dial-native",
+      "model": "str|None",
       "next_run_time": "datetime|None",
       "trigger_type": "cron|date",
       "is_deleted": false,
@@ -160,6 +161,16 @@ GET /schedules/
   "previous": "/schedules?limit=20&offset=20"
 }
 ```
+
+`model` is the deployment taken from `properties.payload.model`. It is **absent (null) whenever
+the payload has no model** — REST and SSE targets, most obviously — so it must not be treated as a
+property every schedule has.
+
+Filtered by model via the optional `model` query parameter, matched as a case-insensitive
+substring: `?model=gpt-4` returns both `gpt-4o` and `gpt-4.1-mini`. Schedules without a model never
+match, so the filter also narrows the list to model-backed targets. `%` and `_` in the term match
+literally. It composes with the other filters using AND, `count` reflects it, and `next`/`previous`
+carry it (URL-encoded) so paging cannot silently drop it.
 
 Filtered by deletion state via the optional `is_deleted` query parameter (boolean, default
 `false`): `false` returns only live schedules, `true` returns only soft-deleted ones. There is no

@@ -1456,3 +1456,98 @@ class TestScheduleServiceListDeletedFilter:
         )
 
         assert page.results[0].is_deleted is True
+
+
+class TestScheduleServiceListModel:
+    """The model is a projection of the stored payload, not an input the service computes."""
+
+    @pytest.mark.asyncio
+    async def test_list_exposes_the_model_from_the_row(self):
+        repo = AsyncMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = schedule.updated_at = now
+        schedule.model = "gpt-4o"
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = make_service(repo, MagicMock())
+        result = await service.list("mock_user_id", Paginator(limit=20, offset=0, base_path="/schedules"))
+
+        assert result.results[0].model == "gpt-4o"
+
+    @pytest.mark.asyncio
+    async def test_list_model_is_none_when_the_row_has_none(self):
+        """REST and SSE schedules carry no model; the field must be absent, not invented."""
+        repo = AsyncMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = schedule.updated_at = now
+        schedule.model = None
+        repo.list.return_value = (1, [(schedule, now)])
+
+        service = make_service(repo, MagicMock())
+        result = await service.list("mock_user_id", Paginator(limit=20, offset=0, base_path="/schedules"))
+
+        assert result.results[0].model is None
+
+    @pytest.mark.asyncio
+    async def test_list_forwards_the_model_filter_to_the_repository(self):
+        repo = AsyncMock()
+        repo.list.return_value = (0, [])
+
+        service = make_service(repo, MagicMock())
+        await service.list(
+            "mock_user_id",
+            Paginator(limit=20, offset=0, base_path="/schedules"),
+            model_filter="gpt-4",
+        )
+
+        assert repo.list.await_args.kwargs["model_filter"] == "gpt-4"
+
+    @pytest.mark.asyncio
+    async def test_list_page_links_carry_the_model_filter(self):
+        repo = AsyncMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = schedule.updated_at = now
+        repo.list.return_value = (10, [(schedule, now)])
+
+        service = make_service(repo, MagicMock())
+        result = await service.list(
+            "mock_user_id",
+            Paginator(limit=2, offset=0, base_path="/schedules"),
+            model_filter="gpt-4",
+        )
+
+        assert "model=gpt-4" in result.next
+
+    @pytest.mark.asyncio
+    async def test_list_page_links_url_encode_the_model_filter(self):
+        """Application deployment ids contain slashes and spaces."""
+        repo = AsyncMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = schedule.updated_at = now
+        repo.list.return_value = (10, [(schedule, now)])
+
+        service = make_service(repo, MagicMock())
+        result = await service.list(
+            "mock_user_id",
+            Paginator(limit=2, offset=0, base_path="/schedules"),
+            model_filter="applications/public/My App__1.0.0",
+        )
+
+        assert "model=applications%2Fpublic%2FMy%20App__1.0.0" in result.next
+
+    @pytest.mark.asyncio
+    async def test_list_without_a_model_filter_leaves_links_untouched(self):
+        repo = AsyncMock()
+        now = datetime.now(UTC)
+        schedule = make_schedule()
+        schedule.created_at = schedule.updated_at = now
+        repo.list.return_value = (10, [(schedule, now)])
+
+        service = make_service(repo, MagicMock())
+        result = await service.list("mock_user_id", Paginator(limit=2, offset=0, base_path="/schedules"))
+
+        assert "model=" not in result.next

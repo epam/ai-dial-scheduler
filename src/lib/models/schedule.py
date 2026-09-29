@@ -1,10 +1,15 @@
 from typing import Any
 
-from sqlalchemy import Boolean, Column, Index, String, text
+from sqlalchemy import Boolean, Column, Computed, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
 from src.lib.models.base import BaseSQLModel
+
+
+# Single source of truth for the generated ``model`` column, shared with the migration that
+# creates it so the two can never state different expressions.
+MODEL_GENERATION_EXPRESSION = "kwargs -> 'payload' ->> 'model'"
 
 
 class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
@@ -28,6 +33,11 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
         is_deleted: Soft-delete marker. Set to true by the delete operation only when the
             schedule has run history; a schedule with no runs is deleted outright instead.
             Never cleared — deletion is irreversible. Not writable through the API.
+        model: Read-only projection of ``kwargs -> payload -> model``, maintained by the
+            database. NULL whenever the payload carries no string ``model`` — REST and SSE
+            targets, most obviously. It exists so listing and filtering never have to
+            detoast the whole ``kwargs`` document, which dominates the cost once payloads
+            grow (long chat histories); being generated, it cannot drift from ``kwargs``.
     """
 
     id: str = Field(
@@ -57,6 +67,10 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
     is_deleted: bool = Field(
         default=False,
         sa_column=Column("is_deleted", Boolean(), nullable=False, server_default=text("false")),
+    )
+    model: str | None = Field(
+        default=None,
+        sa_column=Column("model", String(), Computed(MODEL_GENERATION_EXPRESSION, persisted=True), nullable=True),
     )
 
     __table_args__ = (Index("IX_schedules_metadata", "metadata", postgresql_using="gin"),)

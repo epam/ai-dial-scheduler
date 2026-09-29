@@ -1,6 +1,7 @@
 import asyncio
 from datetime import datetime
 from typing import Any, NoReturn
+from urllib.parse import quote
 from uuid import uuid4
 
 from apscheduler.jobstores.base import JobLookupError
@@ -347,29 +348,39 @@ class ScheduleService:
         name_filter: str | None = None,
         ordering: ScheduleOrdering | None = None,
         is_deleted: bool = False,
+        model_filter: str | None = None,
     ) -> Page[ScheduleListItem]:
         """Return a paginated, owner-scoped list of schedule summaries.
 
         When ``metadata_filter`` is provided, results are limited to schedules whose
         metadata contains all the given key/value pairs as string values. When
         ``name_filter`` is provided, results are further limited to schedules whose
-        display name contains it as a case-insensitive substring.
+        display name contains it as a case-insensitive substring. ``model_filter`` does
+        the same against the schedule's model; schedules without one never match.
 
         ``ordering`` controls sort order (defaults to ``created_at`` descending) and is
         echoed into the ``next``/``previous`` page links so it survives pagination.
 
         ``is_deleted`` selects live schedules (the default) or soft-deleted ones. A
         non-default value is also echoed into the page links, so traversing a deleted-only
-        list cannot silently switch to live schedules on the next page.
+        list cannot silently switch to live schedules on the next page. ``model_filter`` is
+        echoed for the same reason.
         """
         ordering = ordering or ScheduleOrdering()
-        paginator.extra_query = ordering.to_query() + ("&is_deleted=true" if is_deleted else "")
+        paginator.extra_query = (
+            ordering.to_query()
+            + ("&is_deleted=true" if is_deleted else "")
+            # safe="" so slashes are escaped too: application deployment ids look like
+            # "applications/public/Name__1.0.0" and must survive a round trip as one value.
+            + (f"&model={quote(model_filter, safe='')}" if model_filter else "")
+        )
         total, rows = await self._repo.list(
             created_by,
             paginator.limit,
             paginator.offset,
             metadata_filter=metadata_filter,
             name_filter=name_filter,
+            model_filter=model_filter,
             ordering=ordering,
             is_deleted=is_deleted,
         )
@@ -383,6 +394,7 @@ class ScheduleService:
                     display_name=schedule.display_name,
                     service_id=schedule.service_id,
                     description=schedule.description,
+                    model=schedule.model,
                     next_run_time=next_run_time,
                     trigger_type=trigger_type,
                     trigger=schedule.trigger,

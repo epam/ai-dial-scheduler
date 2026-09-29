@@ -12,6 +12,11 @@ from src.lib.models.schedule import Schedule
 from src.lib.schemas.ordering import ScheduleOrdering
 
 
+def _escape_like(term: str) -> str:
+    """Escape LIKE wildcards so a filter term matches literally."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class ScheduleRepository:
     """Data access layer for the schedules table with APScheduler job store join."""
 
@@ -221,6 +226,7 @@ class ScheduleRepository:
         *,
         metadata_filter: dict[str, str] | None = None,
         name_filter: str | None = None,
+        model_filter: str | None = None,
         ordering: ScheduleOrdering | None = None,
         is_deleted: bool = False,
     ) -> tuple[int, list[tuple[Schedule, datetime | None]]]:
@@ -235,6 +241,12 @@ class ScheduleRepository:
         wildcards (``%``/``_``) in the term are escaped so they match literally. All
         conditions compose with AND.
 
+        ``model_filter`` matches the same way against the generated ``model`` column.
+        Schedules whose payload carries no model have ``model IS NULL`` and therefore never
+        match, so filtering by model implicitly excludes REST and SSE targets. The predicate
+        deliberately reads the column and not ``kwargs -> 'payload' ->> 'model'``: the latter
+        detoasts the whole document for every candidate row.
+
         ``is_deleted`` selects live schedules (the default) or soft-deleted ones; it is applied
         to the count as well as the page, so the reported total always matches the filter.
         """
@@ -244,6 +256,7 @@ class ScheduleRepository:
         created_at_col: Column = schedules_table.c.created_at  # type: ignore[assignment]
         display_name_col: Column = schedules_table.c.display_name  # type: ignore[assignment]
         metadata_col: Column = schedules_table.c["metadata"]  # type: ignore[assignment]
+        model_col: Column = schedules_table.c.model  # type: ignore[assignment]
 
         is_deleted_col: Column = schedules_table.c.is_deleted  # type: ignore[assignment]
 
@@ -253,8 +266,9 @@ class ScheduleRepository:
             # string-valued entries, and multiple keys compose with AND.
             conditions.append(metadata_col.contains(dict(metadata_filter)))
         if name_filter:
-            escaped = name_filter.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            conditions.append(display_name_col.ilike(f"%{escaped}%", escape="\\"))
+            conditions.append(display_name_col.ilike(f"%{_escape_like(name_filter)}%", escape="\\"))
+        if model_filter:
+            conditions.append(model_col.ilike(f"%{_escape_like(model_filter)}%", escape="\\"))
 
         count_stmt = select(func.count()).select_from(schedules_table).where(*conditions)
         count_result = await self._session.execute(count_stmt)
