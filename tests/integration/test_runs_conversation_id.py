@@ -19,11 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 from src.api.dependencies.auth import get_user_id
 from src.api.dependencies.db import get_db_session
 from src.api.dependencies.scheduler import get_scheduler
+from src.api.dependencies.sign_in import get_sign_in_service
 from src.api.v1.endpoints.runs import router as runs_router
 from src.api.v1.endpoints.schedules import router as schedules_router
 from src.lib.db.enums import ScheduleRunStatus
 from src.lib.models.schedule import Schedule
 from src.lib.models.schedule_run import ScheduleRun
+from tests.integration.conftest import make_signed_in_service
 
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
@@ -48,6 +50,9 @@ def test_app(engine: AsyncEngine) -> FastAPI:
 
     app.dependency_overrides[get_db_session] = override_db
     app.dependency_overrides[get_user_id] = override_user_id
+    # Schedule creation runs the sign-in precondition, which would otherwise reach for the
+    # DIAL client in app.state — absent here, since this app is built without the lifespan.
+    app.dependency_overrides[get_sign_in_service] = make_signed_in_service
     return app
 
 
@@ -62,6 +67,7 @@ async def client(test_app: FastAPI, mock_scheduler: MagicMock) -> AsyncGenerator
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=test_app),
         base_url="http://test",
+        headers={"Api-Key": "test-key"},
     ) as c:
         yield c
 

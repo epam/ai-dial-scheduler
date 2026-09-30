@@ -14,6 +14,7 @@ from src.api.v1.endpoints.schedules import router as schedules_router
 from src.api.v1.endpoints.sign_in import router as sign_in_router
 from src.lib.db.engine import Database
 from src.lib.scheduler import create_scheduler
+from src.lib.services.run_launcher import BackgroundRunLauncher
 from src.lib.settings import get_settings
 from src.lib.utils.logging import LoggingConfig, configure_logging, logger
 
@@ -45,7 +46,13 @@ async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
         ) as app_client:
             logger.info("Created global HTTP Client for the app lifespan.")
             app.state.app_client = app_client  # type: ignore[attr-defined]
-            yield
+            run_launcher = BackgroundRunLauncher(app_client, api_http.timeout_seconds)
+            app.state.run_launcher = run_launcher  # type: ignore[attr-defined]
+            try:
+                yield
+            finally:
+                # Before the shared client closes: in-flight on-demand runs still need it.
+                await run_launcher.drain()
         logger.info("Destroyed global HTTP Client for the app lifespan.")
     finally:
         mcp_client = getattr(app.state, "mcp_backing_client", None)

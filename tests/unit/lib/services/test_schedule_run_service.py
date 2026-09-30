@@ -5,7 +5,11 @@ import uuid
 import pytest
 
 from src.lib.db.enums import ScheduleRunStatus
-from src.lib.exceptions.errors import ScheduleNotFoundError, ScheduleRunNotFoundError
+from src.lib.exceptions.errors import (
+    ScheduleAlreadyDeletedError,
+    ScheduleNotFoundError,
+    ScheduleRunNotFoundError,
+)
 from src.lib.schemas.ordering import RunOrdering
 from src.lib.schemas.pagination import Page, Paginator
 
@@ -316,3 +320,99 @@ class TestScheduleRunServiceConversationIdMapping:
         result = await service.get_run(SCHEDULE_ID, "mock_user_id", RUN_ID)
 
         assert result.conversation_id is None
+
+
+class TestScheduleRunServiceCreateOnDemandRun:
+    async def test_creates_in_progress_run_from_the_saved_definition(self, mocker):
+        """Only the stored payload is used, so the run is indistinguishable from a scheduled fire."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        schedule.is_deleted = False
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.create_in_progress.return_value = make_run(mocker)
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        await service.create_on_demand_run(SCHEDULE_ID, "mock_user_id")
+
+        run_repo.create_in_progress.assert_awaited_once_with(schedule_id=SCHEDULE_ID, schedule_snapshot=schedule.kwargs)
+
+    async def test_returns_the_created_run(self, mocker):
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        schedule.is_deleted = False
+        schedule_repo.get.return_value = (schedule, None)
+        created = make_run(mocker)
+        run_repo.create_in_progress.return_value = created
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        result = await service.create_on_demand_run(SCHEDULE_ID, "mock_user_id")
+
+        assert result is created
+
+    async def test_scopes_the_lookup_to_the_caller(self, mocker):
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        schedule.is_deleted = False
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.create_in_progress.return_value = make_run(mocker)
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        await service.create_on_demand_run(SCHEDULE_ID, "alice@example.com")
+
+        schedule_repo.get.assert_awaited_once_with(SCHEDULE_ID, "alice@example.com")
+
+    async def test_unknown_or_unowned_schedule_raises_not_found(self):
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule_repo.get.return_value = None
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        with pytest.raises(ScheduleNotFoundError):
+            await service.create_on_demand_run(SCHEDULE_ID, "mock_user_id")
+
+        run_repo.create_in_progress.assert_not_awaited()
+
+    async def test_soft_deleted_schedule_raises_already_deleted(self, mocker):
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        schedule.is_deleted = True
+        schedule_repo.get.return_value = (schedule, None)
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        with pytest.raises(ScheduleAlreadyDeletedError):
+            await service.create_on_demand_run(SCHEDULE_ID, "mock_user_id")
+
+        run_repo.create_in_progress.assert_not_awaited()
+
+    async def test_an_in_progress_run_does_not_block_another(self, mocker):
+        """Concurrent runs are allowed: the service never inspects existing run state."""
+        from src.lib.services.schedule_run_service import ScheduleRunService
+
+        schedule_repo = AsyncMock()
+        run_repo = AsyncMock()
+        schedule = make_schedule(mocker)
+        schedule.is_deleted = False
+        schedule_repo.get.return_value = (schedule, None)
+        run_repo.create_in_progress.return_value = make_run(mocker)
+
+        service = ScheduleRunService(schedule_repo, run_repo)
+        await service.create_on_demand_run(SCHEDULE_ID, "mock_user_id")
+        await service.create_on_demand_run(SCHEDULE_ID, "mock_user_id")
+
+        assert run_repo.create_in_progress.await_count == 2
+        run_repo.list_for_schedule.assert_not_awaited()
+        run_repo.count_for_schedule.assert_not_awaited()

@@ -1,4 +1,5 @@
-from src.lib.exceptions.errors import ScheduleNotFoundError, ScheduleRunNotFoundError
+from src.lib.exceptions.errors import ScheduleAlreadyDeletedError, ScheduleNotFoundError, ScheduleRunNotFoundError
+from src.lib.models.schedule_run import ScheduleRun
 from src.lib.repositories.schedule_repository import ScheduleRepository
 from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
 from src.lib.schemas.ordering import RunOrdering
@@ -8,11 +9,36 @@ from src.lib.utils.logging import logger
 
 
 class ScheduleRunService:
-    """Read-only business logic for schedule run access with ownership enforcement."""
+    """Business logic for schedule run access and on-demand execution, with ownership enforcement."""
 
     def __init__(self, schedule_repo: ScheduleRepository, run_repo: ScheduleRunRepository) -> None:
         self._schedule_repo = schedule_repo
         self._run_repo = run_repo
+
+    async def create_on_demand_run(self, schedule_id: str, created_by: str) -> ScheduleRun:
+        """Record an ``in_progress`` run for an owned schedule, to be executed in the background.
+
+        Only the stored definition is used: the run's snapshot is the schedule's saved
+        ``kwargs``, exactly as a scheduled fire would record it, so an on-demand run and a
+        scheduled one are indistinguishable afterwards. The scheduler is not touched, so the
+        schedule's next fire time is unaffected.
+
+        A run in progress is not a barrier — a schedule may have several at once.
+
+        Raises:
+            ScheduleNotFoundError: The schedule does not exist or belongs to someone else.
+            ScheduleAlreadyDeletedError: The schedule is soft-deleted and can never run again.
+        """
+        row = await self._schedule_repo.get(schedule_id, created_by)
+        if row is None:
+            raise ScheduleNotFoundError(schedule_id)
+        schedule, _ = row
+        if schedule.is_deleted:
+            raise ScheduleAlreadyDeletedError(schedule_id)
+
+        run = await self._run_repo.create_in_progress(schedule_id=schedule_id, schedule_snapshot=dict(schedule.kwargs))
+        logger.info("on_demand_run_created", schedule_id=schedule_id, run_id=str(run.id), created_by=created_by)
+        return run
 
     async def list_runs(
         self,

@@ -27,7 +27,7 @@ class ResponsesExecutor:
                 base_url=properties.url,
                 api_key=api_key,
                 api_version=properties.api_version,
-                http_client=HttpClientProvider().client,
+                http_client=ctx.http_client or HttpClientProvider().client,
             )
             # ``stream`` is controlled by DIAL via the payload flag (defaults to False). When
             # streaming, ``.stream()`` assembles a single Response via ``get_final_response()``;

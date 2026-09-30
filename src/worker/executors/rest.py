@@ -16,7 +16,7 @@ class RestExecutor:
         self, ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
     ) -> dict[str, Any]:
         headers = {**properties.extra_headers, credentials.header_name: credentials.header_value.get_secret_value()}
-        client = HttpClientProvider().client
+        client = ctx.http_client or HttpClientProvider().client
 
         request_kwargs: dict[str, Any] = {
             "method": properties.method.value,  # type: ignore[union-attr]

@@ -50,12 +50,12 @@ async def execute_with_policy(
 ) -> RunOutcome:
     """Run the executor honoring the schedule's per-attempt timeout and retry policy.
 
-    A single effective timeout (the schedule's ``timeout`` or the default worker HTTP
-    timeout) is computed once, stored on ``ctx.effective_timeout`` so executors apply the
-    same value to their underlying HTTP/SDK call, and enforced as an absolute per-attempt
-    cap via ``asyncio.wait_for``. A failed attempt is retried only when its HTTP status
-    code is in ``retry.retryable_errors`` and retries remain; the orchestrator waits the
-    corresponding ``interval_sequence`` entry before retrying. Timeouts and transport
+    A single effective timeout (the schedule's ``timeout`` or the default HTTP timeout of the
+    process executing the run) is computed once, stored on ``ctx.effective_timeout`` so
+    executors apply the same value to their underlying HTTP/SDK call, and enforced as an
+    absolute per-attempt cap via ``asyncio.wait_for``. A failed attempt is retried only when
+    its HTTP status code is in ``retry.retryable_errors`` and retries remain; the orchestrator
+    waits the corresponding ``interval_sequence`` entry before retrying. Timeouts and transport
     errors carry no status code and are therefore terminal.
 
     Each attempt, retry, and terminal outcome is recorded via structured logs; per-attempt
@@ -66,9 +66,10 @@ async def execute_with_policy(
     Returns:
         A :class:`RunOutcome` describing the final result and the number of attempts made.
     """
-    effective_timeout = (
-        properties.timeout if properties.timeout is not None else get_settings().worker_http.timeout_seconds
+    default_timeout = (
+        ctx.default_timeout if ctx.default_timeout is not None else get_settings().worker_http.timeout_seconds
     )
+    effective_timeout = properties.timeout if properties.timeout is not None else default_timeout
     ctx.effective_timeout = effective_timeout
 
     retry = properties.retry

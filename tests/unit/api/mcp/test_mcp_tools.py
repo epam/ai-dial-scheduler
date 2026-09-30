@@ -28,6 +28,7 @@ EXPECTED_TOOL_NAMES = {
     "delete_schedule_v1_schedules",
     "list_runs_v1_schedules",
     "get_run_v1_schedules",
+    "run_schedule_now",
     "get_sign_in_status",
 }
 
@@ -78,7 +79,7 @@ class TestMcpToolListing:
         tool_names = {t.name for t in tools}
         assert tool_names == EXPECTED_TOOL_NAMES
 
-    async def test_exactly_ten_tools(self) -> None:
+    async def test_exactly_eleven_tools(self) -> None:
         from fastmcp import Client
 
         from src.api.mcp.server import build_mcp_server
@@ -89,7 +90,7 @@ class TestMcpToolListing:
         async with Client(mcp_server) as client:
             tools = await client.list_tools()
 
-        assert len(tools) == 10
+        assert len(tools) == 11
 
     async def test_sign_in_status_tool_has_no_api_key_parameter(self) -> None:
         """Api-Key is auto-forwarded; it must not leak into a tool's input schema (T012)."""
