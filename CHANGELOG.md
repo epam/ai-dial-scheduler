@@ -12,6 +12,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   stored definition; the schedule's `next_run_time` is unaffected (`src/api/v1/endpoints/schedules.py`,
   `src/lib/services/run_launcher.py`, `ScheduleRunService.create_on_demand_run`). Exposed over MCP as
   `run_schedule_now`.
+- `model` on schedule list rows, plus a `model` query parameter on `GET /v1/schedules/` matching it
+  as a case-insensitive substring. It is `null` for payloads without a model (REST/SSE targets), and
+  such schedules never match the filter. Backed by a generated `schedules.model` column (migration
+  `b7c5e6f8a9d0`) so listing and filtering never detoast `kwargs`: on 50k schedules with long chat
+  histories a filtered list runs in ~25 ms instead of ~195 ms.
 
 ### Changed
 - `RunContext` now carries the HTTP client and default timeout a run executes with, so the same

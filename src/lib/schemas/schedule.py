@@ -187,12 +187,18 @@ class ScheduleListItem(BaseModel):
     """Summary row returned in the paginated list response.
 
     ``is_deleted`` is required for the same reason as on :class:`ScheduleResponse`.
+
+    ``model`` is the deployment from ``properties.payload.model``, present only for targets
+    that carry one — it is absent for REST and SSE schedules, and for any payload without a
+    string ``model``. Callers must treat it as optional rather than as a property of every
+    schedule.
     """
 
     id: str
     display_name: str
     service_id: str
     description: str | None = None
+    model: str | None = None
     next_run_time: datetime | None
     trigger_type: TriggerType
     trigger: dict[str, Any]
