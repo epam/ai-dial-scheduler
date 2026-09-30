@@ -1,10 +1,12 @@
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+import uuid
 
 from fastapi.testclient import TestClient
 import pytest
 
 from src.api.app import create_api
+from src.lib.db.enums import ScheduleRunStatus
 from src.lib.exceptions.errors import (
     JobRegistrationError,
     JobRemovalError,
@@ -73,10 +75,21 @@ def mock_sign_in_service():
 
 
 @pytest.fixture
-def client(mock_service, mock_sign_in_service):
+def mock_run_service():
+    return AsyncMock()
+
+
+@pytest.fixture
+def mock_launcher():
+    return MagicMock()
+
+
+@pytest.fixture
+def client(mock_service, mock_sign_in_service, mock_run_service, mock_launcher):
     app = create_api()
 
     from src.api.dependencies.auth import get_user_id
+    from src.api.dependencies.runs import get_run_launcher, get_schedule_run_service
     from src.api.dependencies.scheduler import get_schedule_service
     from src.api.dependencies.sign_in import get_sign_in_service
 
@@ -89,6 +102,8 @@ def client(mock_service, mock_sign_in_service):
     app.dependency_overrides[get_schedule_service] = override_service
     app.dependency_overrides[get_user_id] = override_user_id
     app.dependency_overrides[get_sign_in_service] = lambda: mock_sign_in_service
+    app.dependency_overrides[get_schedule_run_service] = lambda: mock_run_service
+    app.dependency_overrides[get_run_launcher] = lambda: mock_launcher
     return TestClient(app, headers={"Api-Key": "test-key"})
 
 
@@ -504,3 +519,92 @@ class TestListDeletedFilter:
         response = client.get("/v1/schedules/?is_deleted=true")
 
         assert response.json()["results"][0]["is_deleted"] is True
+
+
+def make_run_row(run_id: uuid.UUID | None = None, snapshot: dict | None = None):
+    """An ``in_progress`` run row as create_on_demand_run returns it."""
+    run = MagicMock()
+    run.id = run_id or uuid.uuid4()
+    run.status = ScheduleRunStatus.IN_PROGRESS
+    run.created_at = datetime.now(UTC)
+    run.end_time = None
+    run.conversation_id = None
+    run.schedule_snapshot = snapshot if snapshot is not None else {"target_type": "rest", "url": "https://e.com"}
+    return run
+
+
+class TestRunScheduleNow:
+    def test_returns_202_with_an_in_progress_run(self, client, mock_run_service):
+        run = make_run_row()
+        mock_run_service.create_on_demand_run.return_value = run
+
+        response = client.post("/v1/schedules/sched-1/run")
+
+        assert response.status_code == 202
+        body = response.json()
+        assert body["id"] == str(run.id)
+        assert body["status"] == "in_progress"
+        assert body["end_time"] is None
+
+    def test_hands_the_saved_snapshot_to_the_launcher(self, client, mock_run_service, mock_launcher):
+        snapshot = {"target_type": "chat_completion", "url": "https://core.dial/openai/"}
+        run = make_run_row(snapshot=snapshot)
+        mock_run_service.create_on_demand_run.return_value = run
+
+        client.post("/v1/schedules/sched-1/run")
+
+        mock_launcher.launch.assert_called_once_with(str(run.id), "sched-1", snapshot)
+
+    def test_passes_the_resolved_user_id_to_the_service(self, client, mock_run_service):
+        mock_run_service.create_on_demand_run.return_value = make_run_row()
+
+        client.post("/v1/schedules/sched-1/run")
+
+        mock_run_service.create_on_demand_run.assert_awaited_once_with("sched-1", TEST_USER_ID)
+
+    def test_accepts_no_request_body(self, client, mock_run_service):
+        """Only the saved payload runs, so a body must not be able to override anything."""
+        mock_run_service.create_on_demand_run.return_value = make_run_row()
+
+        response = client.post("/v1/schedules/sched-1/run", json={"properties": {"url": "https://evil.example"}})
+
+        assert response.status_code == 202
+        mock_run_service.create_on_demand_run.assert_awaited_once_with("sched-1", TEST_USER_ID)
+
+    def test_does_not_touch_the_scheduler(self, client, mock_run_service, mock_service):
+        """An on-demand run must not move the schedule's next_run_time."""
+        mock_run_service.create_on_demand_run.return_value = make_run_row()
+
+        client.post("/v1/schedules/sched-1/run")
+
+        mock_service.update.assert_not_awaited()
+        mock_service.pause.assert_not_awaited()
+        mock_service.resume.assert_not_awaited()
+
+    def test_unknown_schedule_returns_404(self, client, mock_run_service, mock_launcher):
+        mock_run_service.create_on_demand_run.side_effect = ScheduleNotFoundError("sched-1")
+
+        response = client.post("/v1/schedules/sched-1/run")
+
+        assert response.status_code == 404
+        mock_launcher.launch.assert_not_called()
+
+    def test_soft_deleted_schedule_returns_409(self, client, mock_run_service, mock_launcher):
+        mock_run_service.create_on_demand_run.side_effect = ScheduleAlreadyDeletedError("sched-1")
+
+        response = client.post("/v1/schedules/sched-1/run")
+
+        assert response.status_code == 409
+        mock_launcher.launch.assert_not_called()
+
+    def test_run_is_launched_after_the_record_exists(self, client, mock_run_service, mock_launcher):
+        """The run row must exist before execution starts, so the id is always resolvable."""
+        run = make_run_row()
+        mock_run_service.create_on_demand_run.return_value = run
+        order = []
+        mock_run_service.create_on_demand_run.side_effect = lambda *_: order.append("create") or run
+        mock_launcher.launch.side_effect = lambda *_: order.append("launch")
+
+        client.post("/v1/schedules/sched-1/run")
+
+        assert order == ["create", "launch"]

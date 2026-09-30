@@ -203,7 +203,11 @@ async def create_run_conversation(
         The addressable DIAL conversation id (``conversations/...``) of the created conversation.
     """
     settings = get_settings()
-    client = DialClient(HttpClientProvider().client, settings.dial_url, settings.worker_http.timeout_seconds)
+    client = DialClient(
+        ctx.http_client or HttpClientProvider().client,
+        settings.dial_url,
+        ctx.default_timeout if ctx.default_timeout is not None else settings.worker_http.timeout_seconds,
+    )
 
     raw_deployment = properties.payload.get("model")
     # payload is dict[str, Any] and this value is now path-facing, so a non-string would otherwise

@@ -105,7 +105,7 @@ async def _maybe_create_conversation(
         )
 
 
-async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
+async def _resolve_credentials(ctx: RunContext) -> OboCredentials:
     """Fetch on-behalf-of credentials for a schedule's owner and external service.
 
     Loads the schedule (owner + service_id) from the database, then calls DIAL for OBO
@@ -115,6 +115,7 @@ async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
     ``header_value`` is secret and is never logged.
     """
     settings = get_settings()
+    run_id, schedule_id = ctx.run_id, ctx.schedule_id
     try:
         async with Database().sessionmaker() as session:
             schedule = await ScheduleRepository(session).get_by_id(schedule_id)
@@ -143,7 +144,11 @@ async def _resolve_credentials(run_id: str, schedule_id: str) -> OboCredentials:
         url=EXTERNAL_SERVICE_URL_TEMPLATE.format(app_id=settings.scheduler_app_id, service_id=schedule.service_id),
         owner_user_id=schedule.created_by,
     )
-    client = DialClient(HttpClientProvider().client, settings.dial_url, settings.worker_http.timeout_seconds)
+    client = DialClient(
+        ctx.http_client or HttpClientProvider().client,
+        settings.dial_url,
+        ctx.default_timeout if ctx.default_timeout is not None else settings.worker_http.timeout_seconds,
+    )
     try:
         credentials = await client.get_obo_credentials(settings.dial_api_key.get_secret_value(), request)
     except OboCredentialsError as exc:
@@ -201,32 +206,24 @@ async def _should_skip_run(schedule_id: str) -> bool:
     return False
 
 
-async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
-    clear_contextvars()
-    bind_contextvars(schedule_id=schedule_id)
-    logger.info("run_start", schedule_id=schedule_id)
+async def execute_run(ctx: RunContext, snapshot: dict[str, Any]) -> None:
+    """Execute one already-recorded run of a schedule and persist its outcome.
 
-    # Must precede run-record creation: a deleted schedule must produce no run record at all.
-    if await _should_skip_run(schedule_id):
-        clear_contextvars()
-        return
+    Shared by the worker's scheduled dispatch and the API's on-demand run endpoint, so both
+    produce identical run records. The caller owns the ``in_progress`` row and decides which
+    HTTP client and default timeout the run uses (via ``ctx``); this function resolves the
+    owner's on-behalf-of credentials, dispatches the target under the schedule's timeout and
+    retry policy, writes the terminal status/result, and — for opted-in chat completion
+    schedules — creates the DIAL conversation.
 
-    try:
-        async with Database().sessionmaker() as session:
-            row = await ScheduleRunRepository(session).create_in_progress(
-                schedule_id=schedule_id, schedule_snapshot=dict(kwargs)
-            )
-        run_id = str(row.id)
-        bind_contextvars(run_id=run_id)
-        logger.info("run_created", run_id=run_id, schedule_id=schedule_id)
-    except Exception as exc:
-        logger.error("run_create_failed", schedule_id=schedule_id, error=str(exc))
-        clear_contextvars()
-        return
-
+    ``snapshot`` is the stored schedule properties; nothing is re-read from the request, so a
+    run always reflects the saved definition. Raises :class:`ScheduleRunError` after the
+    failure has already been persisted, for the caller to log or propagate.
+    """
+    run_id, schedule_id = ctx.run_id, ctx.schedule_id
     try:
         try:
-            properties = ScheduleProperties(**kwargs)
+            properties = ScheduleProperties(**snapshot)
         except ValidationError as exc:
             err = ScheduleRunError(str(exc), schedule_id=schedule_id, run_id=run_id)
             logger.warning(
@@ -239,10 +236,9 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
             await _persist_error(run_id, schedule_id, str(err))
             raise err from exc
 
-        credentials = await _resolve_credentials(run_id, schedule_id)
+        credentials = await _resolve_credentials(ctx)
 
         executor = resolve_executor(properties.target_type)
-        ctx = RunContext(run_id=run_id, schedule_id=schedule_id)
         outcome = await execute_with_policy(ctx, credentials, properties, executor)
 
         if outcome.succeeded:
@@ -279,6 +275,33 @@ async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
         )
         await _persist_error(run_id, schedule_id, str(err))
         raise err from exc
+
+
+async def _execute_scheduled_job_inner(schedule_id: str, **kwargs: Any) -> None:
+    clear_contextvars()
+    bind_contextvars(schedule_id=schedule_id)
+    logger.info("run_start", schedule_id=schedule_id)
+
+    # Must precede run-record creation: a deleted schedule must produce no run record at all.
+    if await _should_skip_run(schedule_id):
+        clear_contextvars()
+        return
+
+    try:
+        async with Database().sessionmaker() as session:
+            row = await ScheduleRunRepository(session).create_in_progress(
+                schedule_id=schedule_id, schedule_snapshot=dict(kwargs)
+            )
+        run_id = str(row.id)
+        bind_contextvars(run_id=run_id)
+        logger.info("run_created", run_id=run_id, schedule_id=schedule_id)
+    except Exception as exc:
+        logger.error("run_create_failed", schedule_id=schedule_id, error=str(exc))
+        clear_contextvars()
+        return
+
+    try:
+        await execute_run(RunContext(run_id=run_id, schedule_id=schedule_id), dict(kwargs))
     finally:
         clear_contextvars()
 

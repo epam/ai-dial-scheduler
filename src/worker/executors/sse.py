@@ -18,7 +18,7 @@ class SseExecutor:
     ) -> dict[str, Any]:
         headers = {**properties.extra_headers, credentials.header_name: credentials.header_value.get_secret_value()}
         events: list[dict[str, str]] = []
-        client = HttpClientProvider().client
+        client = ctx.http_client or HttpClientProvider().client
 
         connect_kwargs: dict[str, Any] = {"json": properties.payload, "headers": headers}
         if ctx.effective_timeout is not None:

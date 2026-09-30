@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+- `POST /v1/schedules/{schedule_id}/run` — run a schedule once on demand. Returns `202` with an
+  `in_progress` run and executes it in the background **inside the API service**, using only the
+  stored definition; the schedule's `next_run_time` is unaffected (`src/api/v1/endpoints/schedules.py`,
+  `src/lib/services/run_launcher.py`, `ScheduleRunService.create_on_demand_run`). Exposed over MCP as
+  `run_schedule_now`.
+
+### Changed
+- `RunContext` now carries the HTTP client and default timeout a run executes with, so the same
+  execution core (`src.worker.jobs.execute_run`) serves both the worker and the API. The worker
+  keeps its shared client and `WORKER_HTTP_*` timeouts; the API uses its app-state client and
+  `API_HTTP_*` timeouts (`src/lib/schemas/run.py`, `src/worker/`).
+
 ## [0.2.0] - 2026-09-21
 
 ### Added

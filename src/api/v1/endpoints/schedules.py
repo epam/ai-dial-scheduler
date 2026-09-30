@@ -8,6 +8,7 @@ from src.api.dependencies.metadata_filter import parse_metadata_filter
 from src.api.dependencies.name_filter import parse_name_filter
 from src.api.dependencies.ordering import ScheduleOrderingParams
 from src.api.dependencies.pagination import Pagination
+from src.api.dependencies.runs import get_run_launcher, get_schedule_run_service
 from src.api.dependencies.scheduler import get_schedule_service
 from src.api.dependencies.sign_in import get_sign_in_service
 from src.lib.constants import API_KEY_HEADER, CLIENT_CHANNEL_HEADER
@@ -19,7 +20,10 @@ from src.lib.exceptions.errors import (
     SignInRequiredError,
 )
 from src.lib.schemas.pagination import Page
+from src.lib.schemas.run import RunListItem
 from src.lib.schemas.schedule import ScheduleListItem, ScheduleRequest, ScheduleResponse
+from src.lib.services.run_launcher import BackgroundRunLauncher
+from src.lib.services.schedule_run_service import ScheduleRunService
 from src.lib.services.schedule_service import ScheduleService
 from src.lib.services.sign_in_service import SignInService
 
@@ -27,6 +31,8 @@ from src.lib.services.sign_in_service import SignInService
 router = APIRouter(prefix="/schedules", tags=["schedules"])
 
 ScheduleServiceDep = Annotated[ScheduleService, Depends(get_schedule_service)]
+ScheduleRunServiceDep = Annotated[ScheduleRunService, Depends(get_schedule_run_service)]
+RunLauncherDep = Annotated[BackgroundRunLauncher, Depends(get_run_launcher)]
 SignInServiceDep = Annotated[SignInService, Depends(get_sign_in_service)]
 ChannelIdDep = Annotated[str | None, Header(alias=CLIENT_CHANNEL_HEADER)]
 ApiKeyDep = Annotated[str, Header(alias=API_KEY_HEADER)]
@@ -270,6 +276,47 @@ async def resume_schedule(
         raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
     except ScheduleAlreadyDeletedError as exc:
         raise HTTPException(status_code=409, detail=f"Schedule already deleted: {schedule_id}") from exc
+
+
+@router.post("/{schedule_id}/run", response_model=RunListItem, status_code=202, operation_id="run_schedule_now")
+async def run_schedule_now(
+    schedule_id: str,
+    run_service: ScheduleRunServiceDep,
+    launcher: RunLauncherDep,
+    user_id: Annotated[str, Depends(get_user_id)],
+) -> RunListItem:
+    """Run an owned schedule once, right now, without waiting for its trigger.
+
+    Returns `202` immediately with a run whose `status` is `in_progress`; execution continues
+    in the background. Poll `GET /schedules/{schedule_id}/runs/{run_id}` for the outcome — the
+    run's `status`, `end_time` and `result` are filled in when it finishes, and a DIAL
+    conversation is created for chat completion schedules that opted into
+    `properties.create_conversation`.
+
+    The run uses the schedule's stored definition exactly as a scheduled fire would; there is
+    no request body and nothing can be overridden. The schedule's own timetable is untouched,
+    so `next_run_time` does not move and the next scheduled fire still happens as planned.
+    Triggering a schedule that already has a run in progress is allowed.
+
+    A failure to obtain the owner's credentials is recorded on the run itself (a
+    `credentials`-stage result), not reported here — this endpoint only reports whether the
+    run was accepted.
+    """
+    try:
+        run = await run_service.create_on_demand_run(schedule_id, user_id)
+    except ScheduleNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"Schedule not found: {schedule_id}") from exc
+    except ScheduleAlreadyDeletedError as exc:
+        raise HTTPException(status_code=409, detail=f"Schedule already deleted: {schedule_id}") from exc
+
+    launcher.launch(str(run.id), schedule_id, dict(run.schedule_snapshot))
+    return RunListItem(
+        id=run.id,
+        status=run.status,
+        start_time=run.created_at,
+        end_time=run.end_time,
+        conversation_id=run.conversation_id,
+    )
 
 
 @router.delete("/{schedule_id}", status_code=204)

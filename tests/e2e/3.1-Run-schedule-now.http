@@ -1,0 +1,289 @@
+### Variables
+@baseUrl = {{dial_url}}/v1/deployments/applications/{{app_id}}/route
+
+### Run 0-Init.http first: both sign-in decisions must already be recorded.
+###
+### The schedule below fires daily at 20:00 UTC, so within a normal test window the only run it
+### can have is the one this file triggers — which is what makes the run-count assertions
+### meaningful. Avoid running this file at 20:00 UTC.
+
+
+### ============================================================
+### CREATE SCHEDULE (daily, evening — will not fire during the test)
+### ============================================================
+
+# @name create_schedule_for_on_demand_run
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "E2E Run now — daily evening",
+  "service_id": "{{service_id}}",
+  "description": "Triggered on demand while its own trigger stays in the future",
+  "trigger": {
+    "cron": {
+      "fields": {
+        "hour": 20,
+        "minute": 0
+      }
+    }
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dial_url}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+> {%
+  client.test("Created", function () {
+    client.assert(response.status === 201, "Expected 201, got " + response.status);
+  });
+  client.global.set("schedule_id", response.body["id"]);
+  client.global.set("next_run_before", response.body["next_run_time"]);
+  client.global.set("updated_at_before", response.body["updated_at"]);
+  client.test("Trigger is in the future", function () {
+    client.assert(response.body["next_run_time"] !== null, "next_run_time must be set");
+  });
+%}
+
+
+### ============================================================
+### LIST RUNS (baseline) — must be empty, so any run below is ours
+### ============================================================
+
+# @name list_runs_baseline
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("No runs yet", function () {
+    client.assert(response.body["count"] === 0, "Expected 0 runs, got " + response.body["count"]);
+  });
+%}
+
+
+### ============================================================
+### RUN NOW — expect 202 with an in_progress run, returned immediately
+### ============================================================
+
+# @name run_schedule_now
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/run
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Accepted with 202", function () {
+    client.assert(response.status === 202, "Expected 202, got " + response.status);
+  });
+  client.test("Run starts in_progress", function () {
+    client.assert(response.body["status"] === "in_progress",
+      "Expected in_progress, got " + response.body["status"]);
+  });
+  client.test("Not finished yet", function () {
+    client.assert(response.body["end_time"] === null, "end_time must be null on acceptance");
+  });
+  client.test("No conversation yet", function () {
+    client.assert(response.body["conversation_id"] === null, "conversation_id must be null on acceptance");
+  });
+  client.test("Carries a run id", function () {
+    client.assert(response.body["id"] != null && response.body["id"].length > 0, "missing run id");
+  });
+  client.global.set("run_id", response.body["id"]);
+%}
+
+
+### ============================================================
+### GET RUN — the returned id is immediately resolvable
+### ============================================================
+
+# @name get_run_immediately
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs/{{run_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Run record already exists", function () {
+    client.assert(response.status === 200, "Expected 200, got " + response.status);
+  });
+  client.test("Snapshot carries the saved definition", function () {
+    client.assert(response.body["schedule"]["properties"]["target_type"] === "chat_completion",
+      "snapshot must hold the stored properties");
+  });
+%}
+
+
+### ============================================================
+### GET SCHEDULE — the schedule itself must be untouched
+### ============================================================
+
+# @name get_schedule_during_run
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("next_run_time did not move", function () {
+    client.assert(response.body["next_run_time"] === client.global.get("next_run_before"),
+      "next_run_time changed: " + response.body["next_run_time"]);
+  });
+  client.test("Schedule row was not modified", function () {
+    client.assert(response.body["updated_at"] === client.global.get("updated_at_before"),
+      "updated_at changed: " + response.body["updated_at"]);
+  });
+  client.test("Still live", function () {
+    client.assert(response.body["is_deleted"] === false, "is_deleted must stay false");
+  });
+%}
+
+
+### ============================================================
+### GET RUN — poll until terminal
+### Run this request repeatedly until status is no longer in_progress
+### ============================================================
+
+# @name get_run_until_terminal
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs/{{run_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  const status = response.body["status"];
+  client.test("Reached a terminal status", function () {
+    client.assert(status !== "in_progress", "Still in_progress — re-run this request");
+  });
+  if (status !== "in_progress") {
+    client.test("Run succeeded", function () {
+      client.assert(status === "success",
+        "Expected success, got " + status + ": " + JSON.stringify(response.body["result"]));
+    });
+    client.test("end_time is set once finished", function () {
+      client.assert(response.body["end_time"] !== null, "end_time must be set on a finished run");
+    });
+    client.test("Result was recorded", function () {
+      client.assert(response.body["result"] != null, "result must be present on a finished run");
+    });
+  }
+%}
+
+
+### ============================================================
+### GET SCHEDULE — still untouched after the run completed
+### ============================================================
+
+# @name get_schedule_after_run
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("next_run_time still unchanged after completion", function () {
+    client.assert(response.body["next_run_time"] === client.global.get("next_run_before"),
+      "next_run_time changed: " + response.body["next_run_time"]);
+  });
+  client.test("updated_at still unchanged after completion", function () {
+    client.assert(response.body["updated_at"] === client.global.get("updated_at_before"),
+      "updated_at changed: " + response.body["updated_at"]);
+  });
+%}
+
+
+### ============================================================
+### LIST RUNS — exactly the one run we triggered
+### ============================================================
+
+# @name list_runs_after_run
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Exactly one run", function () {
+    client.assert(response.body["count"] === 1, "Expected 1 run, got " + response.body["count"]);
+  });
+  client.test("It is the run we triggered", function () {
+    client.assert(response.body["results"][0]["id"] === client.global.get("run_id"), "unexpected run id");
+  });
+%}
+
+
+### ============================================================
+### RUN NOW AGAIN — a finished or in-flight run must not block a new one
+### ============================================================
+
+# @name run_schedule_now_second
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/run
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Second trigger accepted", function () {
+    client.assert(response.status === 202, "Expected 202, got " + response.status);
+  });
+  client.test("A distinct run was created", function () {
+    client.assert(response.body["id"] !== client.global.get("run_id"), "run id must differ");
+  });
+  client.global.set("second_run_id", response.body["id"]);
+%}
+
+
+### ============================================================
+### RUN NOW — unknown schedule must be 404
+### ============================================================
+
+# @name run_unknown_schedule
+POST {{baseUrl}}/v1/schedules/00000000-0000-4000-8000-000000000000/run
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Unknown schedule returns 404", function () {
+    client.assert(response.status === 404, "Expected 404, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### DELETE SCHEDULE (has runs → soft delete)
+### ============================================================
+
+# @name delete_schedule_after_runs
+DELETE {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Delete returns 204", function () {
+    client.assert(response.status === 204, "Expected 204, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### RUN NOW ON SOFT-DELETED — must be 409
+### ============================================================
+
+# @name run_soft_deleted_schedule
+POST {{baseUrl}}/v1/schedules/{{schedule_id}}/run
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Run on soft-deleted returns 409", function () {
+    client.assert(response.status === 409, "Expected 409, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### LIST RUNS — history survives the delete, and no run was added
+### ============================================================
+
+# @name list_runs_after_delete
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}/runs
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("Runs still readable after soft delete", function () {
+    client.assert(response.status === 200, "Expected 200, got " + response.status);
+  });
+  client.test("Refused trigger added no run", function () {
+    client.assert(response.body["count"] === 2, "Expected 2 runs, got " + response.body["count"]);
+  });
+%}

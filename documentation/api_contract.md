@@ -226,6 +226,51 @@ POST /schedules/{schedule_id}/resume
 Both return 409 for a soft-deleted schedule.
 
 
+## Run schedule now
+
+POST /schedules/{schedule_id}/run
+
+Runs the schedule once, immediately, without waiting for its trigger. There is **no request
+body** — only the stored definition is executed, so a caller cannot override the target, the
+payload or the headers of a run.
+
+Returns **202** with the newly created run:
+
+```json
+{
+  "id": "uuid",
+  "status": "in_progress",
+  "start_time": "datetime",
+  "end_time": null,
+  "conversation_id": null
+}
+```
+
+The response is sent as soon as the run row exists; execution continues in the background
+**inside the API service** — the worker is not involved. Poll
+`GET /schedules/{schedule_id}/runs/{run_id}` for the outcome: `status`, `end_time` and `result`
+are filled in on completion, and `conversation_id` is set when the schedule is a
+`chat_completion` that opted into `properties.create_conversation` (same rule as a scheduled
+run; see [properties.md](./properties.md)).
+
+The run is recorded exactly like a scheduled fire: same `in_progress` → `success`/`error`
+transitions, same `schedule_snapshot`, same retry policy and timeout, and the same
+`stage: "credentials"` result shape when the owner's on-behalf-of credentials cannot be
+obtained. Unlike create/update there is **no synchronous sign-in check** — a credentials
+failure is reported on the run, not on this request, which only says whether the run was
+accepted.
+
+**The schedule's own timetable is untouched**: `next_run_time` does not move and the next
+scheduled fire still happens as planned. A schedule that already has a run `in_progress` can
+still be triggered — concurrent runs are allowed.
+
+Errors (body is a bare JSON string, as elsewhere):
+- **404** — unknown schedule, another user's schedule, or one already hard-deleted.
+- **409** — the schedule is soft-deleted and can never run again.
+
+Exposed over MCP as the `run_schedule_now` tool.
+
+
 ## Schedule run list
 
 GET /schedules/{schedule_id}/runs
