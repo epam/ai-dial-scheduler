@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-07
+
 ### Added
+- AWS RDS / Aurora PostgreSQL IAM database authentication: set `DB_AUTH_MODE=aws_iam` with
+  `DB_AWS_IAM_USER` (and optionally `DB_AWS_REGION`) instead of `DB_PASSWORD` / `DB_URL`. Tokens are
+  generated via `boto3` for both the async engine and Alembic migrations (`src/lib/db/credentials.py`,
+  `src/lib/db/engine.py`, `src/lib/db/sync_engine.py`).
 - `POST /v1/schedules/{schedule_id}/run` — run a schedule once on demand. Returns `202` with an
   `in_progress` run and executes it in the background **inside the API service**, using only the
   stored definition; the schedule's `next_run_time` is unaffected (`src/api/v1/endpoints/schedules.py`,
@@ -23,6 +29,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   execution core (`src.worker.jobs.execute_run`) serves both the worker and the API. The worker
   keeps its shared client and `WORKER_HTTP_*` timeouts; the API uses its app-state client and
   `API_HTTP_*` timeouts (`src/lib/schemas/run.py`, `src/worker/`).
+- Bumped `anyio` to `>=4.14.2` (CVE-2026-63374).
+- Bumped `pyjwt` to `>=2.14.0` (CVE-2026-102266, -102267, -102268, -102271, -102272, -102273) and
+  `urllib3` to `>=2.8.0` (CVE-2026-97687, CVE-2026-97689); locked at 2.15.1 and 2.8.0.
 
 ## [0.2.0] - 2026-09-21
 
