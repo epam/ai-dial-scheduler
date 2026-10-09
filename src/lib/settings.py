@@ -88,7 +88,7 @@ class ApiHttpSettings(BaseSettings):
         env_prefix="API_HTTP_",
     )
 
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 600.0
     connect_timeout_seconds: float = 5.0
     read_timeout_seconds: float = 60.0
     write_timeout_seconds: float = 60.0
@@ -105,7 +105,7 @@ class WorkerHttpSettings(BaseSettings):
         env_prefix="WORKER_HTTP_",
     )
 
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 600.0
     connect_timeout_seconds: float = 5.0
     read_timeout_seconds: float = 60.0
     write_timeout_seconds: float = 60.0
