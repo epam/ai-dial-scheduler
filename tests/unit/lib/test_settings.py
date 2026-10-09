@@ -159,7 +159,7 @@ class TestApiHttpSettings:
     def test_defaults(self):
         s = ApiHttpSettings()
 
-        assert s.timeout_seconds == 60.0
+        assert s.timeout_seconds == 600.0
         assert s.connect_timeout_seconds == 5.0
         assert s.read_timeout_seconds == 60.0
         assert s.write_timeout_seconds == 60.0
@@ -181,7 +181,7 @@ class TestWorkerHttpSettings:
     def test_defaults(self):
         s = WorkerHttpSettings()
 
-        assert s.timeout_seconds == 60.0
+        assert s.timeout_seconds == 600.0
         assert s.connect_timeout_seconds == 5.0
         assert s.read_timeout_seconds == 60.0
         assert s.write_timeout_seconds == 60.0
