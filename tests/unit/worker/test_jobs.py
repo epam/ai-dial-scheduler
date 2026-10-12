@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 
 from pydantic import SecretStr
@@ -6,7 +7,12 @@ from structlog.contextvars import clear_contextvars, get_contextvars
 import structlog.testing
 
 from src.lib.db.enums import HttpMethod, TargetType
-from src.lib.exceptions.errors import ConversationCreationError, OboCredentialsError, ScheduleRunError
+from src.lib.exceptions.errors import (
+    ConversationCreationError,
+    OboCredentialsError,
+    ScheduleRunError,
+    StreamIdleTimeoutError,
+)
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
@@ -46,7 +52,6 @@ def mock_credentials(mocker):
             scheduler_app_id="dial_scheduler",
             dial_url="https://dial.example.com",
             dial_api_key=mocker.MagicMock(get_secret_value=lambda: "svc-key"),
-            worker_http=mocker.MagicMock(timeout_seconds=60.0),
         ),
     )
     return mocker.MagicMock(schedule=schedule, schedule_repo=schedule_repo, dial_client=dial_client, creds=creds)
@@ -720,6 +725,59 @@ class TestExecuteScheduledJobTimeoutAndRetry:
 
         assert mock_executor.execute.await_count == 1
         mock_run_repo.mark_error.assert_awaited_once()
+
+    async def test_idle_expiry_is_persisted_with_its_own_reason(self, mocker, mock_run_repo):
+        """FR-011: which bound expired must be visible in the persisted failure reason, not only in logs."""
+        from src.worker.jobs import execute_scheduled_job
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = mocker.AsyncMock(
+            side_effect=StreamIdleTimeoutError(
+                "stream produced no event for 60.0s", schedule_id=SCHEDULE_ID, run_id="r"
+            )
+        )
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(StreamIdleTimeoutError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.SSE,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                )
+
+        error_text = mock_run_repo.mark_error.call_args.args[1]
+        assert "stream produced no event for 60.0s" in error_text
+        assert "execution timed out" not in error_text
+
+    async def test_ceiling_expiry_is_persisted_with_its_own_reason(self, mocker, mock_run_repo):
+        from src.worker.jobs import execute_scheduled_job
+
+        async def never_finishes(*args, **kwargs):
+            await asyncio.sleep(1)
+
+        mock_executor = mocker.AsyncMock()
+        mock_executor.execute = never_finishes
+        mocker.patch("src.worker.jobs.resolve_executor", return_value=mock_executor)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_scheduled_job(
+                    schedule_id=SCHEDULE_ID,
+                    target_type=TargetType.REST,
+                    method=HttpMethod.POST,
+                    url="https://example.com",
+                    payload={},
+                    extra_headers={},
+                    timeout=0.01,
+                )
+
+        error_text = mock_run_repo.mark_error.call_args.args[1]
+        assert "execution timed out after 0.01s" in error_text
+        assert "stream produced no event" not in error_text
 
 
 class TestExecuteScheduledJobCredentials:

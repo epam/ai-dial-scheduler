@@ -25,12 +25,14 @@ from src.lib.utils.logging import logger
 
 
 class DialClient:
-    """Thin wrapper around httpx for calling DIAL operational endpoints."""
+    """Thin wrapper around httpx for calling DIAL operational endpoints.
 
-    def __init__(self, http_client: httpx.AsyncClient, base_url: str, timeout: float) -> None:
+    Requests inherit the per-phase timeouts configured on ``http_client``.
+    """
+
+    def __init__(self, http_client: httpx.AsyncClient, base_url: str) -> None:
         self._http_client = http_client
         self._base_url = base_url.rstrip("/")
-        self._timeout = timeout
 
     async def get_user_info(self, api_key: str) -> dict[str, Any]:
         """Call GET {base_url}/v1/user/info with the caller's Api-Key and return the JSON body.
@@ -40,7 +42,7 @@ class DialClient:
         """
         url = f"{self._base_url}/v1/user/info"
         try:
-            response = await self._http_client.get(url, headers={API_KEY_HEADER: api_key}, timeout=self._timeout)
+            response = await self._http_client.get(url, headers={API_KEY_HEADER: api_key})
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise DialServiceError(f"DIAL returned unexpected status: {exc.response.status_code}") from exc
@@ -67,7 +69,7 @@ class DialClient:
         """
         url = f"{self._base_url}{APPLICATION_STATUS_PATH_TEMPLATE.format(app_id=app_id)}"
         try:
-            response = await self._http_client.get(url, headers={API_KEY_HEADER: api_key}, timeout=self._timeout)
+            response = await self._http_client.get(url, headers={API_KEY_HEADER: api_key})
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise DialServiceError(f"application status request failed with status {exc.response.status_code}") from exc
@@ -102,7 +104,6 @@ class DialClient:
                 url,
                 headers={API_KEY_HEADER: api_key},
                 json=request.model_dump(),
-                timeout=self._timeout,
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
@@ -174,7 +175,7 @@ class DialClient:
         url = f"{self._base_url}{BUCKET_PATH}"
         headers = {credentials.header_name: credentials.header_value.get_secret_value()}
         try:
-            response = await self._http_client.get(url, headers=headers, timeout=self._timeout)
+            response = await self._http_client.get(url, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ConversationCreationError(f"bucket request failed with status {exc.response.status_code}") from exc
@@ -209,7 +210,7 @@ class DialClient:
         url = f"{self._base_url}{path}"
         headers = {credentials.header_name: credentials.header_value.get_secret_value()}
         try:
-            response = await self._http_client.get(url, headers=headers, timeout=self._timeout)
+            response = await self._http_client.get(url, headers=headers)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise ConversationCreationError(
@@ -245,7 +246,6 @@ class DialClient:
                 url,
                 headers=headers,
                 json=conversation.model_dump(exclude_none=True),
-                timeout=self._timeout,
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:

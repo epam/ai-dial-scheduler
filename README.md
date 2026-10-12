@@ -351,7 +351,9 @@ The `api` service runs the FastAPI application.
 | `DB_POOL_PRE_PING` | `true` | No | Test connections with a ping before use |
 | `DB_ECHO` | `false` | No | Log all SQL statements |
 | **HTTP Client** | | | |
-| `API_HTTP_TIMEOUT_SECONDS` | `60.0` | No | Overall outbound request timeout |
+| `API_HTTP_MAX_DURATION_SECONDS` | `600.0` | No | Run-now executions (started by the api process): default ceiling on one attempt of a non-streaming target, used when the schedule sets no `timeout`. Never resets; an expiry is terminal and not retried |
+| `API_HTTP_STREAMING_MAX_DURATION_SECONDS` | `3600.0` | No | Run-now executions (started by the api process): default ceiling on one attempt of a streaming target (`sse`, or `chat_completion`/`responses` with `payload.stream: true`), used when the schedule sets no `timeout`. Longer than `API_HTTP_MAX_DURATION_SECONDS` because stalls are caught by the idle timeout |
+| `API_HTTP_IDLE_TIMEOUT_SECONDS` | `60.0` | No | Run-now executions (started by the api process): default maximum gap between two stream events, used when the schedule sets no `idle_timeout`. Resets on every event; streaming targets only. Counts parsed events, so SSE heartbeat pings do not reset it |
 | `API_HTTP_CONNECT_TIMEOUT_SECONDS` | `5.0` | No | TCP connection timeout |
 | `API_HTTP_READ_TIMEOUT_SECONDS` | `60.0` | No | Socket read timeout |
 | `API_HTTP_WRITE_TIMEOUT_SECONDS` | `60.0` | No | Socket write timeout |
@@ -396,7 +398,9 @@ The `worker` service runs the APScheduler background process that executes sched
 | `DB_POOL_PRE_PING` | `true` | No | Test connections with a ping before use |
 | `DB_ECHO` | `false` | No | Log all SQL statements |
 | **HTTP Client** | | | |
-| `WORKER_HTTP_TIMEOUT_SECONDS` | `60.0` | No | Overall outbound request timeout |
+| `WORKER_HTTP_MAX_DURATION_SECONDS` | `600.0` | No | Scheduled executions (started by the worker process): default ceiling on one attempt of a non-streaming target, used when the schedule sets no `timeout`. Never resets; an expiry is terminal and not retried |
+| `WORKER_HTTP_STREAMING_MAX_DURATION_SECONDS` | `3600.0` | No | Scheduled executions (started by the worker process): default ceiling on one attempt of a streaming target (`sse`, or `chat_completion`/`responses` with `payload.stream: true`), used when the schedule sets no `timeout`. Longer than `WORKER_HTTP_MAX_DURATION_SECONDS` because stalls are caught by the idle timeout |
+| `WORKER_HTTP_IDLE_TIMEOUT_SECONDS` | `60.0` | No | Scheduled executions (started by the worker process): default maximum gap between two stream events, used when the schedule sets no `idle_timeout`. Resets on every event; streaming targets only. Counts parsed events, so SSE heartbeat pings do not reset it |
 | `WORKER_HTTP_CONNECT_TIMEOUT_SECONDS` | `5.0` | No | TCP connection timeout |
 | `WORKER_HTTP_READ_TIMEOUT_SECONDS` | `60.0` | No | Socket read timeout |
 | `WORKER_HTTP_WRITE_TIMEOUT_SECONDS` | `60.0` | No | Socket write timeout |

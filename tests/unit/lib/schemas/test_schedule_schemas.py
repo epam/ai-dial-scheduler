@@ -355,6 +355,114 @@ class TestScheduleTimeout:
             )
 
 
+class TestScheduleIdleTimeout:
+    def test_idle_timeout_defaults_to_none(self):
+        props = ScheduleProperties(target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST)
+        assert props.idle_timeout is None
+
+    def test_positive_idle_timeout_accepted(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST, idle_timeout=30
+        )
+        assert props.idle_timeout == 30
+
+    @pytest.mark.parametrize("value", [0, -5])
+    def test_non_positive_idle_timeout_raises(self, value):
+        with pytest.raises(ValidationError, match="idle_timeout must be a positive number"):
+            ScheduleProperties(
+                target_type=TargetType.REST,
+                url="https://example.com/api",
+                method=HttpMethod.POST,
+                idle_timeout=value,
+            )
+
+    def test_idle_timeout_above_timeout_raises(self):
+        with pytest.raises(ValidationError, match="idle_timeout must not exceed timeout"):
+            ScheduleProperties(
+                target_type=TargetType.REST,
+                url="https://example.com/api",
+                method=HttpMethod.POST,
+                timeout=60,
+                idle_timeout=120,
+            )
+
+    def test_idle_timeout_equal_to_timeout_accepted(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            timeout=60,
+            idle_timeout=60,
+        )
+        assert props.idle_timeout == 60
+
+    def test_idle_timeout_without_timeout_accepted(self):
+        """The cross-field rule applies only when both are set: comparing an explicit field
+        against a process default would make validity depend on deployment configuration."""
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            idle_timeout=9000,
+        )
+        assert props.idle_timeout == 9000
+        assert props.timeout is None
+
+    def test_round_trips_through_json(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST,
+            url="https://example.com/api",
+            method=HttpMethod.POST,
+            timeout=1800,
+            idle_timeout=90,
+        )
+
+        restored = ScheduleProperties(**props.model_dump(mode="json"))
+
+        assert restored.timeout == 1800
+        assert restored.idle_timeout == 90
+
+
+class TestIsStreaming:
+    """``is_streaming`` picks both the ceiling default and the SDK call shape, so every target
+    type and ``stream`` value must resolve deterministically."""
+
+    @pytest.mark.parametrize(
+        ("target_type", "stream", "expected"),
+        [
+            (TargetType.CHAT_COMPLETION, True, True),
+            (TargetType.CHAT_COMPLETION, False, False),
+            (TargetType.CHAT_COMPLETION, None, False),
+            (TargetType.RESPONSES, True, True),
+            (TargetType.RESPONSES, False, False),
+            (TargetType.RESPONSES, None, False),
+        ],
+    )
+    def test_sdk_targets_follow_payload_stream(self, target_type, stream, expected):
+        payload: dict = {"model": "gpt-4o"}
+        if stream is not None:
+            payload["stream"] = stream
+
+        props = ScheduleProperties(
+            target_type=target_type,
+            url="https://example.com/api",
+            payload=payload,
+            api_version="2025-01-01-preview",
+        )
+
+        assert props.is_streaming is expected
+
+    def test_sse_always_streams(self):
+        props = ScheduleProperties(target_type=TargetType.SSE, url="https://example.com/api", method=HttpMethod.POST)
+        assert props.is_streaming is True
+
+    def test_rest_never_streams_even_with_a_stream_flag(self):
+        props = ScheduleProperties(
+            target_type=TargetType.REST, url="https://example.com/api", method=HttpMethod.POST, payload={"stream": True}
+        )
+        assert props.is_streaming is False
+
+
 class TestRetryPolicy:
     def test_valid_retry_accepted(self):
         policy = RetryPolicy(interval_sequence=[2, 5, 8], retryable_errors=[500, 502])

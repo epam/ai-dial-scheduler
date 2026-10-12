@@ -24,7 +24,6 @@ class HttpClientProvider:
             worker_http = get_settings().worker_http
             self._client = httpx.AsyncClient(
                 timeout=httpx.Timeout(
-                    worker_http.timeout_seconds,
                     connect=worker_http.connect_timeout_seconds,
                     read=worker_http.read_timeout_seconds,
                     write=worker_http.write_timeout_seconds,

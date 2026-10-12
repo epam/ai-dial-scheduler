@@ -26,7 +26,6 @@ def create_backing_client(
         transport=httpx.ASGITransport(app=app),
         base_url=MCP_BACKING_BASE_URL,
         timeout=httpx.Timeout(
-            api_http.timeout_seconds,
             connect=api_http.connect_timeout_seconds,
             read=api_http.read_timeout_seconds,
             write=api_http.write_timeout_seconds,

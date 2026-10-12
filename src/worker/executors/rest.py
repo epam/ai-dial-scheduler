@@ -9,6 +9,7 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
+from src.worker.executors.base import build_timeout
 
 
 class RestExecutor:
@@ -24,8 +25,11 @@ class RestExecutor:
             "json": properties.payload,
             "headers": headers,
         }
-        if ctx.effective_timeout is not None:
-            request_kwargs["timeout"] = httpx.Timeout(ctx.effective_timeout)
+        # A non-streaming call has no idle period -- the whole wait for the response is one
+        # read -- so the ceiling is the only meaningful read bound here.
+        timeout = build_timeout(client, ctx.effective_timeout)
+        if timeout is not None:
+            request_kwargs["timeout"] = timeout
 
         try:
             response = await client.request(**request_kwargs)

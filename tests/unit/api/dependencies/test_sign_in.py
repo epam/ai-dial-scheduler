@@ -12,7 +12,7 @@ class TestGetSignInService:
     def test_returns_sign_in_service_wired_to_dial_client(self):
         from src.api.dependencies.sign_in import get_sign_in_service
 
-        dial_client = DialClient(httpx.AsyncClient(), base_url="https://dial.example.com", timeout=30.0)
+        dial_client = DialClient(httpx.AsyncClient(), base_url="https://dial.example.com")
 
         mock_settings = MagicMock()
         mock_settings.scheduler_app_id = "public/dial_scheduler__1.0.0"

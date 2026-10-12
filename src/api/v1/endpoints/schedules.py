@@ -82,6 +82,10 @@ _SCHEDULE_EXAMPLES = {
                 },
                 "api_version": "2025-01-01-preview",
                 "create_conversation": True,
+                # Streaming example: the ceiling bounds the whole attempt, idle_timeout bounds
+                # the gap between events. Agents reading this see both as tool-input guidance.
+                "timeout": 1800,
+                "idle_timeout": 60,
             },
         },
     },
@@ -110,6 +114,8 @@ _SCHEDULE_EXAMPLES = {
                 "method": "POST",
                 "url": "https://example.com/api/stream",
                 "payload": {"prompt": "Generate a status update."},
+                "timeout": 1800,
+                "idle_timeout": 60,
             },
         },
     },
