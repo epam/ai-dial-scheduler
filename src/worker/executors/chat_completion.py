@@ -10,6 +10,7 @@ from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.dial import strip_bearer_prefix
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
+from src.worker.executors.base import build_timeout, iterate_with_idle_timeout
 
 
 class ChatCompletionExecutor:
@@ -22,23 +23,27 @@ class ChatCompletionExecutor:
         try:
             # ``url`` is the base URL; the deployment is selected by ``payload.model`` (sent in the
             # request body by the SDK). Validation guarantees ``payload.model`` is present.
+            http_client = ctx.http_client or HttpClientProvider().client
             client = AsyncAzureOpenAI(
                 base_url=properties.url,
                 api_key=api_key,
                 api_version=properties.api_version,
-                http_client=ctx.http_client or HttpClientProvider().client,
+                http_client=http_client,
             )
             # ``stream`` is controlled by DIAL via the payload flag (defaults to False). When
             # streaming, ``.stream()`` assembles a single ChatCompletion via
             # ``get_final_completion()``; otherwise ``.create()`` returns one directly. Either
             # way the stored result shape is identical.
             create_kwargs: dict[str, Any] = {**properties.payload, "extra_headers": properties.extra_headers}
-            stream_enabled = bool(create_kwargs.pop("stream", None))
-            if ctx.effective_timeout is not None:
-                create_kwargs["timeout"] = ctx.effective_timeout
-            if stream_enabled:
+            create_kwargs.pop("stream", None)
+            timeout = build_timeout(http_client, ctx.effective_timeout)
+            if timeout is not None:
+                create_kwargs["timeout"] = timeout
+            if properties.is_streaming:
                 async with client.chat.completions.stream(**create_kwargs) as stream:
-                    async for stream_event in stream:
+                    # Inactivity is bounded per event: the read phase cannot detect a target
+                    # that has stopped making progress while heartbeat pings keep arriving.
+                    async for stream_event in iterate_with_idle_timeout(aiter(stream), ctx.effective_idle_timeout, ctx):
                         # Event type discriminator only — never the streamed content, which may be sensitive.
                         logger.debug("stream_event", run_id=ctx.run_id, event_type=getattr(stream_event, "type", None))
                     result = await stream.get_final_completion()

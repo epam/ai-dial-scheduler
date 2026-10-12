@@ -17,7 +17,7 @@ def get_settings_dep() -> Settings:
 
 def get_dial_client(request: Request, settings: Annotated[Settings, Depends(get_settings_dep)]) -> DialClient:
     http_client: httpx.AsyncClient = request.app.state.app_client
-    return DialClient(http_client=http_client, base_url=settings.dial_url, timeout=settings.api_http.timeout_seconds)
+    return DialClient(http_client=http_client, base_url=settings.dial_url)
 
 
 async def get_user_id(

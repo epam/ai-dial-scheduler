@@ -55,6 +55,16 @@ class ScheduleRunError(SchedulerError):
         self.status_code = status_code
 
 
+class StreamIdleTimeoutError(ScheduleRunError):
+    """Raised when a streaming target delivers no event within the run's idle bound.
+
+    Distinct from a plain :class:`ScheduleRunError` so the orchestrator can log it as its own
+    decision type: an idle expiry and a ceiling expiry are different operational problems and
+    must be told apart without reading the error text. Like every timeout it carries no
+    ``status_code`` and is therefore terminal, never retried.
+    """
+
+
 class DialServiceError(SchedulerError):
     """Raised when the DIAL service is unreachable or returns an unexpected non-2xx response."""
 

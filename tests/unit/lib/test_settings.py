@@ -159,7 +159,6 @@ class TestApiHttpSettings:
     def test_defaults(self):
         s = ApiHttpSettings()
 
-        assert s.timeout_seconds == 600.0
         assert s.connect_timeout_seconds == 5.0
         assert s.read_timeout_seconds == 60.0
         assert s.write_timeout_seconds == 60.0
@@ -167,21 +166,36 @@ class TestApiHttpSettings:
         assert s.max_connections == 200
         assert s.max_keepalive_connections == 20
 
+    def test_split_timeout_defaults(self):
+        s = ApiHttpSettings()
+
+        assert s.max_duration_seconds == 600.0
+        assert s.streaming_max_duration_seconds == 3600.0
+        assert s.idle_timeout_seconds == 60.0
+
     def test_override_via_env(self, monkeypatch):
-        monkeypatch.setenv("API_HTTP_TIMEOUT_SECONDS", "120.0")
         monkeypatch.setenv("API_HTTP_CONNECT_TIMEOUT_SECONDS", "10.0")
 
         s = ApiHttpSettings()
 
-        assert s.timeout_seconds == 120.0
         assert s.connect_timeout_seconds == 10.0
+
+    def test_split_timeouts_override_via_env(self, monkeypatch):
+        monkeypatch.setenv("API_HTTP_MAX_DURATION_SECONDS", "25.0")
+        monkeypatch.setenv("API_HTTP_STREAMING_MAX_DURATION_SECONDS", "900.0")
+        monkeypatch.setenv("API_HTTP_IDLE_TIMEOUT_SECONDS", "15.0")
+
+        s = ApiHttpSettings()
+
+        assert s.max_duration_seconds == 25.0
+        assert s.streaming_max_duration_seconds == 900.0
+        assert s.idle_timeout_seconds == 15.0
 
 
 class TestWorkerHttpSettings:
     def test_defaults(self):
         s = WorkerHttpSettings()
 
-        assert s.timeout_seconds == 600.0
         assert s.connect_timeout_seconds == 5.0
         assert s.read_timeout_seconds == 60.0
         assert s.write_timeout_seconds == 60.0
@@ -189,11 +203,44 @@ class TestWorkerHttpSettings:
         assert s.max_connections == 200
         assert s.max_keepalive_connections == 20
 
+    def test_split_timeout_defaults(self):
+        s = WorkerHttpSettings()
+
+        assert s.max_duration_seconds == 600.0
+        assert s.streaming_max_duration_seconds == 3600.0
+        assert s.idle_timeout_seconds == 60.0
+
+    def test_streaming_ceiling_exceeds_the_general_one(self):
+        """The longer ceiling is earned by having an idle detector; a non-streaming target has
+        no progress signal, so its only instrument must stay tighter."""
+        s = WorkerHttpSettings()
+
+        assert s.streaming_max_duration_seconds > s.max_duration_seconds
+
     def test_override_via_env(self, monkeypatch):
-        monkeypatch.setenv("WORKER_HTTP_TIMEOUT_SECONDS", "45.0")
         monkeypatch.setenv("WORKER_HTTP_READ_TIMEOUT_SECONDS", "90.0")
 
         s = WorkerHttpSettings()
 
-        assert s.timeout_seconds == 45.0
         assert s.read_timeout_seconds == 90.0
+
+    def test_split_timeouts_override_via_env(self, monkeypatch):
+        monkeypatch.setenv("WORKER_HTTP_MAX_DURATION_SECONDS", "7200.0")
+        monkeypatch.setenv("WORKER_HTTP_STREAMING_MAX_DURATION_SECONDS", "10800.0")
+        monkeypatch.setenv("WORKER_HTTP_IDLE_TIMEOUT_SECONDS", "120.0")
+
+        s = WorkerHttpSettings()
+
+        assert s.max_duration_seconds == 7200.0
+        assert s.streaming_max_duration_seconds == 10800.0
+        assert s.idle_timeout_seconds == 120.0
+
+    def test_removed_timeout_seconds_env_var_is_ignored(self, monkeypatch):
+        """Deployments still setting the removed variable must start and keep the run defaults."""
+        monkeypatch.setenv("WORKER_HTTP_TIMEOUT_SECONDS", "45.0")
+
+        s = WorkerHttpSettings()
+
+        assert not hasattr(s, "timeout_seconds")
+        assert s.max_duration_seconds == 600.0
+        assert s.idle_timeout_seconds == 60.0

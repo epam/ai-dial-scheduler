@@ -14,6 +14,7 @@ from src.api.v1.endpoints.schedules import router as schedules_router
 from src.api.v1.endpoints.sign_in import router as sign_in_router
 from src.lib.db.engine import Database
 from src.lib.scheduler import create_scheduler
+from src.lib.schemas.run import RunTimeouts
 from src.lib.services.run_launcher import BackgroundRunLauncher
 from src.lib.settings import get_settings
 from src.lib.utils.logging import LoggingConfig, configure_logging, logger
@@ -33,7 +34,6 @@ async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
         api_http = settings.api_http
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(
-                api_http.timeout_seconds,
                 connect=api_http.connect_timeout_seconds,
                 read=api_http.read_timeout_seconds,
                 write=api_http.write_timeout_seconds,
@@ -46,7 +46,14 @@ async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
         ) as app_client:
             logger.info("Created global HTTP Client for the app lifespan.")
             app.state.app_client = app_client  # type: ignore[attr-defined]
-            run_launcher = BackgroundRunLauncher(app_client, api_http.timeout_seconds)
+            run_launcher = BackgroundRunLauncher(
+                app_client,
+                timeouts=RunTimeouts(
+                    max_duration=api_http.max_duration_seconds,
+                    streaming_max_duration=api_http.streaming_max_duration_seconds,
+                    idle_timeout=api_http.idle_timeout_seconds,
+                ),
+            )
             app.state.run_launcher = run_launcher  # type: ignore[attr-defined]
             try:
                 yield

@@ -419,7 +419,6 @@ def mock_dial(mocker, mock_schedule):
         "src.worker.conversation.get_settings",
         return_value=mocker.MagicMock(
             dial_url="https://dial.example.com",
-            worker_http=mocker.MagicMock(timeout_seconds=60.0),
         ),
     )
     return dial_client

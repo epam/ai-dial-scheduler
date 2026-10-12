@@ -88,7 +88,12 @@ class ApiHttpSettings(BaseSettings):
         env_prefix="API_HTTP_",
     )
 
-    timeout_seconds: float = 600.0
+    # Ceilings on one attempt, and the maximum gap between stream events. A streaming target
+    # earns the longer ceiling because idle_timeout_seconds can detect a stall; a non-streaming
+    # one offers no progress signal, so total duration is the only instrument.
+    max_duration_seconds: float = 600.0
+    streaming_max_duration_seconds: float = 3600.0
+    idle_timeout_seconds: float = 60.0
     connect_timeout_seconds: float = 5.0
     read_timeout_seconds: float = 60.0
     write_timeout_seconds: float = 60.0
@@ -105,7 +110,12 @@ class WorkerHttpSettings(BaseSettings):
         env_prefix="WORKER_HTTP_",
     )
 
-    timeout_seconds: float = 600.0
+    # Ceilings on one attempt, and the maximum gap between stream events. A streaming target
+    # earns the longer ceiling because idle_timeout_seconds can detect a stall; a non-streaming
+    # one offers no progress signal, so total duration is the only instrument.
+    max_duration_seconds: float = 600.0
+    streaming_max_duration_seconds: float = 3600.0
+    idle_timeout_seconds: float = 60.0
     connect_timeout_seconds: float = 5.0
     read_timeout_seconds: float = 60.0
     write_timeout_seconds: float = 60.0

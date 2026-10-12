@@ -144,11 +144,7 @@ async def _resolve_credentials(ctx: RunContext) -> OboCredentials:
         url=EXTERNAL_SERVICE_URL_TEMPLATE.format(app_id=settings.scheduler_app_id, service_id=schedule.service_id),
         owner_user_id=schedule.created_by,
     )
-    client = DialClient(
-        ctx.http_client or HttpClientProvider().client,
-        settings.dial_url,
-        ctx.default_timeout if ctx.default_timeout is not None else settings.worker_http.timeout_seconds,
-    )
+    client = DialClient(ctx.http_client or HttpClientProvider().client, settings.dial_url)
     try:
         credentials = await client.get_obo_credentials(settings.dial_api_key.get_secret_value(), request)
     except OboCredentialsError as exc:

@@ -10,6 +10,7 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
+from src.worker.executors.base import build_timeout, iterate_with_idle_timeout
 
 
 class SseExecutor:
@@ -21,8 +22,11 @@ class SseExecutor:
         client = ctx.http_client or HttpClientProvider().client
 
         connect_kwargs: dict[str, Any] = {"json": properties.payload, "headers": headers}
-        if ctx.effective_timeout is not None:
-            connect_kwargs["timeout"] = httpx.Timeout(ctx.effective_timeout)
+        # The read phase stays on the ceiling: heartbeat pings keep the socket alive regardless,
+        # so inactivity is detected per event below rather than by the transport.
+        timeout = build_timeout(client, ctx.effective_timeout)
+        if timeout is not None:
+            connect_kwargs["timeout"] = timeout
 
         try:
             async with aconnect_sse(
@@ -33,7 +37,7 @@ class SseExecutor:
             ) as event_source:
                 if not (200 <= event_source.response.status_code < 300):
                     event_source.response.raise_for_status()
-                async for event in event_source.aiter_sse():
+                async for event in iterate_with_idle_timeout(event_source.aiter_sse(), ctx.effective_idle_timeout, ctx):
                     logger.debug("sse_event", run_id=ctx.run_id, **{event.event: event.data})
                     events.append({"event": event.event, "data": event.data})
         except httpx.HTTPStatusError as exc:
