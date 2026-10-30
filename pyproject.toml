@@ -61,7 +61,7 @@ constraint-dependencies = [
     # Transitive pins raising CVE-flagged versions above their fix. Each is pulled in by a
     # dependency that permits the vulnerable range, so the floor is set here rather than by
     # adding a direct dependency.
-    "aiohttp>=3.14.4",       # CVE-2026-69244, CVE-2026-111064, CVE-2026-111066, via cloud-sql-python-connector
+    "aiohttp>=3.14.4",       # CVE-2026-69244, CVE-2026-111064, CVE-2026-111066, GHSA-2g87-pp6c-29x5, via cloud-sql-python-connector
     "cryptography>=50.0.0",  # CVE-2026-69247, CVE-2026-69249, via azure-identity/google-auth/msal
     "anyio>=4.14.2",         # CVE-2026-63374, via httpx/starlette/mcp/openai
     "pyjwt>=2.14.0",         # CVE-2026-102266/67/68/71/72/73, transitive

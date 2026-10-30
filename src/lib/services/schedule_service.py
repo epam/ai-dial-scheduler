@@ -58,6 +58,13 @@ class ScheduleService:
         )
 
     @staticmethod
+    def _trigger_log_fields(trigger: ScheduleTrigger) -> dict[str, Any]:
+        """Describe the trigger for registration logs without exposing its field values."""
+        if trigger.crons is not None:
+            return {"trigger_kind": "crons", "cron_entries": len(trigger.crons)}
+        return {"trigger_kind": trigger.trigger_type.value}
+
+    @staticmethod
     def _to_response(schedule: Schedule, next_run_time: datetime | None) -> ScheduleResponse:
         """Map ORM model + next_run_time to ScheduleResponse."""
         return ScheduleResponse(
@@ -100,7 +107,7 @@ class ScheduleService:
 
         try:
             await self._register_job(schedule_id, request.trigger, properties_dict)
-            logger.info("Schedule job registered", schedule_id=schedule_id)
+            logger.info("Schedule job registered", schedule_id=schedule_id, **self._trigger_log_fields(request.trigger))
         except Exception as exc:
             logger.warning(
                 "Job registration failed, rolling back schedule row",
@@ -155,7 +162,9 @@ class ScheduleService:
 
         try:
             await self._register_job(schedule_id, request.trigger, new_properties_dict)
-            logger.info("Schedule job re-registered", schedule_id=schedule_id)
+            logger.info(
+                "Schedule job re-registered", schedule_id=schedule_id, **self._trigger_log_fields(request.trigger)
+            )
         except Exception as registration_exc:
             logger.warning(
                 "Job re-registration failed, restoring prior schedule values",

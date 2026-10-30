@@ -23,6 +23,7 @@ Request
       "start_date": "datetime|None",
       "end_date": "datetime|None"
     },
+    "crons": "list of the cron objects above|None",
     "date": "datetime|None"
   },
   "properties": {
@@ -52,6 +53,28 @@ Response
   "updated_at": "datetime"
 }
 ```
+**Trigger.** `trigger` carries exactly one of `cron`, `crons` or `date`; setting none or more than
+one is rejected with `422`. `crons` is a list of 1 to 20 cron objects, each with the same shape as
+`cron` (its own `fields`, `start_date` and `end_date`). The schedule fires whenever any entry fires
+and stays one schedule with one id, one run history and one pause/resume/delete lifecycle. Entries that
+fire at the same instant produce a single run, and `next_run_time` is the earliest upcoming fire time
+across all entries. All times are UTC. Example, Monday 08:00 and Friday 10:00:
+
+```json
+"trigger": {
+  "crons": [
+    {"fields": {"day_of_week": "mon", "hour": 8, "minute": 0}},
+    {"fields": {"day_of_week": "fri", "hour": 10, "minute": 0}}
+  ]
+}
+```
+
+The trigger is returned with the same content as submitted; unused kinds appear as `null`, and
+schedules created before `crons` existed may omit the key, so treat a missing `crons` as `null`.
+`trigger_type` in list responses is `cron` for both `cron` and `crons`. Validation errors for a list
+point at the offending entry, for example `body.trigger.crons.1.fields.hour`. Update replaces the whole
+trigger, so a schedule can switch between `cron`, `crons` and `date`.
+
 ID is generated uuid4 converted to string, same value used for schedules.id table and as job id in scheduler.add_job
 Table populated with created_by = user `sub` claim from /v1/info dial endpoint (resolved via
 `USER_ID_PATH_LIST`, default `["sub", "userClaims.sub.0", "project"]`).
