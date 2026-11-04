@@ -1,10 +1,13 @@
-# AIDIAL Scheduler
+# AI DIAL Scheduler
 
-Backend scheduler for the DIAL platform. Runs as three services from a single Docker image, dispatched by the `SERVICE` environment variable.
+Scheduling service for the [AI DIAL](https://dialx.ai) platform. It runs DIAL applications and HTTP targets
+(chat completion, responses, REST, SSE) on cron and date triggers, records every run, and exposes schedules over a
+REST API and an MCP endpoint. It runs as three services from a single Docker image, dispatched by the `SERVICE`
+environment variable.
 
 ## Components
 
-- **API** — FastAPI application (via aidial-sdk) exposing a health check endpoint. Future features will add job scheduling routes.
+- **API** — FastAPI application (via aidial-sdk) exposing the schedule and run REST API, the MCP endpoint, and health/readiness checks.
 - **Worker** — APScheduler `AsyncIOScheduler` process that executes scheduled jobs. Maintains a PostgreSQL-backed jobstore.
 - **Migrations** — One-shot Alembic runner that applies schema migrations before the API and worker start.
 
@@ -12,6 +15,7 @@ Backend scheduler for the DIAL platform. Runs as three services from a single Do
 
 - Docker ≥ 24 and Docker Compose v2
 - `uv` (for running quality gates on the host)
+- `make` (to run the quality gates via `make lint` / `make test`)
 - Ports `5432` and `5000` available
 
 ## Quickstart
@@ -59,6 +63,12 @@ is reachable again. The timeout for the internal check is controlled by
 ```bash
 docker compose logs worker   # should contain: "Starting worker."
 docker compose ps worker     # STATUS column should show "running"
+```
+
+## Teardown
+
+```bash
+docker compose down -v   # stops containers and removes volumes (wipes the DB)
 ```
 
 ## Testing
@@ -122,6 +132,11 @@ uv run pytest tests/integration/ -v
 ```bash
 uv run pytest --cov=src --cov-report=term-missing
 ```
+
+### Manual API testing
+
+A Postman collection with the schedule and run endpoints is available at
+[`documentation/postman/dial-scheduler.postman_collection.json`](documentation/postman/dial-scheduler.postman_collection.json).
 
 ## Database authentication
 
@@ -410,17 +425,39 @@ The `worker` service runs the APScheduler background process that executes sched
 
 ## Quality Gates
 
-```bash
-uv run ruff check src tests
-uv run ruff format --check src tests
-uv run mypy src
-uv run pytest --cov=src --cov-report=xml:coverage.xml --junitxml=report.xml
-```
-
-All commands must exit `0` before merging.
-
-## Teardown
+The same targets run in CI on every pull request:
 
 ```bash
-docker compose down -v   # stops containers and removes volumes (wipes the DB)
+make lint   # ruff check, ruff format --check, mypy
+make test   # pytest (integration tests are skipped unless TEST_DB_URL is set)
 ```
+
+Both must exit `0` before merging. For a local coverage report:
+
+```bash
+uv run pytest --cov=src --cov-report=term-missing
+```
+
+## Releases
+
+Releases are produced by GitHub Actions using the shared [AI DIAL CI workflows](https://github.com/epam/ai-dial-ci):
+
+| Branch / action | Version | Docker image tags |
+|---|---|---|
+| Push to `development` | `X.Y.0-dev.N` | `development` |
+| Push to `release-X.Y` | `X.Y.0-rc.N` | `X.Y.0-rc.N` |
+| Run *Release Workflow* with `promote` on `release-X.Y` | `X.Y.0` | `X.Y.0`, `latest` |
+| Later pushes to a promoted `release-X.Y` | `X.Y.1`, `X.Y.2`, … | `X.Y.Z`, `latest` if newest |
+
+Images are published to Docker Hub (`epam/ai-dial-scheduler`) and GHCR (`ghcr.io/epam/ai-dial-scheduler`).
+The version is calculated from git tags and the branch name; the `version` in `pyproject.toml` is set by CI — do not
+edit it manually. Pull request titles must follow [Conventional Commits](https://www.conventionalcommits.org/)
+(`feat: ...`, `fix: ...`, `docs: ...`).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, follow [SECURITY.md](SECURITY.md).
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).

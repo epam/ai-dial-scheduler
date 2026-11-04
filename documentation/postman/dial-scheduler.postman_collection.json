@@ -1,9 +1,8 @@
 {
   "info": {
     "_postman_id": "f9126290-c3b1-4345-8e68-8a118184ea3d",
-    "name": "DIAL Scheduler For Sharing",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
-    "_exporter_id": "36953503"
+    "name": "DIAL Scheduler",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
@@ -82,7 +81,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"url\": \"applications/{{SCHEDULER_APP_ID}}/external_services/dial-oauth\",\n  \"ownerUserId\": \"5147fc52-9a98-48f4-a16b-a99950d02b7a\"\n}",
+              "raw": "{\n  \"url\": \"applications/{{SCHEDULER_APP_ID}}/external_services/dial-oauth\",\n  \"ownerUserId\": \"{{OWNER_USER_ID}}\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -531,6 +530,10 @@
     },
     {
       "key": "SCHEDULER_APP_ID",
+      "value": ""
+    },
+    {
+      "key": "OWNER_USER_ID",
       "value": ""
     },
     {

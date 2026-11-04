@@ -9,7 +9,7 @@ Added to `ScheduleProperties` (used in `POST /schedules/` and `PUT /schedules/{i
 ```jsonc
 {
   "target_type": "chat_completion",
-  "url": "https://core.aks.dev.dial.parts/openai/deployments/gpt-5.6-sol-2026-07-09-reasoning/chat/completions",
+  "url": "https://<dial-core-host>/openai/deployments/gpt-5.6-sol-2026-07-09-reasoning/chat/completions",
   "api_version": "2024-02-01",
   "payload": { "messages": [{ "role": "user", "content": "hi" }], "stream": false },
   "create_conversation": true    // NEW — optional, default false

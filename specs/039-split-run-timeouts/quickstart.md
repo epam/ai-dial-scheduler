@@ -60,7 +60,7 @@ The connect-phase assertion is easy to omit and is the one that catches a regres
 
 ## Manual verification against the live incident
 
-The authoritative check is schedule `7e2bf7c0-b1bb-4cee-b291-54a338c7500c` ("Weekly USD Exchange Rate Report"), which fails on every run today.
+The authoritative check is the affected production schedule, which fails on every run today.
 
 1. Deploy the worker with defaults (`WORKER_HTTP_STREAMING_MAX_DURATION_SECONDS=3600`, `WORKER_HTTP_IDLE_TIMEOUT_SECONDS=60`).
 2. Trigger the schedule on demand rather than waiting for its cron firing.

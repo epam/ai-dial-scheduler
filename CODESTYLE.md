@@ -352,6 +352,7 @@ Commands:
 uv run ruff check src tests      # lint
 uv run ruff format src tests     # format
 uv run mypy src                  # type check
+make lint                        # all checks above in check-only mode, exactly as CI runs them
 ```
 
 ---
@@ -387,7 +388,8 @@ Commands:
 
 ```bash
 uv run pytest                                                   # run tests
-uv run pytest --cov=src --cov-report=xml:coverage.xml --junitxml=report.xml
+uv run pytest --cov=src --cov-report=term-missing               # with coverage
+make test                                                       # as CI runs it
 ```
 
 ---

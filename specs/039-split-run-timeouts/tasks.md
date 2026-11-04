@@ -188,7 +188,7 @@ client's per-phase timeouts instead of a flat value (research.md R11). Depends o
 - [x] T042 [P] Describe `timeout` and `idle_timeout` semantics, defaults and the two log events in `documentation/properties.md` (preserve the file's CRLF line endings)
 - [x] T043 [P] Add an `[Unreleased]` entry to `CHANGELOG.md` covering `idle_timeout`, the six new env vars, the 600 s / 3600 s ceiling defaults, the restored connect phase, and the removal of `API_HTTP_TIMEOUT_SECONDS` / `WORKER_HTTP_TIMEOUT_SECONDS` (Constitution, Development Workflow)
 - [x] T044 Run the quickstart.md quality gates (`ruff check`, `ruff format --check`, `mypy src`, `pytest --cov=src`) and `uv run alembic check` (must report nothing pending, SC-008)
-- [x] T045 Perform the quickstart.md manual verification against schedule `7e2bf7c0-b1bb-4cee-b291-54a338c7500c`, confirm a persisted success (SC-001), and record the wall-clock duration in plan.md's open item on the unmeasured streaming ceiling
+- [x] T045 Perform the quickstart.md manual verification against the affected production schedule, confirm a persisted success (SC-001), and record the wall-clock duration in plan.md's open item on the unmeasured streaming ceiling
 
 ---
 

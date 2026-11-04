@@ -2,7 +2,7 @@
 
 **Branch**: `039-split-run-timeouts` | **Date**: 2026-10-09 | **Status**: Draft
 
-**Origin**: Production incident on schedule `7e2bf7c0-b1bb-4cee-b291-54a338c7500c` ("Weekly USD Exchange Rate Report"). Every run fails with `execution timed out after 60.0s` while the response stream is healthy and actively delivering events.
+**Origin**: Production incident on a weekly report schedule. Every run fails with `execution timed out after 60.0s` while the response stream is healthy and actively delivering events.
 
 ## Problem
 
@@ -87,7 +87,7 @@ An operator knows one particular target is slow to start producing output and wa
 
 ### Measurable Outcomes
 
-- **SC-001**: Schedule `7e2bf7c0-b1bb-4cee-b291-54a338c7500c` completes successfully and persists a result, where it previously failed on every run.
+- **SC-001**: The affected production schedule completes successfully and persists a result, where it previously failed on every run.
 - **SC-002**: A streaming target that emits events continuously for longer than the idle bound, with no single gap exceeding it, completes rather than being cut off.
 - **SC-003**: A streaming target that stops producing events while still sending heartbeat pings is abandoned within the idle bound plus scheduling slack, not at the ceiling.
 - **SC-004**: A non-streaming target is permitted to run beyond the idle bound and is not capped at it, while still being held to a ceiling materially tighter than the streaming one.

@@ -1,10 +1,9 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+This file covers releases up to `0.3.1`. Release notes for `0.4.0` and later are published as
+[GitHub Releases](https://github.com/epam/ai-dial-scheduler/releases), generated from the commit history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
-
-## [Unreleased]
 
 ## [0.3.1] - 2026-10-19
 

@@ -1,0 +1,71 @@
+name: 🐞 Bug report
+description: Create a report to help us improve
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue to improve DIAL Scheduler.
+        Please fill in as much of the following form as you're able.
+  - type: input
+    attributes:
+      label: Version
+      description: Image tag or version of DIAL Scheduler
+      placeholder: 0.4.0
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Component
+      description: Which part of DIAL Scheduler is affected?
+      multiple: true
+      options:
+        - API
+        - Worker
+        - MCP
+        - Migrations
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Database authentication mode
+      description: Value of `DB_AUTH_MODE`, if relevant
+      options:
+        - password
+        - connection-string
+        - gcp_iam
+        - azure_entra
+        - aws_iam
+        - Not relevant
+  - type: textarea
+    attributes:
+      label: What steps will reproduce the bug?
+      description: Enter details about your bug.
+      placeholder: |
+        1. In this environment...
+        2. With this schedule / config...
+        3. Run '...'
+        4. See error...
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What is the expected behavior?
+      description: If possible please provide textual output instead of screenshots.
+  - type: textarea
+    attributes:
+      label: What do you see instead?
+      description: If possible please provide textual output instead of screenshots.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Logs
+      description: Relevant API or worker log lines. Remove secrets and tokens before pasting.
+      render: shell
+  - type: textarea
+    attributes:
+      label: Additional information
+      description: Tell us anything else you think we should know.

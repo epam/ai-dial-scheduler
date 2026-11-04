@@ -28,9 +28,11 @@ Open DIAL Admin -> Access Management -> Keys -> Create:
 On key details page:
 Open Roles Tab, add `scheduler` role (role with access to `dial_scheduler` app).
 
-### 1. Build the image
+### 1. Get the image
 
-Build the Docker image from [Dockerfile](/Dockerfile).
+Use a published image — `epam/ai-dial-scheduler` on Docker Hub or `ghcr.io/epam/ai-dial-scheduler` (tags: release
+versions such as `0.4.0`, `latest`, or `development` for the newest build) — or build it yourself from
+[Dockerfile](/Dockerfile).
 
 ### 2. Migrations
 

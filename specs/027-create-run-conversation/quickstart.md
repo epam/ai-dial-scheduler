@@ -6,7 +6,7 @@ Validation guide proving the feature works end-to-end. Details live in [data-mod
 
 - `uv sync` (deps installed), PostgreSQL reachable, Alembic at head (`uv run alembic upgrade head`) — **no new migration** for this feature.
 - API and worker services runnable per project README.
-- A DIAL Core instance and a valid owner token. Dev instance verified: `https://core.aks.dev.dial.parts` (Bearer JWT).
+- A DIAL Core instance and a valid owner token. Verified against a dev instance (Bearer JWT).
 - `settings.dial_url` / `settings.dial_api_key` configured; the schedule's `service_id` resolves OBO credentials for the owner.
 
 ## Automated tests (primary validation)
@@ -44,8 +44,8 @@ Read-only verification (safe GET) via the dial-api skill:
 
 ```bash
 cd .claude/skills/dial-api
-MSYS_NO_PATHCONV=1 python dial.py GET /v1/bucket "$TOKEN" --base https://core.aks.dev.dial.parts --auth bearer
-MSYS_NO_PATHCONV=1 python dial.py GET "/v1/conversations/{bucket}/.scheduler/{schedule_id}/{run_id}" "$TOKEN" --base https://core.aks.dev.dial.parts --auth bearer
+MSYS_NO_PATHCONV=1 python dial.py GET /v1/bucket "$TOKEN" --base https://<dial-core-host> --auth bearer
+MSYS_NO_PATHCONV=1 python dial.py GET "/v1/conversations/{bucket}/.scheduler/{schedule_id}/{run_id}" "$TOKEN" --base https://<dial-core-host> --auth bearer
 ```
 
 ## Scenario 3 — Application deployment resolves reference (US2; FR-007, FR-008, SC-003)
@@ -56,7 +56,7 @@ MSYS_NO_PATHCONV=1 python dial.py GET "/v1/conversations/{bucket}/.scheduler/{sc
 Read-only verification (the resolution the worker performs):
 
 ```bash
-MSYS_NO_PATHCONV=1 python dial.py GET "/openai/applications/{application_id}" "$TOKEN" --base https://core.aks.dev.dial.parts --auth bearer
+MSYS_NO_PATHCONV=1 python dial.py GET "/openai/applications/{application_id}" "$TOKEN" --base https://<dial-core-host> --auth bearer
 # -> "reference": "c9e5decf-..."  ==  conversation model.id
 ```
 
