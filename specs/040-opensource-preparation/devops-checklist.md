@@ -38,7 +38,8 @@ private repos) · 👥 dev team
 8. 🔑 **OPS-016 — GHCR package** (after the first image is published):
    - [ ] Manage Actions access → add the source repository with role **Admin** (required by `cleanup-untagged-images.yml`)
    - [ ] Inherited access → check *Inherit access from source repository*
-9. 🔑 **OPS-018:** [ ] once GitHub → GitLab deploy is confirmed, archive the internal GitLab repository. Until then its `.gitlab-ci.yml` keeps deploying, so there is no deploy gap.
+9. 🔑 **OPS-010 — SHA pinning:** [ ] the guide's *Require actions to be pinned to a full-length commit SHA* is incompatible with `ai-dial-ci` 4.13.2 (see Actions below). How is this handled in other DIAL repositories?
+10. 🔑 **OPS-018:** [ ] once GitHub → GitLab deploy is confirmed, archive the internal GitLab repository. Until then its `.gitlab-ci.yml` keeps deploying, so there is no deploy gap.
 
 ---
 
@@ -61,12 +62,12 @@ private repos) · 👥 dev team
   - [x] ✅ `epam/dial-contributors` → **Write** *(dev team)*
   - [ ] 🔑 `epam/dial-admins` → **Admin** (see "Still needed" #3)
 - [x] ✅ **OPS-007** Owner accounts with Admin: `kyrylosiusko`, `ihorlahutin-epam`.
-- [ ] 👥 **CODEOWNERS** (guide step 21): branch `chore/codeowners` is ready (`* @kyrylosiusko @ihorlahutin-epam`, `/.github/ @nepalevov @alexey-ban`, all four have write access). Its PR still has to be opened.
+- [ ] 👥 **CODEOWNERS** (guide step 21): branch `chore/codeowners` is ready (`* @kyrylosiusko @ihorlahutin-epam`, `/.github/ @nepalevov @alexey-ban`, all four have write access) together with this checklist. Its PR still has to be opened.
 
 ### Actions
 
 - [ ] **OPS-010** Settings → Actions → General:
-  - [x] ✅ Require actions to be pinned to a full-length commit SHA *(dev team; to be confirmed by the next workflow run)*
+  - [ ] 🔑 Require actions to be pinned to a full-length commit SHA. **Turned off again: it breaks CI.** `ai-dial-ci` 4.13.2 calls its own actions by tag (`epam/ai-dial-ci/actions/build_docker@4.12.0`, `python_prepare@4.12.0`), and GitHub rejects them with *"all actions must be pinned to a full-length commit SHA"*. Re-enable once `ai-dial-ci` pins internally, or follow the approach other DIAL repositories use.
   - [x] ✅ Workflow permissions: read and write; Actions may create and approve pull requests
   - [ ] 🌐 Fork PR workflows: require approval for all external contributors. Not available on private repositories. *(dev team after going public)*
 
@@ -95,7 +96,7 @@ The required checks have already run on PR #18, so they can be selected.
 - [ ] **OPS-014** Advanced Security:
   - [ ] 🌐 Private vulnerability reporting. The API returns 404 on a private repository. *(dev team after going public)*
   - [ ] 🌐 CodeQL default setup. On a private repository it needs Advanced Security. *(dev team after going public)*
-  - [x] ✅ Dependabot alerts and security updates are enabled; `.github/dependabot.yml` is in the repository
+  - [x] ✅ Dependabot alerts and security updates are enabled; `.github/dependabot.yml` is in the repository. Dependabot Automation fails on the private repo (`permissions: {}` → 403 when reading PR commits); it works once the repo is public, and it needs `ACTIONS_BOT_TOKEN`
 - [x] ✅ **ORT:** licence findings (`psycopg2`, `psycopg2-binary`, `scramp`) are resolved in `.ort.yml`, and ORT is green.
 
 ### Deploy and switch-over
