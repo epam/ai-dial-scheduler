@@ -124,7 +124,7 @@ and the existing test suite must stay green.
 - [x] T060 DEV Run quickstart §1–§3 end to end (make targets, `uv lock --check`, `docker build`, `actionlint`, `sed` check, content scan, community files)
 - [x] T061 DEV Run quickstart §4 orphan **dry run** locally (no push); confirm 1 commit, no `.gitlab-ci.yml`, no `.env`/`.idea`/`.coverage` staged; delete the dry-run branch
 - [x] T062 DEV Launch `code-review-agent` on the diff; resolve findings until 0 open
-- [ ] T063 DEV ⚠️ **With explicit approval only**: commit (Conventional Commit messages) and open an MR to `development` on the internal GitLab; merge after review
+- [x] T063 DEV ⚠️ **With explicit approval only**: commit (Conventional Commit messages) and open an MR to `development` on the internal GitLab; merge after review
 
 ---
 
@@ -132,27 +132,27 @@ and the existing test suite must stay green.
 
 **DevOps prerequisites (Track C, before publication)**
 
-- [ ] T070 [P] OPS Create public repo `epam/ai-dial-scheduler` (OPS-001)
-- [ ] T071 [P] OPS About: description, website `https://dialx.ai`, topics `llm`, `ai-dial` (OPS-002)
-- [ ] T072 [P] OPS Features: disable Wikis, Discussions (OPS-003)
+- [x] T070 [P] OPS Create public repo `epam/ai-dial-scheduler` (OPS-001)
+- [x] T071 [P] OPS About: description, website `https://dialx.ai`, topics `llm`, `ai-dial` (OPS-002)
+- [x] T072 [P] OPS Features: disable Wikis, Discussions (OPS-003)
 - [ ] T073 [P] OPS Pull Requests: squash only (PR title), no merge/rebase, allow auto-merge, auto-delete head branches; always suggest updating PR branches (OPS-004, OPS-005)
 - [ ] T074 [P] OPS Teams: `epam/dial-admins` Admin, `epam/dial-contributors` Write (OPS-006)
-- [ ] T075 OPS ⏸ Q3 — owner's personal account Admin (OPS-007)
+- [x] T075 OPS ⏸ Q3 — owner's personal account Admin (OPS-007)
 - [ ] T076 [P] OPS Actions → General: require full-SHA pinning; approval for all external contributors; read/write workflow permissions; allow Actions to create/approve PRs (OPS-010)
 - [ ] T077 [P] OPS Secrets: `ACTIONS_BOT_TOKEN`, `DOCKERHUB_LOGIN`, `DOCKERHUB_TOKEN` (OPS-011)
 - [ ] T078 [P] OPS Docker Hub repository `epam/ai-dial-scheduler` exists and bot can push (OPS-012)
-- [ ] T079 [P] OPS Label `dependencies` — "Dependencies update", `#FFFFFF` (OPS-015)
+- [x] T079 [P] OPS Label `dependencies` — "Dependencies update", `#FFFFFF` (OPS-015)
 - [ ] T080 [P] OPS Provide GitLab project ids for API and worker deploy projects (OPS-019) → unblocks T035
 
 **Publication (DEV)**
 
-- [ ] T081 DEV ⚠️ **With explicit approval only**: on the merged internal `development`, `git checkout --orphan public-initial`; `git rm --cached .gitlab-ci.yml`; verify `git status`; commit `feat: initial open-source release`; `git tag 0.3.1`; push `public-initial:development` and tag `0.3.1` to `github.com/epam/ai-dial-scheduler`. No other refs (DEV-FR-020, DEV-FR-012, research R7)
+- [x] T081 DEV ⚠️ **With explicit approval only**: on the merged internal `development`, `git checkout --orphan public-initial`; `git rm --cached .gitlab-ci.yml`; verify `git status`; commit `feat: initial open-source release`; `git tag 0.3.1`; push `public-initial:development` and tag `0.3.1` to `github.com/epam/ai-dial-scheduler`. No other refs (DEV-FR-020, DEV-FR-012, research R7)
 
 ---
 
 ## Phase 8: Post-publication
 
-- [ ] T090 DEV [US2] Open a test PR (e.g. `docs: add badges`); confirm the four `run_tests / …` checks and the PR-title check run and pass; a title like `update stuff` fails the title check (SC-002)
+- [x] T090 DEV [US2] Open a test PR (e.g. `docs: add badges`); confirm the four `run_tests / …` checks and the PR-title check run and pass; a title like `update stuff` fails the title check (SC-002)
 - [ ] T091 OPS [US2] Branch protection `development` with required checks from T090 (OPS-008)
 - [ ] T092 OPS [US2] Branch protection `release-*` (OPS-009)
 - [ ] T093 OPS [US1] Advanced Security: private vulnerability reporting, CodeQL default, Dependabot alerts + security updates (OPS-014) (SC-006)
@@ -162,7 +162,7 @@ and the existing test suite must stay green.
 - [ ] T097 OPS [US4] Repoint GitLab deploy projects api/worker to `epam/ai-dial-scheduler` image (OPS-017)
 - [ ] T098 DEV [US4] Merge T035 (`deploy-development.yml`) via PR; verify both GitLab pipelines start on the next `development` image
 - [ ] T099 DEV [US1] ⏸ Q3 — PR adding `.github/CODEOWNERS` (T027) if not done before publication
-- [ ] T100 DEV ORT: if T090 reported licence violations, follow-up PR with justified `.ort.yml` exclusions or a curation request to DevOps (research R12)
+- [x] T100 DEV ORT: if T090 reported licence violations, follow-up PR with justified `.ort.yml` exclusions or a curation request to DevOps (research R12)
 - [ ] T101 OPS Archive the internal GitLab repository (keeps full history and `.gitlab-ci.yml`) after T098 is verified (OPS-018)
 - [ ] T102 DEV [US1] Check Insights → Community Standards is all green (SC-005); tick SC-001…SC-007 in spec
 
@@ -277,3 +277,12 @@ Notes and deviations:
 - First CI run on the squashed commit showed: ORT `UNHANDLED_LICENSE` (psycopg2) + 2 `UNMAPPED_DECLARED_LICENSE` warnings (psycopg2-binary, scramp) → `.ort.yml` resolutions; verified green on a PR run. Trivy: 2 critical + 12 high in authlib, certifi, aiohttp, pyasn1, dnspython, joserfc → floors in `[tool.uv] constraint-dependencies`; local Trivy scan clean.
 - Open-source changes are delivered as one PR on top of the history: CRLF fix, `.gitlab-ci.yml` removal, `.ort.yml`, dependency floors, these doc updates.
 - `pr-title-check` fails until `ACTIONS_BOT_TOKEN` is configured (OPS-011).
+
+### 2026-11-05 — After merge of PR #18 (dev-team settings via API)
+
+- PR #18 merged into GitHub `development`; Release Workflow computed `0.4.0-dev.7` (SC-007 met). Lint, tests and ORT passed; publishing failed with `Input required and not supplied: token`, because no secrets are set yet (OPS-011).
+- Applied by the dev team (repository Admin) via API: About (OPS-002), squash-only with PR title and delete-branch (OPS-004 except auto-merge), update-branch suggestion (OPS-005), team `dial-contributors` Write (OPS-006 part), label `dependencies` (OPS-015). Wikis/Discussions (OPS-003), owner Admin (OPS-007) and Dependabot alerts/security updates were already in place.
+- Not possible for the dev team: team `dial-admins` (not visible, needs `admin:org`); auto-merge, branch protection, rulesets, fork-PR approval, private vulnerability reporting and CodeQL (all unavailable on a private Free repository).
+- SHA pinning (OPS-010): enabling it broke CI. `ai-dial-ci` 4.13.2 calls `actions/build_docker@4.12.0` and `actions/python_prepare@4.12.0` by tag. The setting was turned off again and the re-run is green. Moved to DevOps.
+- `CODEOWNERS` (T027/T099): branch `chore/codeowners` with `* @kyrylosiusko @ihorlahutin-epam`, `/.github/ @nepalevov @alexey-ban` and the updated DevOps checklist; PR to be opened.
+- Dependabot PR #19 (`mcp` 1.30.0): `run_tests` green; `pr-title-check` fails without `ACTIONS_BOT_TOKEN`; Dependabot Automation fails with 403 because `permissions: {}` gives no PR read access on a private repository.
