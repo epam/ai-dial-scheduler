@@ -30,10 +30,13 @@ private repos) · 👥 dev team
 2. 🔑 **OPS-012 — Docker Hub:** [ ] repository `epam/ai-dial-scheduler` exists and the `DOCKERHUB_LOGIN` account can push to it.
 3. 🔑 **OPS-006 (part):** [ ] add team `epam/dial-admins` with role **Admin**. The team is not visible to the dev team (the API returns 404 and asks for `admin:org`).
 4. 🔑 **Repository visibility:** [ ] make the repository **public**, or name who decides and when. Note: the full git history becomes public with it. This unblocks every 🌐 item below.
-5. 🔑 **OPS-019 — hand-off:** [ ] send the GitLab **project IDs** of the two deploy projects (API and worker). The dev team needs them for `deploy-development.yml` (matrix with two entries).
-6. 🔑 **OPS-013 — environment `development`** (Settings → Environments):
-   - [ ] Deployment branches and tags → *Selected branches and tags* → Ref type `Branch`, pattern `development`
-   - [ ] Environment secrets: `DEPLOY_ACCESS_TOKEN` (GitLab project access token, role `Guest`, scopes `read_api`, `read_repository`), `DEPLOY_TRIGGER_TOKEN` (pipeline trigger token), `DEPLOY_HOST` (GitLab host)
+5. 👥 / 🔑 **OPS-019 — GitLab project IDs:** [ ] the numeric project IDs of the two deploy projects (`dial-scheduler-api`, `dial-scheduler-worker`), plus the branch their pipeline runs on (the workflow defaults to `master`). The dev team can read the IDs from the GitLab project pages; DevOps confirms the branch. Numeric IDs are used rather than project paths, so the internal GitLab group structure does not appear in the public workflow.
+6. 🔑 **OPS-013 — two GitHub environments** (Settings → Environments), one per GitLab deploy project. The reusable workflow `ai-dial-ci/deploy-development.yml` reads the `DEPLOY_*` secrets from the environment named by `environment-name`. GitLab trigger tokens and project access tokens are issued per project, so one environment cannot serve both projects.
+   - [ ] **`development-api`** and **`development-worker`**, each with:
+     - Deployment branches and tags → *Selected branches and tags* → Ref type `Branch`, pattern `development`
+     - `DEPLOY_ACCESS_TOKEN`: project access token **of that GitLab project**, role `Guest`, scopes `read_api`, `read_repository`
+     - `DEPLOY_TRIGGER_TOKEN`: pipeline trigger token **of that GitLab project**
+     - `DEPLOY_HOST`: GitLab host (same value in both; it may instead be a repository secret)
 7. 🔑 **OPS-017:** [ ] switch the two GitLab deploy projects (API and worker) to the public `epam/ai-dial-scheduler` image.
 8. 🔑 **OPS-016 — GHCR package** (after the first image is published):
    - [ ] Manage Actions access → add the source repository with role **Admin** (required by `cleanup-untagged-images.yml`)
@@ -101,8 +104,8 @@ The required checks have already run on PR #18, so they can be selected.
 
 ### Deploy and switch-over
 
-- [ ] 🔑 **OPS-019** GitLab project IDs → 👥 then the dev team adds `deploy-development.yml`
-- [ ] 🔑 **OPS-013** Environment `development` with `DEPLOY_*` secrets
+- [ ] 👥 **OPS-019** GitLab project IDs (api, worker) + pipeline branch → then the dev team adds `deploy-development.yml` (matrix: `environment-name` `development-api` / `development-worker`, `gitlab-project-id` per project). Merge it only after OPS-013 is done, otherwise every release gets a red deploy job.
+- [ ] 🔑 **OPS-013** Two environments `development-api` and `development-worker`, each with its own `DEPLOY_*` secrets
 - [ ] 🔑 **OPS-017** Repoint the GitLab deploy projects to the public image
 - [ ] 🔑 **OPS-016** GHCR package access (after the first image)
 - [ ] 👥 + 🔑 Confirm that a new `development` image starts **both** GitLab deploy pipelines
