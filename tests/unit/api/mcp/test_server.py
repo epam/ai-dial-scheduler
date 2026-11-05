@@ -40,7 +40,6 @@ def _build_minimal_app(echo_enabled: bool = False) -> fastapi.FastAPI:
 
 def _mock_settings() -> MagicMock:
     settings = MagicMock()
-    settings.api_http.timeout_seconds = 30.0
     settings.api_http.connect_timeout_seconds = 5.0
     settings.api_http.read_timeout_seconds = 30.0
     settings.api_http.write_timeout_seconds = 30.0

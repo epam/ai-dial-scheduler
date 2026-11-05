@@ -1,0 +1,20 @@
+name: "Validate PR title"
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title-check:
+    uses: epam/ai-dial-ci/.github/workflows/pr-title-check.yml@00484ead5dc3904a787c5af8d0bdd8f4fdf087c1 # 4.13.2
+    secrets:
+      ACTIONS_BOT_TOKEN: ${{ secrets.ACTIONS_BOT_TOKEN }}

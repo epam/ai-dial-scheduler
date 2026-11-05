@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 import httpx
 import openai
 from openai.types.chat import ChatCompletion
@@ -7,7 +10,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 import structlog.testing
 
 from src.lib.db.enums import TargetType
-from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.exceptions.errors import ScheduleRunError, StreamIdleTimeoutError
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
@@ -17,9 +20,11 @@ from src.worker.executors.chat_completion import ChatCompletionExecutor
 class _FakeStream:
     """Async context manager mimicking client.chat.completions.stream(...)."""
 
-    def __init__(self, events, final):
+    def __init__(self, events, final, gaps=None):
         self._events = events
         self._final = final
+        # Seconds to wait before each event, so tests can simulate thinking time or a stall.
+        self._gaps = gaps or [0.0] * len(events)
 
     async def __aenter__(self):
         return self
@@ -29,7 +34,8 @@ class _FakeStream:
 
     def __aiter__(self):
         async def _gen():
-            for event in self._events:
+            for gap, event in zip(self._gaps, self._events, strict=True):
+                await asyncio.sleep(gap)
                 yield event
 
         return _gen()
@@ -38,7 +44,7 @@ class _FakeStream:
         return self._final
 
 
-def _mock_stream(mocker, events=None, final=None):
+def _mock_stream(mocker, events=None, final=None, gaps=None):
     """Patch AsyncAzureOpenAI wiring both .chat.completions.create (non-stream) and .stream."""
     mock_client_cls = mocker.patch("src.worker.executors.chat_completion.AsyncAzureOpenAI")
     mock_instance = mocker.MagicMock()
@@ -46,7 +52,7 @@ def _mock_stream(mocker, events=None, final=None):
     if final is None:
         final = mocker.MagicMock(spec=ChatCompletion)
         final.model_dump.return_value = {"id": "cmpl-1", "choices": []}
-    stream = _FakeStream(events or [], final)
+    stream = _FakeStream(events or [], final, gaps)
     mock_instance.chat.completions.stream = mocker.MagicMock(return_value=stream)
     mock_instance.chat.completions.create = mocker.AsyncMock(return_value=final)
     return mock_client_cls, mock_instance, stream
@@ -93,6 +99,7 @@ def setup_context():
 def mock_http_client(mocker):
     provider = mocker.MagicMock()
     provider.client = mocker.AsyncMock(spec=httpx.AsyncClient)
+    provider.client.timeout = httpx.Timeout(60.0, connect=5.0)
     mocker.patch("src.worker.executors.chat_completion.HttpClientProvider", return_value=provider)
     return provider.client
 
@@ -296,7 +303,9 @@ class TestChatCompletionExecutorTimeout:
         with structlog.testing.capture_logs():
             await executor.execute(ctx, CREDS, props)
 
-        assert mock_instance.chat.completions.create.call_args.kwargs["timeout"] == 25.0
+        sent = mock_instance.chat.completions.create.call_args.kwargs["timeout"]
+        assert sent.read == 25.0
+        assert sent.connect == 5.0
 
     async def test_no_timeout_kwarg_when_absent(self, mocker):
         _, mock_instance = _mock_azure(mocker)
@@ -308,3 +317,39 @@ class TestChatCompletionExecutorTimeout:
             await executor.execute(CTX, CREDS, props)
 
         assert "timeout" not in mock_instance.chat.completions.create.call_args.kwargs
+
+
+class TestChatCompletionExecutorIdleTimeout:
+    """US1/US2 on the incident path: a DIAL quickapp reached through a streaming chat completion."""
+
+    @staticmethod
+    def _stream_properties() -> ScheduleProperties:
+        return make_properties(
+            payload={"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}], "stream": True}
+        )
+
+    async def test_healthy_long_stream_is_not_cut_off(self, mocker):
+        """Ten 20ms gaps against a 100ms bound: every gap clears it, the total runs to twice it."""
+        events = [mocker.MagicMock(type="chunk") for _ in range(10)]
+        _mock_stream(mocker, events=events, gaps=[0.02] * len(events))
+        ctx = make_ctx(effective_timeout=30.0, effective_idle_timeout=0.1)
+        started = time.monotonic()
+
+        with structlog.testing.capture_logs():
+            result = await ChatCompletionExecutor().execute(ctx, CREDS, self._stream_properties())
+
+        assert result == {"result": {"id": "cmpl-1", "choices": []}}
+        assert time.monotonic() - started > 0.1, "premise broken: the stream did not outlive the idle bound"
+
+    async def test_stalled_stream_raises_its_own_error(self, mocker):
+        """The idle error must escape the executor's narrow ``except`` unchanged: rewrapping it as a
+        plain ScheduleRunError would make the orchestrator log it as a generic failure."""
+        events = [mocker.MagicMock(type="chunk"), mocker.MagicMock(type="chunk")]
+        _mock_stream(mocker, events=events, gaps=[0.0, 0.5])
+        ctx = make_ctx(effective_timeout=3600.0, effective_idle_timeout=0.05)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(StreamIdleTimeoutError, match="stream produced no event for 0.05s") as exc_info:
+                await ChatCompletionExecutor().execute(ctx, CREDS, self._stream_properties())
+
+        assert exc_info.value.status_code is None

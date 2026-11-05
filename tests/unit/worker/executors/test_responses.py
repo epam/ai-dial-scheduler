@@ -1,3 +1,6 @@
+import asyncio
+import time
+
 import httpx
 import openai
 from openai.types.responses import Response
@@ -7,7 +10,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 import structlog.testing
 
 from src.lib.db.enums import TargetType
-from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.exceptions.errors import ScheduleRunError, StreamIdleTimeoutError
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
@@ -17,9 +20,11 @@ from src.worker.executors.responses import ResponsesExecutor
 class _FakeStream:
     """Async context manager mimicking client.responses.stream(...)."""
 
-    def __init__(self, events, final):
+    def __init__(self, events, final, gaps=None):
         self._events = events
         self._final = final
+        # Seconds to wait before each event, so tests can simulate thinking time or a stall.
+        self._gaps = gaps or [0.0] * len(events)
 
     async def __aenter__(self):
         return self
@@ -29,7 +34,8 @@ class _FakeStream:
 
     def __aiter__(self):
         async def _gen():
-            for event in self._events:
+            for gap, event in zip(self._gaps, self._events, strict=True):
+                await asyncio.sleep(gap)
                 yield event
 
         return _gen()
@@ -38,7 +44,7 @@ class _FakeStream:
         return self._final
 
 
-def _mock_client(mocker, final=None, events=None, create_side_effect=None, stream_side_effect=None):
+def _mock_client(mocker, final=None, events=None, create_side_effect=None, stream_side_effect=None, gaps=None):
     """Patch AsyncAzureOpenAI wiring both .responses.create (non-stream) and .responses.stream."""
     mock_client_cls = mocker.patch("src.worker.executors.responses.AsyncAzureOpenAI")
     mock_instance = mocker.MagicMock()
@@ -53,7 +59,7 @@ def _mock_client(mocker, final=None, events=None, create_side_effect=None, strea
     if stream_side_effect is not None:
         mock_instance.responses.stream = mocker.MagicMock(side_effect=stream_side_effect)
     else:
-        mock_instance.responses.stream = mocker.MagicMock(return_value=_FakeStream(events or [], final))
+        mock_instance.responses.stream = mocker.MagicMock(return_value=_FakeStream(events or [], final, gaps))
     return mock_client_cls, mock_instance, final
 
 
@@ -103,6 +109,7 @@ def setup_context():
 def mock_http_client(mocker):
     provider = mocker.MagicMock()
     provider.client = mocker.AsyncMock(spec=httpx.AsyncClient)
+    provider.client.timeout = httpx.Timeout(60.0, connect=5.0)
     mocker.patch("src.worker.executors.responses.HttpClientProvider", return_value=provider)
     return provider.client
 
@@ -398,7 +405,9 @@ class TestResponsesExecutorTimeout:
         with structlog.testing.capture_logs():
             await executor.execute(ctx, CREDS, props)
 
-        assert mock_instance.responses.create.call_args.kwargs["timeout"] == 25.0
+        sent = mock_instance.responses.create.call_args.kwargs["timeout"]
+        assert sent.read == 25.0
+        assert sent.connect == 5.0
 
     async def test_no_timeout_kwarg_when_absent(self, mocker):
         _, mock_instance, _ = _mock_client(mocker)
@@ -410,3 +419,31 @@ class TestResponsesExecutorTimeout:
             await executor.execute(CTX, CREDS, props)
 
         assert "timeout" not in mock_instance.responses.create.call_args.kwargs
+
+
+class TestResponsesExecutorIdleTimeout:
+    async def test_healthy_long_stream_is_not_cut_off(self, mocker):
+        """Ten 20ms gaps against a 100ms bound: every gap clears it, the total runs to twice it."""
+        events = [mocker.MagicMock(type="response.output_text.delta") for _ in range(10)]
+        _mock_client(mocker, events=events, gaps=[0.02] * len(events))
+        ctx = make_ctx(effective_timeout=30.0, effective_idle_timeout=0.1)
+        started = time.monotonic()
+
+        with structlog.testing.capture_logs():
+            result = await ResponsesExecutor().execute(ctx, CREDS, make_stream_properties())
+
+        assert result == {"result": {"id": "resp-1", "output": []}}
+        assert time.monotonic() - started > 0.1, "premise broken: the stream did not outlive the idle bound"
+
+    async def test_stalled_stream_raises_its_own_error(self, mocker):
+        """The idle error must escape the executor's narrow ``except`` unchanged: rewrapping it as a
+        plain ScheduleRunError would make the orchestrator log it as a generic failure."""
+        events = [mocker.MagicMock(type="response.created"), mocker.MagicMock(type="response.output_text.delta")]
+        _mock_client(mocker, events=events, gaps=[0.0, 0.5])
+        ctx = make_ctx(effective_timeout=3600.0, effective_idle_timeout=0.05)
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(StreamIdleTimeoutError, match="stream produced no event for 0.05s") as exc_info:
+                await ResponsesExecutor().execute(ctx, CREDS, make_stream_properties())
+
+        assert exc_info.value.status_code is None

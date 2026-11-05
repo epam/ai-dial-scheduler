@@ -99,9 +99,7 @@ All unknowns from the spec's Assumptions section are resolved below; no
 - **Decision**: Unchanged — this feature delivers the worker-side file-marker logic plus
   documented, copy-pasteable recommended `exec` probe YAML in
   `documentation/deployment/deployment.md` and `contracts/worker-health-probes.md`. Actual Helm
-  chart/manifest edits happen in the external deploy repository referenced by the `Dockerfile`'s
-  "1001 uid also used in HELM chart" comment and the `dial-scheduler-worker` GitLab CI trigger
-  project, both outside this repository's scope.
+  chart/manifest edits happen in the deployment repository, outside this repository's scope.
 - **Rationale**: Consistent with how the API's existing `/health`/`/ready` endpoints are already
   documented without any in-repo Kubernetes manifest, since none exists here.
 

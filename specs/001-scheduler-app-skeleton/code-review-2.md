@@ -1,6 +1,6 @@
 # Code Review (Pass 2 — Verification) — Scheduler Application Skeleton
 
-- **spec-dir**: `/Users/max/Documents/projects/dial/dial_scheduler/aidial_scheduler/specs/001-scheduler-app-skeleton`
+- **spec-dir**: `specs/001-scheduler-app-skeleton`
 - **Date**: 2026-06-10
 - **Mode**: Verification (follow-up to `code-review.md`)
 - **Artifacts consulted**: `spec.md`, `plan.md` (ISSUE-1..4, constraints), `code-review.md` (first-pass findings)

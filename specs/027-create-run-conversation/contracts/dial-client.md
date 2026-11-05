@@ -2,7 +2,7 @@
 
 Extends `src/lib/clients/dial_client.py`. All calls use the run owner's OBO token as the `Api-Key` header and reuse the shared httpx client + configured timeout, mirroring the existing `get_obo_credentials` / `get_user_info` pattern. Errors are typed and never carry issued secrets.
 
-Base URL: `settings.dial_url`. Verified against `https://core.aks.dev.dial.parts` (dev).
+Base URL: `settings.dial_url`. Verified against a DIAL Core dev instance.
 
 ## `get_bucket(api_key: str) -> str`
 

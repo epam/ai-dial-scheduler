@@ -1,10 +1,38 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+This file covers releases up to `0.3.1`. Release notes for `0.4.0` and later are published as
+[GitHub Releases](https://github.com/epam/ai-dial-scheduler/releases), generated from the commit history.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## [Unreleased]
+## [0.3.1] - 2026-10-19
+
+### Added
+- `idle_timeout` schedule property: the maximum gap in seconds between two consecutive stream
+  events. It resets on every event and applies only to streaming targets (`sse`, or
+  `chat_completion`/`responses` with `payload.stream: true`). It counts parsed events, so SSE
+  heartbeat pings do not reset it. `idle_timeout > timeout` is rejected when both are set
+  (`src/lib/schemas/schedule.py`, `src/worker/executors/base.py`).
+- Per-process timeout defaults, each available as `API_HTTP_*` and `WORKER_HTTP_*`:
+  `*_MAX_DURATION_SECONDS` (600, ceiling for a non-streaming target),
+  `*_STREAMING_MAX_DURATION_SECONDS` (3600, ceiling for a streaming target) and
+  `*_IDLE_TIMEOUT_SECONDS` (60) (`src/lib/settings.py`).
+- `attempt_idle_timed_out` log event, distinct from `attempt_timed_out`, so an idle expiry and a
+  ceiling expiry can be told apart without reading the message (`src/worker/retry.py`).
+
+### Changed
+- A run's `timeout` is now an absolute backstop. When the schedule omits it, the default is 3600 s
+  for a streaming target and 600 s otherwise, instead of the single 600 s `*_HTTP_TIMEOUT_SECONDS`.
+  Healthy long-running streams are no longer cut off at a fixed bound.
+- Executors keep the client's configured connect, write and pool timeouts and override only the
+  read phase, so an unreachable host fails within `*_HTTP_CONNECT_TIMEOUT_SECONDS` (5 s) instead
+  of at the run ceiling (`src/worker/executors/`).
+- DIAL metadata calls (user info, OBO credentials, conversation writes) use the shared client's
+  per-phase timeouts instead of a flat 600 s on every phase (`src/lib/clients/dial_client.py`).
+
+### Removed
+- `API_HTTP_TIMEOUT_SECONDS` and `WORKER_HTTP_TIMEOUT_SECONDS`. They no longer bound runs. A
+  deployment that still sets them starts normally and the value is ignored.
 
 ## [0.3.0] - 2026-10-07
 

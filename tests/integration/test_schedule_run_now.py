@@ -36,6 +36,7 @@ from src.lib.models.apscheduler_job import apscheduler_jobs
 from src.lib.models.schedule import Schedule
 from src.lib.models.schedule_run import ScheduleRun
 from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
+from src.lib.schemas.run import RunTimeouts
 from src.lib.services.run_launcher import BackgroundRunLauncher
 from tests.integration.conftest import make_signed_in_service
 
@@ -113,6 +114,7 @@ async def _insert_schedule(
     created_by: str = OWNER,
     is_deleted: bool = False,
     with_job: bool = True,
+    kwargs: dict[str, Any] | None = None,
 ) -> str:
     sched_id = f"run-now-{uuid.uuid4()}"
     async with AsyncSession(engine, expire_on_commit=False) as session:
@@ -123,7 +125,7 @@ async def _insert_schedule(
                 created_by=created_by,
                 service_id="dial-native",
                 trigger={"cron": {"fields": {"hour": 20, "minute": 0}}},
-                kwargs=dict(SAVED_KWARGS),
+                kwargs=dict(kwargs if kwargs is not None else SAVED_KWARGS),
                 is_deleted=is_deleted,
             )
         )
@@ -173,6 +175,17 @@ class TestRunRecordCreation:
 
         rows = await _fetch_runs(engine, sched_id)
         assert rows[0].schedule_snapshot == SAVED_KWARGS
+
+    async def test_snapshot_carries_both_timeout_bounds(self, client: httpx.AsyncClient, engine: AsyncEngine) -> None:
+        """FR-012: both bounds ride kwargs into the snapshot unchanged, with no migration."""
+        stored = {**SAVED_KWARGS, "timeout": 1800, "idle_timeout": 90}
+        sched_id = await _insert_schedule(engine, kwargs=stored)
+
+        await client.post(f"/v1/schedules/{sched_id}/run")
+
+        rows = await _fetch_runs(engine, sched_id)
+        assert rows[0].schedule_snapshot["timeout"] == 1800
+        assert rows[0].schedule_snapshot["idle_timeout"] == 90
 
     async def test_request_body_cannot_override_the_stored_definition(
         self, client: httpx.AsyncClient, engine: AsyncEngine
@@ -310,7 +323,10 @@ class TestBackgroundCompletion:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=test_app), base_url="http://test"
         ) as http_client:
-            real_launcher = BackgroundRunLauncher(http_client, default_timeout=30.0)
+            real_launcher = BackgroundRunLauncher(
+                http_client,
+                timeouts=RunTimeouts(max_duration=300.0, streaming_max_duration=3600.0, idle_timeout=60.0),
+            )
             test_app.dependency_overrides[get_run_launcher] = lambda: real_launcher
 
             run_id = (await http_client.post(f"/v1/schedules/{sched_id}/run")).json()["id"]

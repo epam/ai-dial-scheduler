@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter, field_validator, model_validator
+from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter, ValidationInfo, field_validator, model_validator
 
 from src.lib.db.enums import HttpMethod, TargetType, TriggerType
 
@@ -91,10 +91,27 @@ class ScheduleProperties(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
     extra_headers: dict[str, str] = Field(default_factory=dict)
     api_version: str | None = None
-    timeout: float | None = None
-    retry: RetryPolicy | None = None
-    # Description is part of the OpenAPI contract, so it also reaches MCP clients as the field's
+    # Descriptions are part of the OpenAPI contract, so they also reach MCP clients as the field's
     # tool-input schema description -- the only place an agent sees this guidance.
+    timeout: float | None = Field(
+        default=None,
+        description=(
+            "Absolute ceiling in seconds on a single attempt. Never resets while the attempt "
+            "runs. Omit to use the process default, which is sized as a backstop against a run "
+            "that never ends rather than as a routine bound."
+        ),
+    )
+    idle_timeout: float | None = Field(
+        default=None,
+        description=(
+            "Maximum gap in seconds between two consecutive stream events. Resets on every "
+            "event, so it bounds inactivity rather than total duration. Applies only to "
+            "streaming targets: `sse`, or `chat_completion`/`responses` with `payload.stream` "
+            "set to `true`. Must not exceed `timeout` when both are set. Omit to use the "
+            "process default."
+        ),
+    )
+    retry: RetryPolicy | None = None
     create_conversation: bool = Field(
         default=False,
         description=(
@@ -112,12 +129,34 @@ class ScheduleProperties(BaseModel):
         _HTTP_URL.validate_python(v)
         return v
 
-    @field_validator("timeout")
+    @field_validator("timeout", "idle_timeout")
     @classmethod
-    def validate_timeout(cls, v: float | None) -> float | None:
+    def validate_positive_seconds(cls, v: float | None, info: ValidationInfo) -> float | None:
         if v is not None and v <= 0:
-            raise ValueError("timeout must be a positive number (seconds)")
+            raise ValueError(f"{info.field_name} must be a positive number (seconds)")
         return v
+
+    @property
+    def is_streaming(self) -> bool:
+        """Whether the target delivers its response as a stream of events.
+
+        Both bounds key off this. Only a streaming target gives a progress signal, which is
+        what earns it the longer ceiling; a non-streaming call is indistinguishable from a
+        hung one at the transport layer, so total duration is the only instrument available.
+        """
+        if self.target_type is TargetType.SSE:
+            return True
+        if self.target_type in (TargetType.CHAT_COMPLETION, TargetType.RESPONSES):
+            return bool(self.payload.get("stream"))
+        return False
+
+    @model_validator(mode="after")
+    def validate_timeout_bounds(self) -> "ScheduleProperties":
+        # Only when both are explicit: comparing against a process default would make a stored
+        # schedule's validity depend on deployment configuration.
+        if self.timeout is not None and self.idle_timeout is not None and self.idle_timeout > self.timeout:
+            raise ValueError("idle_timeout must not exceed timeout")
+        return self
 
     @model_validator(mode="after")
     def validate_target_rules(self) -> "ScheduleProperties":

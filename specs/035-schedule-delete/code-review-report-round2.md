@@ -78,14 +78,13 @@ materialise.
 
 ### N6 — was skipping it the right call?
 
-**Yes, but the stated justification does not hold.** `.gitlab-ci.yml` only *includes* shared
-infrastructure (`GitLab/ci` → `docker/docker-application-generic.gitlab-ci.yml`, `:1-6`) for the docker
-build. The `test:` job is defined **locally in this repository** (`.gitlab-ci.yml:11-42`), so wiring
-integration tests in would be a repo-local change of a few lines (a `services:` entry plus a
+**Yes, but the stated justification does not hold.** Only the docker build comes from shared pipeline
+templates. The test job is defined **locally in this repository's CI configuration**, so wiring
+integration tests in would be a repo-local change of a few lines (a database service container plus a
 `TEST_DB_URL` variable), not an edit to shared pipeline infrastructure.
 
 The deferral is nonetheless correct for this branch, on genuine grounds rather than the one given:
-enabling a `services:` container changes the runner requirements of a job every pipeline depends on,
+enabling a service container changes the runner requirements of a job every pipeline depends on,
 which is a cross-cutting infrastructure change that should not ride along in a feature branch and
 should be validated on its own.
 

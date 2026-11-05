@@ -56,6 +56,7 @@ def mock_client(mocker):
 
     client = mocker.AsyncMock(spec=httpx.AsyncClient)
     client.request = mocker.AsyncMock(return_value=response)
+    client.timeout = httpx.Timeout(60.0, connect=5.0)
 
     provider = mocker.MagicMock()
     provider.client = client
@@ -220,7 +221,23 @@ class TestRestExecutorTimeout:
             await executor.execute(ctx, CREDS, props)
 
         assert "timeout" in mock_client.request.call_args.kwargs
-        assert mock_client.request.call_args.kwargs["timeout"] == httpx.Timeout(15.0)
+        assert mock_client.request.call_args.kwargs["timeout"].read == 15.0
+
+    async def test_connect_phase_is_preserved(self, mock_client):
+        """A bare float, or httpx.Timeout(x) with one positional, expands to all four phases and
+        discards the client's connect timeout -- leaving an unreachable host to hang for the
+        whole ceiling instead of failing fast."""
+        ctx = RunContext(run_id=RUN_ID, schedule_id=SCHEDULE_ID, effective_timeout=3600.0)
+        executor = RestExecutor()
+
+        with structlog.testing.capture_logs():
+            await executor.execute(ctx, CREDS, make_properties())
+
+        sent = mock_client.request.call_args.kwargs["timeout"]
+        assert sent.connect == 5.0
+        assert sent.write == 60.0
+        assert sent.pool == 60.0
+        assert sent.read == 3600.0
 
     async def test_no_timeout_kwarg_when_absent(self, mock_client):
         props = make_properties()

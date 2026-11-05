@@ -3,9 +3,9 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.exceptions.errors import ScheduleRunError, StreamIdleTimeoutError
 from src.lib.schemas.credentials import OboCredentials
-from src.lib.schemas.run import RunContext
+from src.lib.schemas.run import RunContext, RunTimeouts
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
 from src.lib.utils.logging import logger
@@ -15,6 +15,7 @@ from src.worker.executors.base import Executor
 class AttemptEvent(StrEnum):
     START = "attempt_start"
     TIMED_OUT = "attempt_timed_out"
+    IDLE_TIMED_OUT = "attempt_idle_timed_out"
     SUCCEEDED = "attempt_succeeded"
     FAILED = "attempt_failed"
     FAILED_NON_RETRYABLE = "attempt_failed_non_retryable"
@@ -48,15 +49,25 @@ class RunOutcome:
 async def execute_with_policy(
     ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties, executor: Executor
 ) -> RunOutcome:
-    """Run the executor honoring the schedule's per-attempt timeout and retry policy.
+    """Run the executor honoring the schedule's per-attempt bounds and retry policy.
 
-    A single effective timeout (the schedule's ``timeout`` or the default HTTP timeout of the
-    process executing the run) is computed once, stored on ``ctx.effective_timeout`` so
-    executors apply the same value to their underlying HTTP/SDK call, and enforced as an
-    absolute per-attempt cap via ``asyncio.wait_for``. A failed attempt is retried only when
-    its HTTP status code is in ``retry.retryable_errors`` and retries remain; the orchestrator
-    waits the corresponding ``interval_sequence`` entry before retrying. Timeouts and transport
-    errors carry no status code and are therefore terminal.
+    Two independent bounds are resolved once and stored on the context, so executors apply the
+    same values as the orchestrator and never re-read ``properties``:
+
+    * the **ceiling** (``effective_timeout``) -- the schedule's ``timeout``, else the owning
+      process's ``max_duration_seconds``, or ``streaming_max_duration_seconds`` when the target
+      streams. Enforced as an absolute per-attempt cap via ``asyncio.wait_for``. It never
+      resets, so it is sized as a backstop against a run that never ends rather than as a
+      routine bound -- and only a streaming target, which has the idle bound watching it, gets
+      the longer one.
+    * the **idle bound** (``effective_idle_timeout``) -- the schedule's ``idle_timeout``, else
+      the owning process's ``idle_timeout_seconds``. Enforced inside the streaming executors
+      around each stream event, not here, because only they can observe progress.
+
+    A failed attempt is retried only when its HTTP status code is in ``retry.retryable_errors``
+    and retries remain; the orchestrator waits the corresponding ``interval_sequence`` entry
+    before retrying. Timeouts and transport errors carry no status code and are therefore
+    terminal -- that applies to both bounds.
 
     Each attempt, retry, and terminal outcome is recorded via structured logs; per-attempt
     detail is intentionally not persisted to the database. Attempt failures always log at
@@ -66,11 +77,17 @@ async def execute_with_policy(
     Returns:
         A :class:`RunOutcome` describing the final result and the number of attempts made.
     """
-    default_timeout = (
-        ctx.default_timeout if ctx.default_timeout is not None else get_settings().worker_http.timeout_seconds
+    worker_http = get_settings().worker_http
+    defaults = ctx.timeouts or RunTimeouts(
+        max_duration=worker_http.max_duration_seconds,
+        streaming_max_duration=worker_http.streaming_max_duration_seconds,
+        idle_timeout=worker_http.idle_timeout_seconds,
     )
-    effective_timeout = properties.timeout if properties.timeout is not None else default_timeout
+    default_ceiling = defaults.streaming_max_duration if properties.is_streaming else defaults.max_duration
+    effective_timeout = properties.timeout if properties.timeout is not None else default_ceiling
+    effective_idle_timeout = properties.idle_timeout if properties.idle_timeout is not None else defaults.idle_timeout
     ctx.effective_timeout = effective_timeout
+    ctx.effective_idle_timeout = effective_idle_timeout
 
     retry = properties.retry
     backoff = retry.interval_sequence if retry is not None else []
@@ -88,6 +105,7 @@ async def execute_with_policy(
             max_attempts=max_attempts,
             is_retry=is_retry,
             timeout=effective_timeout,
+            idle_timeout=effective_idle_timeout,
             retryable_errors=retryable_log,
         )
 
@@ -106,8 +124,23 @@ async def execute_with_policy(
                 attempt=attempt,
                 is_retry=is_retry,
                 timeout=effective_timeout,
+                idle_timeout=effective_idle_timeout,
             )
             return RunOutcome(succeeded=False, result=None, error=error, attempt_count=attempt)
+        except StreamIdleTimeoutError as exc:
+            # Terminal like the ceiling, but a different operational problem: the target was
+            # reachable and simply stopped making progress. Logged under its own event so the
+            # two are distinguishable without reading the message.
+            logger.warning(
+                AttemptEvent.IDLE_TIMED_OUT,
+                schedule_id=ctx.schedule_id,
+                run_id=ctx.run_id,
+                attempt=attempt,
+                is_retry=is_retry,
+                timeout=effective_timeout,
+                idle_timeout=effective_idle_timeout,
+            )
+            return RunOutcome(succeeded=False, result=None, error=exc, attempt_count=attempt)
         except ScheduleRunError as exc:
             status_code = exc.status_code
             retries_remain = attempt < max_attempts

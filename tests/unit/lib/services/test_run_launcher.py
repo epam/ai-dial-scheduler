@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from src.lib.exceptions.errors import ScheduleRunError
+from src.lib.schemas.run import RunTimeouts
 from src.lib.services.run_launcher import BackgroundRunLauncher
 
 
@@ -25,7 +26,10 @@ def http_client(mocker):
 
 @pytest.fixture
 def launcher(http_client):
-    return BackgroundRunLauncher(http_client, default_timeout=42.0)
+    return BackgroundRunLauncher(
+        http_client,
+        timeouts=RunTimeouts(max_duration=300.0, streaming_max_duration=900.0, idle_timeout=20.0),
+    )
 
 
 class TestLaunch:
@@ -41,9 +45,7 @@ class TestLaunch:
         assert ctx.run_id == RUN_ID
         assert ctx.schedule_id == SCHEDULE_ID
 
-    async def test_run_uses_the_api_client_and_timeout_not_the_worker_singleton(
-        self, mocker, launcher, http_client
-    ) -> None:
+    async def test_run_uses_the_api_client_not_the_worker_singleton(self, mocker, launcher, http_client) -> None:
         """The run must execute with the API's own client, since the worker is not involved."""
         execute = mocker.patch("src.lib.services.run_launcher.execute_run", new_callable=AsyncMock)
 
@@ -52,7 +54,23 @@ class TestLaunch:
 
         ctx, _ = execute.await_args.args
         assert ctx.http_client is http_client
-        assert ctx.default_timeout == 42.0
+
+    async def test_run_carries_the_api_process_ceiling(self, mocker, launcher) -> None:
+        """The API's own bounds must reach the orchestrator; the worker's are irrelevant here.
+
+        Covers the idle bound too: it is per-process configuration, so an API-side value must
+        not be silently replaced by the worker's.
+        """
+        execute = mocker.patch("src.lib.services.run_launcher.execute_run", new_callable=AsyncMock)
+
+        launcher.launch(RUN_ID, SCHEDULE_ID, SNAPSHOT)
+        await launcher.drain()
+
+        ctx, _ = execute.await_args.args
+        assert ctx.timeouts is not None
+        assert ctx.timeouts.max_duration == 300.0
+        assert ctx.timeouts.streaming_max_duration == 900.0
+        assert ctx.timeouts.idle_timeout == 20.0
 
     async def test_returns_before_the_run_finishes(self, mocker, launcher):
         started = asyncio.Event()

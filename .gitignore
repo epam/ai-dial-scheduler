@@ -22,14 +22,11 @@ rules-config.json
 dial/core/config.json
 reports
 .mypy_cache
-src/chat_v2/local_config/config.json
-/src/utils/test.py
 /test.json
 *.docx
 *.doc
 *.pdf
 .python-version
-.github/instructions/*
 
 # Tests coverage reports:
 .coverage
@@ -43,6 +40,5 @@ coverage.xml
 !.specify/memory/**
 
 config.json
-dial_conf/keycloak/data
 
 http-client.private.env.json

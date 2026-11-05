@@ -44,7 +44,6 @@ def mock_credentials(mocker):
             scheduler_app_id="dial_scheduler",
             dial_url="https://dial.example.com",
             dial_api_key=mocker.MagicMock(get_secret_value=lambda: "svc-key"),
-            worker_http=mocker.MagicMock(timeout_seconds=60.0),
         ),
     )
 

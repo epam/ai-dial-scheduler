@@ -34,7 +34,7 @@ Before reviewing, check whether **`review_report.md`** already exists in `spec-d
 - Verify the implementation matches the stated requirements
 - Check for off-by-one errors, unhandled edge cases, and incorrect conditionals
 - Confirm async/await is used correctly for all I/O operations — no blocking calls in async context
-- Validate exception handling: custom exceptions from `src/exceptions/` used appropriately, no bare `except:` clauses
+- Validate exception handling: custom exceptions from `src/lib/exceptions/` used appropriately, no bare `except:` clauses
 - Ensure no `assert` statements in production code (use proper conditionals and exceptions)
 
 ### 2. Type Safety
@@ -48,7 +48,7 @@ Before reviewing, check whether **`review_report.md`** already exists in `spec-d
 - `snake_case` for functions, variables, and modules; `PascalCase` for classes
 - Google-style docstrings on all public functions and classes
 - Import order: stdlib → third-party → local (ruff enforces this)
-- No `print()` calls — use `src.utils.logging` logger instead
+- No `print()` calls — use `src.lib.utils.logging` logger instead
 - No reading of `.env`, `.envrc`, or `secrets.env` files
 - Comments only for complex logic; code should be self-explanatory; all comments in English
 
@@ -58,7 +58,7 @@ Before reviewing, check whether **`review_report.md`** already exists in `spec-d
 - DRY: no duplicate logic that could be extracted
 - YAGNI: no speculative abstractions
 - Repository pattern used correctly for DB access — no raw SQL
-- Business logic belongs in `src/services/`, not in endpoints or repositories
+- Business logic belongs in `src/lib/services/`, not in endpoints or repositories
 - Reusable components (e.g., HTTP clients) managed via FastAPI app state, not globals
 - Dependencies injected via FastAPI's `Depends()` mechanism
 
@@ -71,14 +71,16 @@ Before reviewing, check whether **`review_report.md`** already exists in `spec-d
 ### 6. Project Structure Compliance
 - New files placed in the correct directory per the project structure:
   - `src/api/v1/endpoints/` — route handlers
-  - `src/repositories/` — data access
-  - `src/services/` — business logic
-  - `src/schemas/` — Pydantic schemas
-  - `src/models/` — ORM models
-  - `src/clients/` — external service clients
-  - `src/exceptions/` — custom exceptions
-  - `src/utils/` — utilities
-- Test files mirror `src/` structure under `tests/`
+  - `src/api/mcp/` — MCP server
+  - `src/worker/` — APScheduler worker; `src/worker/executors/` — target executors
+  - `src/lib/repositories/` — data access
+  - `src/lib/services/` — business logic
+  - `src/lib/schemas/` — Pydantic schemas
+  - `src/lib/models/` — ORM models
+  - `src/lib/clients/` — external service clients
+  - `src/lib/exceptions/` — custom exceptions
+  - `src/lib/utils/` — utilities
+- Unit test files mirror `src/` structure under `tests/unit/`
 
 ### 7. Testing
 - New code has corresponding unit tests

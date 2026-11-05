@@ -1,6 +1,6 @@
 # Phase 0 Research: Create DIAL Conversation on Run Complete
 
-All unknowns were resolvable from the codebase and verified GET calls against the live DIAL Core dev instance (`https://core.aks.dev.dial.parts`) plus the provided example fixtures under `conversations/`. No open NEEDS CLARIFICATION remain.
+All unknowns were resolvable from the codebase and verified GET calls against a live DIAL Core dev instance plus the provided example fixtures under `conversations/`. No open NEEDS CLARIFICATION remain.
 
 ## R1. Where the `create_conversation` flag lives
 

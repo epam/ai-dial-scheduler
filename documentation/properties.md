@@ -9,7 +9,10 @@ Represents the task run configuration and has the following structure:
     "payload": {"model": "gpt-4", "messages": [{"role": "user", "content": "some"}]},
     "extra_headers": {"tenant_id": "hcscd"},
     "api_version": "str|null",
-    "create_conversation": "bool"
+    "create_conversation": "bool",
+    "timeout": "number|null",
+    "idle_timeout": "number|null",
+    "retry": {"interval_sequence": [2, 5], "retryable_errors": [500, 502]}
 }
 
 The structure is restricted by the API, which is the only place where changes may
@@ -42,5 +45,31 @@ occur; it is not enforced by the database.
   conversation is non-fatal and does not affect the run outcome. Recommended value for
   `chat_completion` schedules is `true` — the field's OpenAPI description says so, so MCP clients
   creating a schedule opt in unless the caller asked for runs not to be saved.
+- `timeout` — type: nullable number, seconds, must be positive. The absolute ceiling on a single
+  attempt, measured from the moment the request is built. It never resets while the attempt runs,
+  so it is sized as a backstop against a run that never ends rather than as a routine bound. When
+  omitted, the executing process supplies it: `*_HTTP_STREAMING_MAX_DURATION_SECONDS` (default
+  3600) for a streaming target, `*_HTTP_MAX_DURATION_SECONDS` (default 600) otherwise. The longer
+  ceiling is reserved for streaming because only a stream gives a progress signal that
+  `idle_timeout` can watch; a non-streaming call is indistinguishable from a hung one at the
+  transport layer, so total duration is its only instrument and must stay tighter.
+  Enforced by the retry orchestrator via `asyncio.wait_for`.
+- `idle_timeout` — type: nullable number, seconds, must be positive. The maximum gap between two
+  consecutive stream events. It resets on every event, so it bounds inactivity rather than total
+  duration, and must not exceed `timeout` when both are set. Applies to streaming targets only
+  (`sse`, or `chat_completion`/`responses` with `payload.stream` true); it is accepted but inert
+  for the rest. When omitted, the executing process's `*_HTTP_IDLE_TIMEOUT_SECONDS` applies
+  (default 60).
+  It is **not** an HTTP read timeout: it counts parsed events, because the DIAL SDK emits SSE
+  heartbeat pings precisely when a response is idle and a transport-level bound would be reset by
+  the very silence it is meant to detect.
+- `retry` — type: nullable object. `interval_sequence` is a non-empty list of positive integer
+  seconds whose length is the number of retries; `retryable_errors` is a non-empty list of HTTP
+  status codes (100–599). A failed attempt is retried only when its status code is in that list.
+  Timeouts of either kind carry no status code and are therefore always terminal.
+
+Neither timeout is retryable, and neither requires a database migration — both persist inside the
+existing `schedules.kwargs` JSONB. A ceiling expiry logs as `attempt_timed_out` and an idle expiry
+as `attempt_idle_timed_out`, so the two are distinguishable without reading the error text.
 
 Has a corresponding Pydantic model and is validated before each run start.

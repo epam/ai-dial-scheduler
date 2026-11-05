@@ -1,0 +1,24 @@
+name: Release Workflow
+
+on:
+  push:
+    branches: [development, release-*]
+  workflow_dispatch:
+    inputs:
+      promote:
+        type: boolean
+        default: false
+        description: Promote release to stable (for release-* branches only)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    uses: epam/ai-dial-ci/.github/workflows/python_docker_release.yml@00484ead5dc3904a787c5af8d0bdd8f4fdf087c1 # 4.13.2
+    with:
+      python-package-manager: uv
+      python-version: "3.14"
+      promote: ${{ github.event_name == 'workflow_dispatch' && inputs.promote }}
+    secrets: inherit

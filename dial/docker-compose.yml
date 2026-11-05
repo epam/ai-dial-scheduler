@@ -1,3 +1,7 @@
+# Local development stack for DIAL Scheduler.
+# Image tags are intentionally floating (`latest` for chat/themes, `development` for core and adapters) to follow
+# the newest DIAL builds. For a reproducible setup, pin each epam/ai-dial-* image to a released tag and verify that
+# the per-user credentials flow (README.md, "Per-User Credentials") still works with those versions.
 services:
 
   themes:

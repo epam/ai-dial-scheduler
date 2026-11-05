@@ -38,8 +38,8 @@
 ## Minor Suggestions
 
 - **M1 — Executor duplication is intentional but total.** Status: Open (by design). `responses.py` and `chat_completion.py` are now nearly byte-identical apart from `.responses.stream()` / `get_final_response()` vs `.chat.completions.stream()` / `get_final_completion()`. The plan explicitly chose "one executor mirroring the existing one" over an abstraction (YAGNI/Simplicity, Constitution V), so this is the sanctioned approach and I do **not** recommend refactoring now. Flagging only so it is a conscious decision: if a third OpenAI-style executor ever appears, extract a shared base template at that point (rule of three).
-- **M2 — Untracked helper files at repo root.** Status: Closed (won't fix). `res.py`, `documentation/deployment/ihor-test.json`, and `../../../../AppData/Roaming/JetBrains/PyCharm2026.2/scratches/scheduler/scheduler-app-definition.json` are pre-existing untracked files, intentionally not part of this feature's deliverables per the coordinator. No action needed.
-- **M3 — e2e file naming.** `tests/e2e/1.4 Create-responses-schedule-oauth.http` mirrors the existing `1.x` chat-completion files well. The `model` field is duplicated in the payload (`gpt-4.1-mini-2025-04-14`) in addition to the deployment in the URL; this matches `res.py`'s `responses.create(model=..., ...)` usage, so it is fine — just noting the payload `model` is what the SDK actually sends.
+- **M2 — Untracked helper files at repo root.** Status: Closed (won't fix). A few pre-existing local scratch files (an ad-hoc client script and sample app definitions) are untracked and intentionally not part of this feature's deliverables per the coordinator. No action needed.
+- **M3 — e2e file naming.** `tests/e2e/1.4 Create-responses-schedule-oauth.http` mirrors the existing `1.x` chat-completion files well. The `model` field is duplicated in the payload (`gpt-4.1-mini-2025-04-14`) in addition to the deployment in the URL; this matches the SDK's `responses.create(model=..., ...)` usage, so it is fine — just noting the payload `model` is what the SDK actually sends.
 
 ## Intent Alignment
 

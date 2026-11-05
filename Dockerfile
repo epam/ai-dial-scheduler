@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 python:3.14-alpine
+FROM python:3.14-alpine
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -37,7 +37,7 @@ RUN chmod +x entrypoint.sh
 COPY entrypoint_api.py ./
 COPY entrypoint_worker.py ./
 
-# 1001 uid also used in HELM chart
+# Fixed non-root uid, so deployments can reference it (e.g. securityContext.runAsUser: 1001)
 RUN adduser -u 1001 --system --disabled-password --gecos "" app && chown -R app $APP_HOME
 
 ENV PATH="$APP_HOME/.venv/bin:$PATH"

@@ -37,7 +37,7 @@ class TestDialClientSuccess:
         response = make_response(200, {"userClaims": {"mail": ["alice@example.com"]}})
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         result = await client.get_user_info("alice-key")
 
         assert result == {"userClaims": {"mail": ["alice@example.com"]}}
@@ -47,7 +47,7 @@ class TestDialClientSuccess:
         response = make_response(200, {"project": "alpha"})
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_user_info("my-api-key")
 
         call_kwargs = mock_http_client.get.call_args
@@ -59,29 +59,28 @@ class TestDialClientSuccess:
         response = make_response(200, {})
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_user_info("key")
 
         url_called = mock_http_client.get.call_args.args[0]
         assert url_called == "https://dial.example.com/v1/user/info"
 
-    async def test_get_user_info_passes_timeout_to_http_client(self):
+    async def test_get_user_info_inherits_the_http_client_timeouts(self):
         mock_http_client = AsyncMock()
         response = make_response(200, {})
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=15.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_user_info("key")
 
-        timeout_kwarg = mock_http_client.get.call_args.kwargs.get("timeout")
-        assert timeout_kwarg == 15.0
+        assert "timeout" not in mock_http_client.get.call_args.kwargs
 
     async def test_get_user_info_returns_empty_dict_on_non_json_2xx(self):
         mock_http_client = AsyncMock()
         response = make_response(200, text="not json at all")
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         result = await client.get_user_info("key")
 
         assert result == {}
@@ -94,7 +93,7 @@ class TestDialClientErrorMapping:
         response = httpx.Response(401, request=request)
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_user_info("bad-key")
 
@@ -104,7 +103,7 @@ class TestDialClientErrorMapping:
         response = httpx.Response(403, request=request)
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_user_info("bad-key")
 
@@ -114,7 +113,7 @@ class TestDialClientErrorMapping:
         response = httpx.Response(500, request=request)
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_user_info("key")
 
@@ -124,7 +123,7 @@ class TestDialClientErrorMapping:
         response = httpx.Response(404, request=request)
         mock_http_client.get.return_value = response
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_user_info("key")
 
@@ -132,7 +131,7 @@ class TestDialClientErrorMapping:
         mock_http_client = AsyncMock()
         mock_http_client.get.side_effect = httpx.TransportError("Connection refused")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_user_info("key")
 
@@ -140,7 +139,7 @@ class TestDialClientErrorMapping:
         mock_http_client = AsyncMock()
         mock_http_client.get.side_effect = httpx.ConnectTimeout("Timeout")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_user_info("key")
 
@@ -165,7 +164,7 @@ class TestGetExternalServiceAuthStatus:
             },
         )
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         status = await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
 
         assert status == ExternalServiceAuthStatus(
@@ -188,7 +187,7 @@ class TestGetExternalServiceAuthStatus:
             },
         )
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
 
         call = mock_http_client.get.call_args
@@ -199,7 +198,7 @@ class TestGetExternalServiceAuthStatus:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"external_services": {}})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
 
@@ -209,7 +208,7 @@ class TestGetExternalServiceAuthStatus:
             200, {"external_services": {"dial-native": {"auth_settings": {"user_level_auth_status": "BOGUS"}}}}
         )
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_external_service_auth_status("caller-key", "public/dial_scheduler", "dial-native")
 
@@ -218,7 +217,7 @@ class TestGetExternalServiceAuthStatus:
         request = httpx.Request("GET", "https://dial.example.com/v1/applications/x")
         mock_http_client.get.return_value = httpx.Response(404, request=request)
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_external_service_auth_status("caller-key", "x", "dial-native")
 
@@ -226,7 +225,7 @@ class TestGetExternalServiceAuthStatus:
         mock_http_client = AsyncMock()
         mock_http_client.get.side_effect = httpx.TransportError("connection refused")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(DialServiceError):
             await client.get_external_service_auth_status("caller-key", "x", "dial-native")
 
@@ -236,7 +235,7 @@ class TestGetOboCredentialsSuccess:
         mock_http_client = AsyncMock()
         mock_http_client.post.return_value = make_response(200, {"header_name": "Api-Key", "header_value": "tok"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
         call = mock_http_client.post.call_args
@@ -246,13 +245,13 @@ class TestGetOboCredentialsSuccess:
             "url": "applications/dial_scheduler/external_services/dial-native",
             "owner_user_id": "user-sub-123",
         }
-        assert call.kwargs["timeout"] == 20.0
+        assert "timeout" not in call.kwargs
 
     async def test_api_key_type_service_returns_api_key_header(self):
         mock_http_client = AsyncMock()
         mock_http_client.post.return_value = make_response(200, {"header_name": "Api-Key", "header_value": "raw-key"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         creds = await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
         assert creds.header_name == "Api-Key"
@@ -264,7 +263,7 @@ class TestGetOboCredentialsSuccess:
             200, {"header_name": "Authorization", "header_value": "Bearer abc.def.ghi"}
         )
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         creds = await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
         assert creds.header_name == "Authorization"
@@ -276,7 +275,7 @@ class TestGetOboCredentialsFailure:
         mock_http_client = AsyncMock()
         mock_http_client.post.return_value = make_response(404, {"error": "no credentials"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(OboCredentialsError) as exc_info:
             await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
@@ -287,7 +286,7 @@ class TestGetOboCredentialsFailure:
         mock_http_client = AsyncMock()
         mock_http_client.post.return_value = make_response(200, {"header_name": "Api-Key"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(OboCredentialsError):
             await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
@@ -295,7 +294,7 @@ class TestGetOboCredentialsFailure:
         mock_http_client = AsyncMock()
         mock_http_client.post.side_effect = httpx.TransportError("connection refused")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(OboCredentialsError) as exc_info:
             await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
@@ -307,7 +306,7 @@ class TestGetOboCredentialsFailure:
         mock_http_client = AsyncMock()
         mock_http_client.post.side_effect = httpx.TooManyRedirects("too many redirects")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=20.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(OboCredentialsError):
             await client.get_obo_credentials("service-key", _OBO_REQUEST)
 
@@ -332,7 +331,7 @@ class TestGetBucket:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"bucket": "bkt-123"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         bucket = await client.get_bucket(_OWNER_CREDS)
 
         assert bucket == "bkt-123"
@@ -341,7 +340,7 @@ class TestGetBucket:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"bucket": "bkt-123"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_bucket(_OWNER_CREDS)
 
         call = mock_http_client.get.call_args
@@ -353,7 +352,7 @@ class TestGetBucket:
         request = httpx.Request("GET", "https://dial.example.com/v1/bucket")
         mock_http_client.get.return_value = httpx.Response(500, request=request)
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.get_bucket(_CREDS)
 
@@ -361,7 +360,7 @@ class TestGetBucket:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"not_bucket": "x"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.get_bucket(_CREDS)
 
@@ -369,7 +368,7 @@ class TestGetBucket:
         mock_http_client = AsyncMock()
         mock_http_client.get.side_effect = httpx.TransportError("connection refused")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.get_bucket(_CREDS)
 
@@ -379,7 +378,7 @@ class TestGetApplication:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"reference": "ref-1", "display_name": "app"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         details = await client.get_application(_CREDS, "applications/bkt/My App__0.0.1")
 
         assert details.reference == "ref-1"
@@ -388,7 +387,7 @@ class TestGetApplication:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"reference": "ref-1"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_application(_CREDS, "applications/bkt/My App__0.0.1")
 
         call = mock_http_client.get.call_args
@@ -401,7 +400,7 @@ class TestGetApplication:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"reference": "ref-1"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.get_application(_CREDS, "applications/bkt/What? app")
 
         url = mock_http_client.get.call_args.args[0]
@@ -412,7 +411,7 @@ class TestGetApplication:
         request = httpx.Request("GET", "https://dial.example.com/openai/applications/x")
         mock_http_client.get.return_value = httpx.Response(404, request=request)
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.get_application(_CREDS, "applications/bkt/app")
 
@@ -420,7 +419,7 @@ class TestGetApplication:
         mock_http_client = AsyncMock()
         mock_http_client.get.return_value = make_response(200, {"display_name": "no ref"})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.get_application(_CREDS, "applications/bkt/app")
 
@@ -430,7 +429,7 @@ class TestPutConversation:
         mock_http_client = AsyncMock()
         mock_http_client.put.return_value = make_response(200, {})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.put_conversation(_CREDS, "bkt-1/.scheduler/sched-1/run-1", _make_conversation())
 
         call = mock_http_client.put.call_args
@@ -447,7 +446,7 @@ class TestPutConversation:
         mock_http_client.put.return_value = make_response(200, {})
         raw_leaf = "Untitled app 1101__0.0.1__hi! how are you?__run-1"
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.put_conversation(
             _CREDS, f"bkt-1/.scheduler/sched-1/applications/bkt/{raw_leaf}", _make_conversation()
         )
@@ -465,7 +464,7 @@ class TestPutConversation:
         mock_http_client = AsyncMock()
         mock_http_client.put.return_value = make_response(200, {})
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         await client.put_conversation(_CREDS, "bkt-1/.scheduler/sched-1/100% done__run-1", _make_conversation())
 
         raw_path = httpx.URL(mock_http_client.put.call_args.args[0]).raw_path
@@ -476,7 +475,7 @@ class TestPutConversation:
         request = httpx.Request("PUT", "https://dial.example.com/v1/conversations/bkt-1/x")
         mock_http_client.put.return_value = httpx.Response(500, request=request)
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.put_conversation(_CREDS, "bkt-1/.scheduler/sched-1/run-1", _make_conversation())
 
@@ -484,7 +483,7 @@ class TestPutConversation:
         mock_http_client = AsyncMock()
         mock_http_client.put.side_effect = httpx.TransportError("connection refused")
 
-        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com", timeout=30.0)
+        client = DialClient(http_client=mock_http_client, base_url="https://dial.example.com")
         with pytest.raises(ConversationCreationError):
             await client.put_conversation(_CREDS, "bkt-1/.scheduler/sched-1/run-1", _make_conversation())
 
@@ -502,7 +501,7 @@ class TestRequestExternalServiceSignin:
             return _sse_response([{"jsonrpc": "2.0", "result": "success", "id": "1"}])
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-            client = DialClient(http_client, "https://dial.example.com", timeout=5.0)
+            client = DialClient(http_client, "https://dial.example.com")
             result = await client.request_external_service_signin(
                 "scheduler-key", "chan-1", "applications/x/external_services/y", timeout=5.0
             )
@@ -513,7 +512,7 @@ class TestRequestExternalServiceSignin:
             return _sse_response([{"jsonrpc": "2.0", "result": "denied", "id": "1"}])
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-            client = DialClient(http_client, "https://dial.example.com", timeout=5.0)
+            client = DialClient(http_client, "https://dial.example.com")
             result = await client.request_external_service_signin(
                 "scheduler-key", "chan-1", "applications/x/external_services/y", timeout=5.0
             )
@@ -524,7 +523,7 @@ class TestRequestExternalServiceSignin:
             raise httpx.ConnectError("refused")
 
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-            client = DialClient(http_client, "https://dial.example.com", timeout=5.0)
+            client = DialClient(http_client, "https://dial.example.com")
             result = await client.request_external_service_signin(
                 "scheduler-key", "chan-1", "applications/x/external_services/y", timeout=5.0
             )

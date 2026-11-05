@@ -8,7 +8,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from src.lib.db.engine import Database
 from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
-from src.lib.schemas.run import RunContext
+from src.lib.schemas.run import RunContext, RunTimeouts
 from src.lib.utils.logging import logger
 from src.worker.jobs import execute_run
 
@@ -34,9 +34,9 @@ class BackgroundRunLauncher:
     ``in_progress`` forever.
     """
 
-    def __init__(self, http_client: httpx.AsyncClient, default_timeout: float) -> None:
+    def __init__(self, http_client: httpx.AsyncClient, timeouts: RunTimeouts) -> None:
         self._http_client = http_client
-        self._default_timeout = default_timeout
+        self._timeouts = timeouts
         # task -> (run_id, schedule_id), so a shutdown can name the runs it is about to cancel.
         self._tasks: dict[asyncio.Task[None], tuple[str, str]] = {}
 
@@ -61,7 +61,7 @@ class BackgroundRunLauncher:
                     run_id=run_id,
                     schedule_id=schedule_id,
                     http_client=self._http_client,
-                    default_timeout=self._default_timeout,
+                    timeouts=self._timeouts,
                 )
                 await execute_run(ctx, snapshot)
         except ScheduleRunError:
