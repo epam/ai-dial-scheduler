@@ -1,0 +1,236 @@
+### ============================================================
+### 0. UPSERT DIAL APP
+### ============================================================
+
+# @name upsert_dial_app
+# @no-cookie-jar
+PUT {{dial_url}}/v1/applications/{{app_id}}
+Content-Type: application/json
+Api-Key: {{admin_api_key}}
+
+{{scheduler_app_definition}}
+
+
+### ============================================================
+### 1. GET USER TOKEN (Keycloak password grant)
+### ============================================================
+
+# The `dial` realm user holds the `admin` client role, so this one token both grants
+# admin consent below and owns the offline credentials.
+
+# @name get_user_token
+# @no-cookie-jar
+POST {{keycloak_url}}/realms/{{keycloak_realm}}/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password&client_id={{keycloak_client_id}}&client_secret={{keycloak_client_secret}}&username={{keycloak_username}}&password={{keycloak_password}}
+
+> {%
+  client.global.set("user_token", response.body["access_token"]);
+%}
+
+
+### ============================================================
+### 2. RESET — make this file re-runnable
+### ============================================================
+
+# Offline credentials and admin consent both survive restarts, so clear them before
+# re-establishing them. Either may legitimately be absent already.
+
+# @name reset_sign_out
+# @no-cookie-jar
+POST {{dial_url}}/v1/user/offline-credentials/signout
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("cleanup ran", function() {
+    client.assert([200, 404].indexOf(response.status) >= 0, "unexpected status " + response.status);
+  });
+%}
+
+
+### @name reset_withdraw_consent
+# @no-cookie-jar
+DELETE {{dial_url}}/v1/applications/{{app_id}}/external-services/{{service_id}}/consent
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("cleanup ran", function() {
+    client.assert([200, 404].indexOf(response.status) >= 0, "unexpected status " + response.status);
+  });
+%}
+
+
+### ============================================================
+### 3. ADMIN CONSENT — may this app act for anyone? (layer 2)
+### ============================================================
+
+# Installation-wide: this approves the application for every user who has connected
+# offline credentials, not only the caller.
+
+# @name grant_consent
+# @no-cookie-jar
+POST {{dial_url}}/v1/applications/{{app_id}}/external-services/{{service_id}}/consent
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("consent granted", function() {
+    client.assert(response.status === 200, "expected 200, got " + response.status);
+  });
+%}
+
+
+### ============================================================
+### 4. OFFLINE CREDENTIALS STATUS — and how to connect (layer 1)
+### ============================================================
+
+# Status and "how to connect" are one call. Chat builds the authorization URL from the
+# `connect` block, which names the offline client — never chat's own.
+
+# @name offline_credentials_status
+# @no-cookie-jar
+GET {{dial_url}}/v1/user/offline-credentials
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("status 200", function() {
+    client.assert(response.status === 200, "expected 200, got " + response.status);
+  });
+  client.test("an offline client is configured for this provider", function() {
+    client.assert(response.body["available"] === true,
+      "core publishes no offline client; check aidial.identityProviders.*.offlineClient");
+  });
+  client.test("not connected yet", function() {
+    client.assert(response.body["connected"] === false, "expected connected=false after reset");
+  });
+
+  const connect = response.body["connect"];
+  client.test("carries connect parameters", function() {
+    client.assert(connect != null, "no connect block");
+  });
+  client.test("names the offline client, not the chat client", function() {
+    client.assert(connect["client_id"] === client.global.get("offline_client_id"),
+      "unexpected client_id " + connect["client_id"]);
+  });
+  client.test("asks for offline_access", function() {
+    client.assert(connect["scopes"].indexOf("offline_access") >= 0, "offline_access not requested");
+  });
+  client.test("never publishes the client secret", function() {
+    client.assert(response.body.toString().indexOf("secret") < 0, "response mentions a secret");
+  });
+
+  client.global.set("offline_authorization_endpoint", connect["authorization_endpoint"]);
+  client.global.set("offline_scopes", connect["scopes"].join(" "));
+  client.global.set("offline_callback", connect["redirect_uri"]);
+%}
+
+
+### ============================================================
+### 5. START THE AUTH CODE FLOW — get the Keycloak login form
+### ============================================================
+
+# Keycloak sets AUTH_SESSION_ID with the Secure flag, which cookie jars refuse to
+# replay over plain HTTP. Relay the cookies manually (same approach as dial_sign_in.py).
+
+# @name get_keycloak_login_form
+# @no-cookie-jar
+GET {{offline_authorization_endpoint}}?response_type=code&client_id={{offline_client_id}}&redirect_uri={{offline_callback}}&scope=openid%20offline_access&state=e2e-test
+
+> {%
+  const formMatch = response.body.match(/action="([^"]+)"/);
+  if (!formMatch) throw new Error("Could not find Keycloak login form (status " + response.status + ")");
+  client.global.set("keycloak_login_url", formMatch[1].replace(/&amp;/g, "&"));
+
+  const setCookies = response.headers.valuesOf("Set-Cookie");
+  const cookieStr = setCookies.map(function(c) { return c.split(";")[0]; }).join("; ");
+  client.global.set("keycloak_session_cookies", cookieStr);
+%}
+
+
+### ============================================================
+### 6. SUBMIT LOGIN FORM — obtain authorization code
+### ============================================================
+
+# @name submit_keycloak_login
+// @no-redirect
+# @no-cookie-jar
+POST {{keycloak_login_url}}
+Content-Type: application/x-www-form-urlencoded
+Cookie: {{keycloak_session_cookies}}
+
+username={{keycloak_username}}&password={{keycloak_password}}
+
+> {%
+  const location = response.headers.valueOf("Location");
+  if (!location) throw new Error("No Location header after login (status " + response.status + "); check credentials");
+  const codeMatch = location.match(/[?&]code=([^&]+)/);
+  if (!codeMatch) throw new Error("No authorization code in redirect: " + location);
+  client.global.set("keycloak_auth_code", codeMatch[1]);
+%}
+
+
+### ============================================================
+### 7. CONNECT OFFLINE CREDENTIALS
+### ============================================================
+
+# Core exchanges the code with its own client id and secret, then checks the identity in
+# the returned ID token against the caller's before storing anything.
+
+# @name offline_credentials_signin
+# @no-cookie-jar
+POST {{dial_url}}/v1/user/offline-credentials/signin
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "code": "{{keycloak_auth_code}}",
+  "redirect_uri": "{{offline_callback}}"
+}
+
+> {%
+  client.test("signed in", function() {
+    client.assert(response.status === 200, "expected 200, got " + response.status + ": " + response.body);
+  });
+%}
+
+
+### ============================================================
+### 8. VERIFY — both decisions are recorded
+### ============================================================
+
+# @name offline_credentials_connected
+# @no-cookie-jar
+GET {{dial_url}}/v1/user/offline-credentials
+Authorization: Bearer {{user_token}}
+
+> {%
+  client.test("connected", function() {
+    client.assert(response.body["connected"] === true, "expected connected=true");
+  });
+  client.test("nothing left to do", function() {
+    client.assert(response.body["connect"] == null, "connect block should be absent once connected");
+  });
+%}
+
+
+### @name get_dial_app
+# @no-cookie-jar
+GET {{dial_url}}/v1/applications/{{app_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+> {%
+  const settings = response.body["external_services"][client.global.get("service_id")]["auth_settings"];
+  client.test("declared as a DIAL-native service", function() {
+    client.assert(settings["authentication_type"] === "DIAL_NATIVE",
+      "unexpected type " + settings["authentication_type"]);
+  });
+  client.test("user level reflects offline credentials", function() {
+    client.assert(settings["user_level_auth_status"] === "SIGNED_IN",
+      "user level is " + settings["user_level_auth_status"]);
+  });
+  client.test("app level reflects admin approval", function() {
+    client.assert(settings["app_level_auth_status"] === "SIGNED_IN",
+      "app level is " + settings["app_level_auth_status"]);
+  });
+%}

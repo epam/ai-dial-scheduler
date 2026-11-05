@@ -1,0 +1,304 @@
+### Variables
+# Switch between direct and DIAL-routed access by toggling the active @baseUrl line.
+#@baseUrl = http://localhost:5000
+@baseUrl = http://127.0.0.1:8081/v1/deployments/dial_scheduler/route
+
+@dialUrl = http://127.0.0.1:8081
+
+# Auth — credential value is centralised here; header name is fixed as Api-Key.
+# To switch to Bearer: find-replace  "Api-Key: {{authValue}}"
+#                               with  "Authorization: Bearer {{authValue}}"
+@authValue = "dial-chat-token"
+
+# service_id is required on every create/update body. It selects the external service
+# (registered in application/external-services) whose per-user on-behalf-of credentials
+# authenticate the schedule's execution — "dial-native" (DIAL_NATIVE offline delegation).
+# The requesting user must have connected offline credentials (see scripts/dial_sign_in.py),
+# and an admin must have approved this app, or the run fails with a credentials-stage error.
+
+# Paste the id returned by a Create request before running Update / Detail requests.
+@scheduleId = bb16ca12-1cff-4c1c-bd36-83c02d41ef19
+# Paste the id returned by a run in the list response before running Run Detail requests.
+@runId = 6239576f-44e6-4ef7-951a-4832d6e2f31c
+
+
+### ============================================================
+### CREATE
+### ============================================================
+
+# @name create_real_dial_streaming_job_oauth_service
+### Streaming chat_completion against real DIAL gpt-4.1-mini (fires every 30 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Real DIAL streaming smoke test",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"second": "*/30"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dialUrl}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+###
+# @name create_real_dial_streaming_job_api_key_service
+### Streaming chat_completion against real DIAL gpt-4.1-mini (fires every 30 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Real DIAL streaming smoke test with api key",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"second": "*/30"}}
+  },
+  "properties": {
+    "target_type": "chat_completion",
+    "url": "{{dialUrl}}/openai/",
+    "payload": {
+      "messages": [{"role": "user", "content": "hello, how are you?"}],
+      "model": "gpt-4.1-mini-2025-04-14",
+      "stream": true
+    },
+    "api_version": "2025-01-01-preview"
+  }
+}
+
+###
+
+# @name create_echo_rest_success
+### REST echo — success (fires every second)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Echo REST success",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"second": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true, "sleep": 0.2}
+  }
+}
+
+###
+
+# @name create_echo_rest_error
+### REST echo — always returns 500 (fires every 10 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Echo REST error",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"second": "*/10"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": false}
+  }
+}
+
+###
+
+# @name create_echo_sse_success
+### SSE echo — streams 5 events (fires every 5 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Echo SSE success",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"second": "*/5"}}
+  },
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/sse",
+    "payload": {"success": true, "sleep": 0.1, "chunks": 5}
+  }
+}
+
+###
+
+# @name create_echo_sse_error
+### SSE echo — 500 error before stream starts (fires every 10 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Echo SSE error",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"second": "*/10"}}
+  },
+  "properties": {
+    "target_type": "sse",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/sse",
+    "payload": {"success": false}
+  }
+}
+
+###
+
+# @name create_echo_rest_retry
+### REST echo — retries on 500/502/503 after 2, 5, 10, 20 s (fires every 60 s)
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Echo REST with retry",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"minute": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true},
+    "retry": {
+      "interval_sequence": [2, 5, 10, 20],
+      "retryable_errors": [500, 502, 503]
+    }
+  }
+}
+
+###
+
+# @name create_with_metadata
+### REST echo with business metadata — filterable by metadata__tenant=hcscd
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Echo REST with metadata",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"day": "1"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true}
+  },
+  "metadata": {"tenant": "hcscd", "env": "prod"}
+}
+
+
+### ============================================================
+### LIST SCHEDULES
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/
+Authorization: Bearer {{authValue}}
+
+###
+
+### Filter by metadata — only schedules whose metadata.tenant is the string "hcscd"
+GET {{baseUrl}}/v1/schedules/?metadata__tenant=hcscd
+Authorization: Bearer {{authValue}}
+
+
+### ============================================================
+### GET SCHEDULE DETAIL
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}
+Authorization: Bearer {{authValue}}
+
+
+### ============================================================
+### UPDATE SCHEDULE
+### ============================================================
+
+###
+
+PUT {{baseUrl}}/v1/schedules/{{scheduleId}}
+Content-Type: application/json
+Authorization: Bearer {{authValue}}
+
+{
+  "display_name": "Updated schedule",
+  "service_id": "dial-native",
+  "trigger": {
+    "cron": {"fields": {"minute": "*"}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "http://localhost:5000/echo/rest",
+    "payload": {"success": true}
+  }
+}
+
+
+### ============================================================
+### PAUSE SCHEDULE
+### ============================================================
+
+###
+
+POST {{baseUrl}}/v1/schedules/{{scheduleId}}/pause
+Authorization: Bearer {{authValue}}
+
+
+### ============================================================
+### RESUME SCHEDULE
+### ============================================================
+
+###
+
+POST {{baseUrl}}/v1/schedules/{{scheduleId}}/resume
+Authorization: Bearer {{authValue}}
+
+
+### ============================================================
+### LIST SCHEDULE RUNS
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs
+Authorization: Bearer {{authValue}}
+
+
+### ============================================================
+### GET RUN DETAIL
+### ============================================================
+
+###
+
+GET {{baseUrl}}/v1/schedules/{{scheduleId}}/runs/{{runId}}
+Authorization: Bearer {{authValue}}
