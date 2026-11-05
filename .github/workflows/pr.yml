@@ -1,0 +1,17 @@
+name: PR Workflow
+
+on:
+  pull_request:
+    branches: [development, release-*]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  run_tests:
+    uses: epam/ai-dial-ci/.github/workflows/python_docker_pr.yml@00484ead5dc3904a787c5af8d0bdd8f4fdf087c1 # 4.13.2
+    with:
+      python-package-manager: uv
+      python-version: "3.14"
+    secrets: inherit

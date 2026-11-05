@@ -1,0 +1,552 @@
+{
+  "info": {
+    "_postman_id": "f9126290-c3b1-4345-8e68-8a118184ea3d",
+    "name": "DIAL Scheduler",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Credentials",
+      "item": [
+        {
+          "name": "sign-in-api-key",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"url\": \"applications/{{SCHEDULER_APP_ID}}/external_services/dial-api-key\",\r\n  \"credentials_level\": \"USER\",\r\n  \"authentication_type\": \"API_KEY\",\r\n  \"api_key\": \"{{vault:DIAL_API_KEY}}\",\r\n  \"offline_usage_consent\": true\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{DIAL_URL}}/v1/ops/external-service/signin",
+              "host": [
+                "{{DIAL_URL}}"
+              ],
+              "path": [
+                "v1",
+                "ops",
+                "external-service",
+                "signin"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "B6. Scheduler OBO retrieve → 200 (has consent) Copy",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('header_value',()=>pm.expect(pm.response.json().header_value).to.eql('my-secret-key'));"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "api-key",
+                "value": "{{SCHEDULER_API_KEY}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"url\": \"applications/{{SCHEDULER_APP_ID}}/external_services/dial-oauth\",\n  \"ownerUserId\": \"{{OWNER_USER_ID}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{DIAL_URL}}/v1/ops/external-service/obo-credentials",
+              "host": [
+                "{{DIAL_URL}}"
+              ],
+              "path": [
+                "v1",
+                "ops",
+                "external-service",
+                "obo-credentials"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "App",
+      "item": [
+        {
+          "name": "scheduler app",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{DIAL_URL}}/v1/applications/{{SCHEDULER_APP_ID}}",
+              "host": [
+                "{{DIAL_URL}}"
+              ],
+              "path": [
+                "v1",
+                "applications",
+                "{{SCHEDULER_APP_ID}}"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "user-info",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/user/info",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "user",
+            "info"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "openapi",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/openapi.json",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "openapi.json"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "List schedules",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Schedule Chat Completion API KEY",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with API-KEY\",\r\n  \"trigger\": {\r\n    \"date\": \"{{$isoTimestamp}}\"\r\n  },\r\n  \"service_id\":\"dial-api-key\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Schedule Chat Completion Oauth",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with Token\",\r\n  \"trigger\": {\r\n    \"date\": \"{{$isoTimestamp}}\"\r\n  },\r\n  \"service_id\":\"dial-oauth\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Schedule Responses Oauth Copy",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment Responses with Token\",\r\n  \"trigger\": {\r\n    \"date\": \"{{$isoTimestamp}}\"\r\n  },\r\n  \"service_id\":\"dial-oauth\",\r\n  \"properties\": {\r\n    \"target_type\": \"responses\",\r\n    \"url\": \"{{DIAL_URL}}/openai/v1\",\r\n    \"payload\": {\r\n      \"input\": \"2+2\",\r\n      \"model\": \"gpt-5.6-luna-2026-07-09\",\r\n      \"stream\": false,\r\n      \"background\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Create Schedule REST",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"display_name\": \"Rest GET Schedule\",\r\n  \"service_id\":\"dial-oauth\",\r\n  \"trigger\": {\r\n    \"cron\": {\"fields\": {\"minute\": \"*\"}}\r\n  },\r\n  \"properties\": {\r\n    \"target_type\": \"rest\",\r\n    \"url\": \"{{DIAL_URL}}/v1/deployments/dial_scheduler/route/openapi.json\",\r\n    \"method\": \"GET\"\r\n  }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            ""
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Schedule Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/{{SCHEDULE_ID}}",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            "{{SCHEDULE_ID}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Pause Schedule",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/{{SCHEDULE_ID}}/pause",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            "{{SCHEDULE_ID}}",
+            "pause"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Resume Schedule",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/{{SCHEDULE_ID}}/resume",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            "{{SCHEDULE_ID}}",
+            "resume"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Update Schedule",
+      "request": {
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"display_name\": \"Call DIAL Deployment with API-KEY\",\r\n  \"trigger\": {\r\n    \"cron\": {\"fields\": {\"day\": \"*\"}}\r\n  },\r\n  \"service_id\":\"dial-api-key\",\r\n  \"properties\": {\r\n    \"target_type\": \"chat_completion\",\r\n    \"url\": \"{{DIAL_URL}}/openai\",\r\n    \"payload\": {\r\n      \"messages\": [{\"role\": \"user\", \"content\": \"2+2\"}],\r\n      \"model\": \"gpt-4.1-mini-2025-04-14\",\r\n      \"stream\": true\r\n    },\r\n    \"api_version\": \"2025-01-01-preview\"\r\n  }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/{{SCHEDULE_ID}}",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            "{{SCHEDULE_ID}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Schedule Runs",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/{{SCHEDULE_ID}}/runs",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            "{{SCHEDULE_ID}}",
+            "runs"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Run Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{DIAL_URL}}/v1/deployments/applications/{{SCHEDULER_APP_ID}}/route/v1/schedules/{{SCHEDULE_ID}}/runs/{{RUN_ID}}",
+          "host": [
+            "{{DIAL_URL}}"
+          ],
+          "path": [
+            "v1",
+            "deployments",
+            "applications",
+            "{{SCHEDULER_APP_ID}}",
+            "route",
+            "v1",
+            "schedules",
+            "{{SCHEDULE_ID}}",
+            "runs",
+            "{{RUN_ID}}"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{USER_TOKEN}}",
+        "type": "string"
+      }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "SCHEDULE_ID",
+      "value": ""
+    },
+    {
+      "key": "RUN_ID",
+      "value": ""
+    },
+    {
+      "key": "SCHEDULER_APP_ID",
+      "value": ""
+    },
+    {
+      "key": "OWNER_USER_ID",
+      "value": ""
+    },
+    {
+      "key": "DIAL_URL",
+      "value": ""
+    },
+    {
+      "key": "USER_TOKEN",
+      "value": ""
+    },
+    {
+      "key": "SCHEDULER_API_KEY",
+      "value": ""
+    }
+  ]
+}
