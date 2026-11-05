@@ -1,0 +1,22 @@
+# ORT repository configuration
+# https://oss-review-toolkit.org/ort/docs/configuration/ort-yml
+resolutions:
+  rule_violations:
+    - message: ".*'PyPI::psycopg2:.*"
+      reason: "DYNAMIC_LINKAGE_EXCEPTION"
+      comment: >-
+        psycopg2 is LGPL-3.0-or-later WITH openvpn-openssl-exception. It is used unmodified as a separately
+        installed Python package (PostgreSQL driver for the synchronous SQLAlchemy engine used by Alembic and the
+        APScheduler job store), loaded dynamically at runtime; no psycopg2 code is copied into this project.
+    - message: ".*'PyPI::psycopg2-binary:.*"
+      reason: "DYNAMIC_LINKAGE_EXCEPTION"
+      comment: >-
+        psycopg2-binary declares its license as the free-text 'LGPL with exceptions', which is the same
+        LGPL-3.0-or-later WITH openvpn-openssl-exception as psycopg2. It is a development-only dependency
+        (tests and local tooling) and is not shipped in the Docker image (`uv sync --no-dev`).
+    - message: ".*'PyPI::scramp:.*"
+      reason: "CANT_FIX_EXCEPTION"
+      comment: >-
+        scramp is licensed under MIT-0 (MIT No Attribution), a permissive license. The package metadata uses the
+        non-SPDX string 'MIT No Attribution License (MIT-0)', which ORT cannot map. It is a transitive dependency of
+        pg8000 (cloud-sql-python-connector[pg8000]).
