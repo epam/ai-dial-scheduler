@@ -156,8 +156,8 @@ comment, never `@main` — see research R5)
     version from git tags plus the branch name and only *writes* it with
     `sed -i "s/^version = .*/version = \"…\"/g" pyproject.toml`. Keep exactly one column-0 `version = ` line in
     `pyproject.toml`, because that `sed` rewrites every such line;
-  - when publishing (DEV-FR-020), create a lightweight tag **`0.3.1`** (plain `X.Y.Z`, no `v` prefix) on the squashed
-    initial commit and push it. It marks the last internal release, so `development` builds continue as
+  - when publishing (DEV-FR-020), create a lightweight tag **`0.3.1`** (plain `X.Y.Z`, no `v` prefix) on the internal
+    release commit `2764371` ("Merge branch 'feature/prepare-0.3.1'") and push it. It marks the last internal release, so `development` builds continue as
     `0.4.0-dev.N` instead of restarting at `0.1.0-dev.N`, and the first release changelog uses it as the baseline;
   - the first public release is cut from branch `release-0.4` → `0.4.0-rc.0`, `0.4.0-rc.1`, …; promote → `0.4.0`
     (tagged `latest`); later pushes to `release-0.4` → `0.4.1`, `0.4.2`, …;
@@ -168,7 +168,7 @@ comment, never `@main` — see research R5)
 - **DEV-FR-014**: Remove the hard-coded `--platform=linux/amd64` from the `Dockerfile` `FROM` line; platforms are
   controlled by the workflow `platforms` input.
 - **DEV-FR-015**: `.gitlab-ci.yml` is **not part of the published tree** (it references internal infrastructure). It is
-  excluded from the squashed public commit (DEV-FR-020) but stays in the internal repository, which keeps building
+  deleted in the open-source PR (DEV-FR-020) but stays in the internal repository, which keeps building
   and deploying until the GitHub-based deploy (DEV-FR-009a, OPS-013, OPS-017) is confirmed; then the internal
   repository is archived (OPS-018).
 
@@ -192,16 +192,15 @@ comment, never `@main` — see research R5)
     "Active Feature Plan" pointer is made generic;
   - nothing outside these paths may depend on them (they are already excluded from the image by `.dockerignore`),
     so removing them later is a single deletion PR with no other changes.
-- **DEV-FR-020**: Publish the repository as a **single squashed initial commit** — no internal history is pushed to
-  GitHub. The internal history contains files absent from the tree (e.g.
-  `documentation/deployment/dial-scheduler-external-services-devops-setup.md`, `dial_conf/*`,
-  `docker-compose-dial.yml`, `.specify/memory/requirements.md`) and references to internal infrastructure; squashing removes all of it at once. Procedure:
-  - finish DEV-FR-001 … DEV-FR-019 on the internal repo first, so the squashed tree is already clean;
-  - create an orphan branch from that tree (`git checkout --orphan`), commit once
-    (`feat: initial open-source release`), and push it as `development` to `epam/ai-dial-scheduler`;
-  - push no internal tags (`0.1.0`, `0.2.0`) and no other branches; push only the new tag `0.3.1` on the squashed
-    commit (DEV-FR-012);
-  - the internal GitLab repository keeps the full history for reference (OPS-018).
+- **DEV-FR-020**: Publish **with the full git history** (decision changed on 2026-11-05, see Q4a). The GitHub
+  repository already holds the internal history up to `0.3.0`; the open-source changes arrive as a regular pull
+  request on top of it:
+  - the PR branch continues the internal history (0.3.1 release, split timeouts, open-source preparation) and adds
+    the removal of `.gitlab-ci.yml`, `.ort.yml` and the dependency fixes;
+  - the tag `0.3.1` is pushed on the internal release commit (DEV-FR-012); no other internal tags are pushed;
+  - accepted consequence: once the repository is public, its history (internal hosts, paths and files removed from
+    the current tree) is public too;
+  - the internal GitLab repository is archived after the switch-over (OPS-018).
 
 ### Track C — DevOps (GitHub settings and infrastructure)
 
@@ -231,8 +230,8 @@ comment, never `@main` — see research R5)
 
 1. Clarifications Q1, Q2, Q4 answered → OPS-001 … OPS-006, OPS-010, OPS-011, OPS-015 (no repo content needed).
    Q3 (pending) gates only DEV-FR-003 and OPS-007.
-2. Track B content prepared on the internal repo (DEV-FR-001 … DEV-FR-019), then pushed to GitHub as one squashed
-   commit (DEV-FR-020).
+2. Track B content prepared on the internal repo (DEV-FR-001 … DEV-FR-019), then opened as a pull request on GitHub on top of the
+   existing history (DEV-FR-020).
 3. First PR run → OPS-008, OPS-009 (select required checks); OPS-014.
 4. First `development` release → OPS-016; then OPS-013 + OPS-017 + DEV-FR-009a for auto-deploy.
 5. Everything green → OPS-018 (archive the internal GitLab repository, which still holds `.gitlab-ci.yml`).
@@ -255,7 +254,7 @@ comment, never `@main` — see research R5)
 - **SC-003**: The first push to `development` publishes the `development` image to both registries without any
   manual version edit.
 - **SC-004**: `git grep -i -E 'deltixhub|gitlab|ihor_|kyrylo_|Your Name'` on the published tree returns no
-  unintended hits; the public repository contains exactly one commit before the first PR and only the tag `0.3.1`.
+  unintended hits; the only internal tag pushed to GitHub is `0.3.1`.
 - **SC-007**: For the first `development` build, the `calculate_version` job outputs `0.4.0-dev.N` (visible in the
   workflow log); the first promote of `release-0.4` publishes `0.4.0` with the `latest` tag.
 - **SC-005**: GitHub "Community Standards" page for the repo shows README, License, Contributing, Security policy,
@@ -269,7 +268,8 @@ comment, never `@main` — see research R5)
 - **Q1 — Repository name**: **`epam/ai-dial-scheduler`**. Image: `epam/ai-dial-scheduler` (Docker Hub) and
   `ghcr.io/epam/ai-dial-scheduler`.
 - **Q2 — Auto-deploy to GitLab**: **kept**. DEV-FR-009a, OPS-013, OPS-017 and OPS-019 are in scope.
-- **Q4a — Git history**: **squashed** into a single initial commit (DEV-FR-020).
+- **Q4a — Git history**: **kept** (DEV-FR-020). Initially decided to squash; a squashed commit was force-pushed on
+  2026-11-05 and then reverted the same day to the original history at the team's request.
 - **Q4b — AI/SDLC artifacts**: **kept for now, provisional** (DEV-FR-019). The decision may be revisited before or
   after publication; the requirements make a later removal a self-contained deletion.
 - **Q4c — Version**: verified against `epam/ai-dial-ci@4.13.2` (`python_docker_release.yml` →
@@ -280,7 +280,7 @@ comment, never `@main` — see research R5)
     No tag is required for the scheme to work;
   - a plain `0.3.1` tag on the initial commit makes `development` continue as `0.4.0-dev.N` and serves as the
     changelog baseline; promoting `release-0.4` still yields `0.4.0` marked latest;
-  - **Decision**: `version = "0.0.0"` + tag `0.3.1` on the squashed commit; first public release `0.4.0` from
+  - **Decision**: `version = "0.0.0"` + tag `0.3.1` on the `0.3.1` release commit; first public release `0.4.0` from
     `release-0.4` (DEV-FR-012).
 
 ### Open

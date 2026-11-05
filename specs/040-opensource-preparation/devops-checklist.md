@@ -4,7 +4,8 @@ Track C of [spec.md](./spec.md), in execution order. It follows the *New GitHub 
 (`OPS-0xx`) match the spec, and `Txxx` match [tasks.md](./tasks.md).
 
 The repository content (workflows, `Makefile`, `LICENSE`, templates, `dependabot.yml`, `trivy.yaml`) is prepared by
-the development team. The repository will be pushed as **one initial commit** plus the tag `0.3.1`, after Stage 1.
+the development team. The repository already contains the project history; the open-source changes arrive as a pull request, and the tag
+`0.3.1` is pushed on the 0.3.1 release commit.
 
 | | |
 |---|---|
@@ -18,11 +19,11 @@ the development team. The repository will be pushed as **one initial commit** pl
 
 ## Stage 1 — Before publication (can start now)
 
-The dev team pushes the initial commit only after this stage is complete.
+Required before the open-source pull request can go green and be merged.
 
 ### Repository
 
-- [ ] **OPS-001** Create the public repository `epam/ai-dial-scheduler`, **empty** (no README, LICENSE or .gitignore — they come with the initial commit)
+- [x] **OPS-001** Repository `epam/ai-dial-scheduler` exists (currently **private**; branch protection requires making it public or GitHub Pro)
 - [ ] **OPS-002** About (gear icon, right column):
   - Description: `Scheduling service for AI DIAL: runs chat completion, responses, REST and SSE targets on cron and date triggers`
   - Website: `https://dialx.ai`
@@ -63,7 +64,7 @@ The dev team pushes the initial commit only after this stage is complete.
 ### Hand-off to the dev team
 
 - [ ] **OPS-019** Send the GitLab **project IDs** of the two deploy projects (API and worker) that currently receive the trigger from the internal pipeline. They are needed for `deploy-development.yml` (matrix with two entries).
-- [ ] Confirm when Stage 1 is done. The dev team will then push the initial commit and the tag `0.3.1`.
+- [ ] Confirm when Stage 1 is done, so the dev team can re-run the checks on the open-source pull request.
 
 ---
 

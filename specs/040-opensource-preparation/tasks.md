@@ -270,3 +270,10 @@ Notes and deviations:
 
 - Every DEV-FR checked against the tree: all done except DEV-FR-003 (`CODEOWNERS`, waits Q3) and DEV-FR-009a (`deploy-development.yml`, waits OPS-019); DEV-FR-015 (`.gitlab-ci.yml`) is applied at publication (T081).
 - Found during the audit and fixed: `CODESTYLE.md` still showed the old coverage/JUnit command → added `make lint` / `make test`; `documentation/deployment/deployment.md` step 1 now points to the published images (Docker Hub / GHCR) as well as building from the Dockerfile.
+
+### 2026-11-05 — Publication (history kept)
+
+- A squashed commit was force-pushed to GitHub `development` and then reverted the same day: the team chose to keep the history (spec Q4a / DEV-FR-020 updated). GitHub `development` is back at the internal `0.3.0` merge `b10e7c6`.
+- First CI run on the squashed commit showed: ORT `UNHANDLED_LICENSE` (psycopg2) + 2 `UNMAPPED_DECLARED_LICENSE` warnings (psycopg2-binary, scramp) → `.ort.yml` resolutions; verified green on a PR run. Trivy: 2 critical + 12 high in authlib, certifi, aiohttp, pyasn1, dnspython, joserfc → floors in `[tool.uv] constraint-dependencies`; local Trivy scan clean.
+- Open-source changes are delivered as one PR on top of the history: CRLF fix, `.gitlab-ci.yml` removal, `.ort.yml`, dependency floors, these doc updates.
+- `pr-title-check` fails until `ACTIONS_BOT_TOKEN` is configured (OPS-011).
