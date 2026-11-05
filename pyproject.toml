@@ -15,13 +15,13 @@ dependencies = [
     "alembic==1.18.4",
     "asyncpg==0.31.0",
     "psycopg2==2.9.12",
-    "pydantic-settings==2.14.1",
+    "pydantic-settings==2.14.2",
     "structlog==26.1.0",
     "httpx==0.28.1",
     "uvicorn==0.49.0",
     "openai>=1.0.0,<2",
     "httpx-sse>=0.4.0,<1",
-    "fastmcp>=3.4.2",
+    "fastmcp>=3.4.10,<4",
     "cloud-sql-python-connector[pg8000]>=1.13.0,<2",
     "azure-identity>=1.19.0,<2",
     "boto3>=1.40.0,<2",
@@ -70,6 +70,12 @@ constraint-dependencies = [
     "certifi>=2026.10.18",   # GHSA-6q48-6c7w-9gw2, via httpx/httpcore/requests
     "dnspython>=2.9.0",      # CVE-2026-114605, via cloud-sql-python-connector/email-validator
     "joserfc>=1.7.5",        # CVE-2026-119283, via authlib/fastmcp-slim
+    "fastmcp-slim>=3.4.10,<4",  # GHSA-7xgj-8392-5q4r, via fastmcp
+    "opentelemetry-api>=1.45.1",  # CVE-2026-114603, via aidial-sdk[telemetry]/opentelemetry-*
+    "multidict>=6.9.1,<7",   # CVE-2026-104874, via aiohttp/yarl
+    "mako>=1.4.2",           # CVE-2026-102991, via alembic
+    "virtualenv>=21.14.9",   # CVE-2026-102925 and 18 more, dev-only via pre-commit
+    "filelock>=4.2.1",       # CVE-2026-112907 and 8 more, dev-only via virtualenv/python-discovery
     # pyasn1 (above): CVE-2026-119194/95/96/97, via pyasn1-modules
 ]
 
