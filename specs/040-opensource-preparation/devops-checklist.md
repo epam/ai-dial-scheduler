@@ -1,15 +1,19 @@
 # DevOps Checklist: `epam/ai-dial-scheduler`
 
-Track C of [spec.md](./spec.md), in execution order. It follows the *New GitHub Project Creation Guide*. IDs
-(`OPS-0xx`) match the spec, and `Txxx` match [tasks.md](./tasks.md).
+Track C of [spec.md](./spec.md). It follows the *New GitHub Project Creation Guide*. IDs (`OPS-0xx`) match the spec,
+and `Txxx` match [tasks.md](./tasks.md).
 
-The repository content (workflows, `Makefile`, `LICENSE`, templates, `dependabot.yml`, `trivy.yaml`) is prepared by
-the development team. The repository already contains the project history; the open-source changes arrive as a pull request, and the tag
-`0.3.1` is pushed on the 0.3.1 release commit.
+**Status as of 2026-11-05.** The open-source changes are merged into `development` (PR #18), and the tag `0.3.1` is on
+the 0.3.1 release commit. The first release build computed `0.4.0-dev.7` and stopped at image publishing because no
+secrets are set yet. The dev team, which has repository Admin, has done every setting it could; each item below says
+who owns it.
+
+Legend: ✅ done · 🔑 **DevOps** · 🌐 blocked until the repository is **public** (GitHub Free does not offer these on
+private repos) · 👥 dev team
 
 | | |
 |---|---|
-| Repository | `epam/ai-dial-scheduler` (public) |
+| Repository | `epam/ai-dial-scheduler` (currently **private**) |
 | Default branch | `development` |
 | Release branches | `release-X.Y` (first one: `release-0.4`) |
 | Images | Docker Hub `epam/ai-dial-scheduler`, GHCR `ghcr.io/epam/ai-dial-scheduler` |
@@ -17,113 +21,92 @@ the development team. The repository already contains the project history; the o
 
 ---
 
-## Stage 1 — Before publication (can start now)
+## Still needed from DevOps
 
-Required before the open-source pull request can go green and be merged.
+1. 🔑 **OPS-011 — repository secrets** (Settings → Secrets and variables → Actions):
+   - [ ] `ACTIONS_BOT_TOKEN`: PAT of the `ai-dial-actions` bot, scopes `repo` and `write:packages`. Used for release push and tags, GHCR login, the PR-title check and Dependabot automation.
+   - [ ] `DOCKERHUB_LOGIN`
+   - [ ] `DOCKERHUB_TOKEN`
+2. 🔑 **OPS-012 — Docker Hub:** [ ] repository `epam/ai-dial-scheduler` exists and the `DOCKERHUB_LOGIN` account can push to it.
+3. 🔑 **OPS-006 (part):** [ ] add team `epam/dial-admins` with role **Admin**. The team is not visible to the dev team (the API returns 404 and asks for `admin:org`).
+4. 🔑 **Repository visibility:** [ ] make the repository **public**, or name who decides and when. Note: the full git history becomes public with it. This unblocks every 🌐 item below.
+5. 🔑 **OPS-019 — hand-off:** [ ] send the GitLab **project IDs** of the two deploy projects (API and worker). The dev team needs them for `deploy-development.yml` (matrix with two entries).
+6. 🔑 **OPS-013 — environment `development`** (Settings → Environments):
+   - [ ] Deployment branches and tags → *Selected branches and tags* → Ref type `Branch`, pattern `development`
+   - [ ] Environment secrets: `DEPLOY_ACCESS_TOKEN` (GitLab project access token, role `Guest`, scopes `read_api`, `read_repository`), `DEPLOY_TRIGGER_TOKEN` (pipeline trigger token), `DEPLOY_HOST` (GitLab host)
+7. 🔑 **OPS-017:** [ ] switch the two GitLab deploy projects (API and worker) to the public `epam/ai-dial-scheduler` image.
+8. 🔑 **OPS-016 — GHCR package** (after the first image is published):
+   - [ ] Manage Actions access → add the source repository with role **Admin** (required by `cleanup-untagged-images.yml`)
+   - [ ] Inherited access → check *Inherit access from source repository*
+9. 🔑 **OPS-010 — SHA pinning:** [ ] the guide's *Require actions to be pinned to a full-length commit SHA* is incompatible with `ai-dial-ci` 4.13.2 (see Actions below). How is this handled in other DIAL repositories?
+10. 🔑 **OPS-018:** [ ] once GitHub → GitLab deploy is confirmed, archive the internal GitLab repository. Until then its `.gitlab-ci.yml` keeps deploying, so there is no deploy gap.
 
-### Repository
+---
 
-- [x] **OPS-001** Repository `epam/ai-dial-scheduler` exists (currently **private**; branch protection requires making it public or GitHub Pro)
-- [ ] **OPS-002** About (gear icon, right column):
-  - Description: `Scheduling service for AI DIAL: runs chat completion, responses, REST and SSE targets on cron and date triggers`
-  - Website: `https://dialx.ai`
-  - Topics: `llm`, `ai-dial` (mandatory); optionally `scheduler`, `python`
-- [ ] **OPS-003** Settings → General → Features: uncheck **Wikis** and **Discussions**
-- [ ] **OPS-004** Settings → General → Pull Requests:
-  - [ ] uncheck *Allow merge commits*
-  - [ ] check *Allow squash merging*, default commit message: **Pull request title**
-  - [ ] uncheck *Allow rebase merging*
-  - [ ] check *Allow auto-merge*
-  - [ ] check *Automatically delete head branches*
-- [ ] **OPS-005** Settings → General: check *Always suggest updating pull request branches*
+## Full status by guide step
+
+### Repository settings
+
+- [x] ✅ **OPS-001** Repository exists (private).
+- [x] ✅ **OPS-002** About: description, website `https://dialx.ai`, topics `llm`, `ai-dial`. *(dev team, 2026-11-05)*
+- [x] ✅ **OPS-003** Wikis and Discussions are disabled.
+- [ ] **OPS-004** Pull Requests:
+  - [x] ✅ merge commits off, squash on (default message: **Pull request title**), rebase off
+  - [x] ✅ automatically delete head branches
+  - [ ] 🌐 allow auto-merge. The API accepts the setting but GitHub keeps it off on a private Free repository. Turn it on after going public. *(dev team)*
+- [x] ✅ **OPS-005** Always suggest updating pull request branches.
 
 ### Access
 
-- [ ] **OPS-006** Settings → Collaborators and teams → Add teams:
-  - `epam/dial-admins` → **Admin**
-  - `epam/dial-contributors` → **Write**
-- [ ] **OPS-007** ⏸ *Waiting for the dev team (owner's GitHub handle not yet known)*. Add the responsible owner's personal account → **Admin**
+- [ ] **OPS-006** Teams:
+  - [x] ✅ `epam/dial-contributors` → **Write** *(dev team)*
+  - [ ] 🔑 `epam/dial-admins` → **Admin** (see "Still needed" #3)
+- [x] ✅ **OPS-007** Owner accounts with Admin: `kyrylosiusko`, `ihorlahutin-epam`.
+- [ ] 👥 **CODEOWNERS** (guide step 21): branch `chore/codeowners` is ready (`* @kyrylosiusko @ihorlahutin-epam`, `/.github/ @nepalevov @alexey-ban`, all four have write access) together with this checklist. Its PR still has to be opened.
 
 ### Actions
 
 - [ ] **OPS-010** Settings → Actions → General:
-  - [ ] Actions permissions: check *Require actions to be pinned to a full-length commit SHA* → Save
-  - [ ] Fork PR workflows: *Require approval for all external contributors* → Save
-  - [ ] Workflow permissions: *Read and write permissions*, check *Allow GitHub Actions to create and approve pull requests* → Save
+  - [ ] 🔑 Require actions to be pinned to a full-length commit SHA. **Turned off again: it breaks CI.** `ai-dial-ci` 4.13.2 calls its own actions by tag (`epam/ai-dial-ci/actions/build_docker@4.12.0`, `python_prepare@4.12.0`), and GitHub rejects them with *"all actions must be pinned to a full-length commit SHA"*. Re-enable once `ai-dial-ci` pins internally, or follow the approach other DIAL repositories use.
+  - [x] ✅ Workflow permissions: read and write; Actions may create and approve pull requests
+  - [ ] 🌐 Fork PR workflows: require approval for all external contributors. Not available on private repositories. *(dev team after going public)*
 
-### Secrets and registries
+### Secrets, registries, labels
 
-- [ ] **OPS-011** Settings → Secrets and variables → Actions → New repository secret:
-  - [ ] `ACTIONS_BOT_TOKEN`: PAT of the `ai-dial-actions` bot, scopes `repo` and `write:packages`. Used for release push and tags, GHCR login, PR-title check and Dependabot automation
-  - [ ] `DOCKERHUB_LOGIN`
-  - [ ] `DOCKERHUB_TOKEN`
-  - Not needed: `PYPI_TOKEN`, `NPM_TOKEN`
-- [ ] **OPS-012** Docker Hub: the repository `epam/ai-dial-scheduler` exists, and the `DOCKERHUB_LOGIN` account can push to it
-- [ ] **OPS-015** Labels → New label: name `dependencies`, description `Dependencies update`, color `#FFFFFF`
+- [ ] 🔑 **OPS-011** Secrets (see "Still needed" #1)
+- [ ] 🔑 **OPS-012** Docker Hub (see "Still needed" #2)
+- [x] ✅ **OPS-015** Label `dependencies`: description `Dependencies update`, color `#FFFFFF` *(dev team)*
 
-### Hand-off to the dev team
+### Protection and security
 
-- [ ] **OPS-019** Send the GitLab **project IDs** of the two deploy projects (API and worker) that currently receive the trigger from the internal pipeline. They are needed for `deploy-development.yml` (matrix with two entries).
-- [ ] Confirm when Stage 1 is done, so the dev team can re-run the checks on the open-source pull request.
+The required checks have already run on PR #18, so they can be selected.
 
----
-
-## Stage 2 — After the first pull request
-
-The dev team opens a test PR right after publication. Required checks can only be selected once they have run at
-least once.
-
-- [ ] **OPS-008** Settings → Branches → Add classic branch protection rule, pattern **`development`**:
-  - [ ] Require a pull request before merging → Require approvals; Dismiss stale pull request approvals when new commits are pushed
-  - [ ] Require status checks to pass before merging → Require branches to be up to date before merging; add:
+- [ ] 🌐 **OPS-008** Branch protection for **`development`** *(dev team after going public)*:
+  - Require a pull request → approvals; dismiss stale approvals on new commits
+  - Require status checks, branch up to date:
     - `run_tests / docker_build`
     - `run_tests / test / style_checks`
     - `run_tests / test / code_checks`
     - `run_tests / test / ort`
-    - the PR-title check (pick its name from the test PR's checks)
-  - [ ] Require conversation resolution before merging
-  - [ ] Require linear history
-  - [ ] Restrict who can push to matching branches → Restrict pushes that create matching branches → add `epam/dial-contributors`
-- [ ] **OPS-009** Add classic branch protection rule, pattern **`release-*`**:
-  - [ ] Require a pull request before merging → Require approvals (no *dismiss stale*)
-  - [ ] Require status checks (up to date): the same four `run_tests / …` checks
-  - [ ] Require conversation resolution before merging
-  - [ ] Restrict who can push → Restrict pushes that create matching branches → `epam/dial-contributors`
-  - (no *linear history* requirement)
-- [ ] **OPS-014** Settings → Advanced Security:
-  - [ ] Private vulnerability reporting → **Enable** (`SECURITY.md` points to it)
-  - [ ] CodeQL analysis → Set up → **Default** → Enable
-  - [ ] Dependabot alerts → Enable
-  - [ ] Dependabot security updates → Enable
-  - [ ] Dependabot version updates → Enable (optional; `.github/dependabot.yml` is already in the repo)
-- [ ] **ORT decision, if needed.** If `run_tests / test / ort` reports licence violations on the test PR (a likely candidate is `psycopg2`, LGPL), decide together with the dev team between:
-  - a curation in `epam/ai-dial-ort-config`;
-  - an `.ort.yml` exclusion in the repo;
-  - a one-time `ort-bypassed` label for the bootstrap PR.
+    - the PR-title check (it runs from `development` now that PR #18 is merged)
+  - Require conversation resolution
+  - Require linear history
+  - Restrict pushes and branch creation to `epam/dial-contributors`
+- [ ] 🌐 **OPS-009** Branch protection for **`release-*`**: same as OPS-008, without *dismiss stale* and *linear history*. *(dev team after going public)*
+- [ ] **OPS-014** Advanced Security:
+  - [ ] 🌐 Private vulnerability reporting. The API returns 404 on a private repository. *(dev team after going public)*
+  - [ ] 🌐 CodeQL default setup. On a private repository it needs Advanced Security. *(dev team after going public)*
+  - [x] ✅ Dependabot alerts and security updates are enabled; `.github/dependabot.yml` is in the repository. Dependabot Automation fails on the private repo (`permissions: {}` → 403 when reading PR commits); it works once the repo is public, and it needs `ACTIONS_BOT_TOKEN`
+- [x] ✅ **ORT:** licence findings (`psycopg2`, `psycopg2-binary`, `scramp`) are resolved in `.ort.yml`, and ORT is green.
 
----
+### Deploy and switch-over
 
-## Stage 3 — After the first `development` image
-
-Merging the test PR publishes `epam/ai-dial-scheduler:development` (version `0.4.0-dev.N`) to Docker Hub and GHCR.
-
-- [ ] **OPS-016** GHCR package `ai-dial-scheduler` → Package settings:
-  - [ ] Manage Actions access → add the source repository with role **Admin** (required by `cleanup-untagged-images.yml`)
-  - [ ] Inherited access → check *Inherit access from source repository (recommended)*
-- [ ] **OPS-013** Settings → Environments → New environment **`development`**:
-  - [ ] Deployment branches and tags → *Selected branches and tags* → rule: Ref type `Branch`, pattern `development`
-  - [ ] Environment secrets:
-    - `DEPLOY_ACCESS_TOKEN`: GitLab project access token, role `Guest`, scopes `read_api`, `read_repository`
-    - `DEPLOY_TRIGGER_TOKEN`: GitLab pipeline trigger token
-    - `DEPLOY_HOST`: the GitLab host
-- [ ] **OPS-017** In the two GitLab deploy projects (API and worker), switch the image source from the internal registry to the public `epam/ai-dial-scheduler` image (Docker Hub or GHCR)
-- [ ] Together with the dev team: after `deploy-development.yml` is merged, confirm that a new `development` image starts **both** GitLab deploy pipelines
-
----
-
-## Stage 4 — Switch-over
-
-- [ ] **OPS-018** Once GitHub → GitLab deploy is confirmed, archive the internal GitLab repository and make it read-only. It keeps the full history and the old `.gitlab-ci.yml`, which goes on deploying until this point, so there is no deploy gap.
+- [ ] 🔑 **OPS-019** GitLab project IDs → 👥 then the dev team adds `deploy-development.yml`
+- [ ] 🔑 **OPS-013** Environment `development` with `DEPLOY_*` secrets
+- [ ] 🔑 **OPS-017** Repoint the GitLab deploy projects to the public image
+- [ ] 🔑 **OPS-016** GHCR package access (after the first image)
+- [ ] 👥 + 🔑 Confirm that a new `development` image starts **both** GitLab deploy pipelines
+- [ ] 🔑 **OPS-018** Archive the internal GitLab repository
 
 ---
 
@@ -131,17 +114,9 @@ Merging the test PR publishes `epam/ai-dial-scheduler:development` (version `0.4
 
 | Action | Result |
 |---|---|
-| Merge to `development` | version `0.4.0-dev.N`, image tag `development` |
+| Merge to `development` | version `0.4.0-dev.N`, image tag `development` (verified: `0.4.0-dev.7`) |
 | Create / push `release-0.4` | `0.4.0-rc.0`, `-rc.1`, …: git tag, GitHub prerelease, image `0.4.0-rc.N` |
 | *Release Workflow* → Run workflow on `release-0.4` with **promote** | `0.4.0`: tag, GitHub release, images `0.4.0` and `latest` |
 | Further pushes to `release-0.4` | `0.4.1`, `0.4.2`, … |
 
 The version is calculated from git tags and the branch name. `pyproject.toml` holds `0.0.0`, and CI overwrites it.
-
-## Open items blocking DevOps
-
-| Item | Blocks | Owner |
-|---|---|---|
-| Responsible owner's GitHub handle | OPS-007 (and `CODEOWNERS`) | Dev team lead |
-| First test PR | OPS-008, OPS-009 | Dev team (after publication) |
-| First `development` image | OPS-016 | automatic after first merge |
