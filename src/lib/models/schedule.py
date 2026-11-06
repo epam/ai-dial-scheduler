@@ -4,6 +4,7 @@ from sqlalchemy import Boolean, Column, Computed, Index, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlmodel import Field
 
+from src.lib.constants import DEFAULT_SCHEDULE_TIMEZONE
 from src.lib.models.base import BaseSQLModel
 
 
@@ -38,6 +39,10 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
             targets, most obviously. It exists so listing and filtering never have to
             detoast the whole ``kwargs`` document, which dominates the cost once payloads
             grow (long chat histories); being generated, it cannot drift from ``kwargs``.
+        timezone: IANA timezone identifier in which the trigger's cron fields and naive
+            datetimes are evaluated, stored exactly as submitted (legacy aliases such as
+            ``Europe/Kiev`` are not renamed). Rows created before the column existed are
+            backfilled to ``UTC``, which is how they were always evaluated.
     """
 
     id: str = Field(
@@ -71,6 +76,10 @@ class Schedule(BaseSQLModel, table=True):  # type: ignore[call-arg, no-redef]
     model: str | None = Field(
         default=None,
         sa_column=Column("model", String(), Computed(MODEL_GENERATION_EXPRESSION, persisted=True), nullable=True),
+    )
+    timezone: str = Field(
+        default=DEFAULT_SCHEDULE_TIMEZONE,
+        sa_column=Column("timezone", String(64), nullable=False, server_default=text(f"'{DEFAULT_SCHEDULE_TIMEZONE}'")),
     )
 
     __table_args__ = (Index("IX_schedules_metadata", "metadata", postgresql_using="gin"),)

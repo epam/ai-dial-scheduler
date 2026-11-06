@@ -8,6 +8,7 @@ Request
 {
   "display_name": "",
   "service_id": "dial-native",
+  "timezone": "str|None (IANA name, default \"UTC\")",
   "trigger": {
     "cron": {
       "fields": {
@@ -46,6 +47,7 @@ Response
   "service_id": "dial-native",
   "next_run_time": "datetime|None",
   "trigger": {},
+  "timezone": "Europe/Berlin",
   "properties": {},
   "is_deleted": false,
   "created_by": "",
@@ -58,7 +60,8 @@ one is rejected with `422`. `crons` is a list of 1 to 20 cron objects, each with
 `cron` (its own `fields`, `start_date` and `end_date`). The schedule fires whenever any entry fires
 and stays one schedule with one id, one run history and one pause/resume/delete lifecycle. Entries that
 fire at the same instant produce a single run, and `next_run_time` is the earliest upcoming fire time
-across all entries. All times are UTC. Example, Monday 08:00 and Friday 10:00:
+across all entries. Times are local to the schedule's `timezone` (see below). Example, Monday 08:00 and
+Friday 10:00:
 
 ```json
 "trigger": {
@@ -74,6 +77,31 @@ schedules created before `crons` existed may omit the key, so treat a missing `c
 `trigger_type` in list responses is `cron` for both `cron` and `crons`. Validation errors for a list
 point at the offending entry, for example `body.trigger.crons.1.fields.hour`. Update replaces the whole
 trigger, so a schedule can switch between `cron`, `crons` and `date`.
+
+**Timezone.** `timezone` is an IANA Time Zone Database identifier such as `Europe/Berlin`. It is
+optional; omitted or `null` means `"UTC"`. Every value of the browser's
+`Intl.supportedValuesOf('timeZone')` is accepted, including legacy names such as `Europe/Kiev` or
+`Asia/Calcutta`, as are current names (`Europe/Kyiv`) and `UTC`. Prefer Region/City names; in
+`Etc/GMT±N` the sign is inverted (`Etc/GMT+2` is UTC−2). The value is case-sensitive and is returned
+in every schedule response and list item exactly as submitted, never renamed. Schedules created
+before this field existed report `"UTC"`.
+
+- Cron fields in `cron` and in every `crons` entry are local wall-clock times in `timezone`, so a
+  `"hour": 9` schedule in `Europe/Berlin` runs at 09:00 Berlin time all year (08:00Z in winter,
+  07:00Z in summer).
+- `start_date`, `end_date` and `date` without an offset are local times in `timezone`; with an offset
+  or `Z` they are absolute instants.
+- Clocks going forward: a local time that does not exist that day fires once, shifted forward by the
+  length of the gap (02:30 becomes 03:30 in `Europe/Berlin`).
+- Clocks going back: a specific local time that occurs twice fires once, at its first occurrence.
+  Entries whose `hour` matches all 24 hours (`*`, `*/1`, `0-23`) fire on every real hour, including
+  both passes of the repeated hour. Multi-entry (`crons`) schedules follow the same rules per entry.
+- `next_run_time` and every other timestamp stay absolute UTC instants; convert them for display.
+- Update replaces the whole schedule: omitting `timezone` on PUT resets it to `"UTC"`, so always send
+  it.
+- An unknown or wrongly cased name, a UTC offset such as `+02:00`, or an empty string is rejected with
+  `422` at `body.timezone`, and nothing is created or changed:
+  `unknown timezone 'europe/berlin'; expected an IANA identifier such as 'Europe/Berlin'`.
 
 ID is generated uuid4 converted to string, same value used for schedules.id table and as job id in scheduler.add_job
 Table populated with created_by = user `sub` claim from /v1/info dial endpoint (resolved via
@@ -106,6 +134,7 @@ Request
 {
   "display_name": "",
   "service_id": "dial-native",
+  "timezone": "str|None (IANA name, default \"UTC\")",
   "trigger": {
     "cron": {
       "fields": {
@@ -143,6 +172,7 @@ Response
   "service_id": "dial-native",
   "next_run_time": "datetime|None",
   "trigger": {},
+  "timezone": "Europe/Berlin",
   "properties": {},
   "is_deleted": false,
   "created_by": "",
@@ -174,6 +204,7 @@ GET /schedules/
       "model": "str|None",
       "next_run_time": "datetime|None",
       "trigger_type": "cron|date",
+      "timezone": "Europe/Berlin",
       "is_deleted": false,
       "created_by":"user_id",
       "created_at": "datetime",
@@ -213,6 +244,7 @@ GET /schedules/{schedule_id}
   "service_id": "dial-native",
   "next_run_time": "datetime|None",
   "trigger": {},
+  "timezone": "Europe/Berlin",
   "properties": {},
   "is_deleted": false,
   "created_by": "",

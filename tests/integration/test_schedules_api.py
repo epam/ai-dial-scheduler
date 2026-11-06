@@ -1070,3 +1070,128 @@ class TestLegacyTriggerRows:
 
         now = datetime(2026, 11, 9, 0, 0, tzinfo=UTC)
         assert listed.get_next_fire_time(None, now) == single.get_next_fire_time(None, now)
+
+
+# ---------------------------------------------------------------------------
+# Per-schedule timezone
+# ---------------------------------------------------------------------------
+
+
+BERLIN_WEEKDAYS_REQUEST: dict[str, Any] = {
+    **CRON_REQUEST,
+    "timezone": "Europe/Berlin",
+    "trigger": {"cron": {"fields": {"day_of_week": "mon-fri", "hour": 9, "minute": 0}}},
+}
+
+
+async def _stored_timezone(engine: AsyncEngine, schedule_id: str) -> str:
+    async with AsyncSession(engine, expire_on_commit=False) as session:
+        schedule = await session.get(Schedule, schedule_id)
+        assert schedule is not None
+        return schedule.timezone
+
+
+class TestScheduleTimezone:
+    async def test_create_registers_trigger_in_local_wall_clock_time(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        response = await client.post("/v1/schedules/", json=BERLIN_WEEKDAYS_REQUEST)
+
+        assert response.status_code == 201
+        trigger = _registered_trigger(mock_scheduler)
+        assert str(trigger.timezone) == "Europe/Berlin"
+        wednesday = datetime(2026, 11, 4, 0, 0, tzinfo=UTC)
+        assert trigger.get_next_fire_time(None, wednesday) == datetime(2026, 11, 4, 8, 0, tzinfo=UTC)
+
+    async def test_legacy_name_round_trips_unchanged_everywhere(self, client: httpx.AsyncClient) -> None:
+        created = await client.post("/v1/schedules/", json={**CRON_REQUEST, "timezone": "Europe/Kiev"})
+        schedule_id = created.json()["id"]
+
+        responses = [
+            created,
+            await client.get(f"/v1/schedules/{schedule_id}"),
+            await client.post(f"/v1/schedules/{schedule_id}/pause"),
+            await client.post(f"/v1/schedules/{schedule_id}/resume"),
+        ]
+        listed = await client.get("/v1/schedules/")
+
+        assert all(response.json()["timezone"] == "Europe/Kiev" for response in responses)
+        assert listed.json()["results"][0]["timezone"] == "Europe/Kiev"
+
+    async def test_update_changes_zone_of_stored_row_and_registered_trigger(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock, engine: AsyncEngine
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+
+        response = await client.put(f"/v1/schedules/{schedule_id}", json={**CRON_REQUEST, "timezone": "Asia/Tokyo"})
+
+        assert response.status_code == 200
+        assert response.json()["timezone"] == "Asia/Tokyo"
+        assert await _stored_timezone(engine, schedule_id) == "Asia/Tokyo"
+        trigger = _registered_trigger(mock_scheduler)
+        now = datetime(2026, 11, 4, 1, 0, tzinfo=UTC)
+        assert trigger.get_next_fire_time(None, now) == datetime(2026, 11, 5, 0, 0, tzinfo=UTC)
+
+    async def test_update_without_timezone_resets_to_utc(self, client: httpx.AsyncClient, engine: AsyncEngine) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=BERLIN_WEEKDAYS_REQUEST)).json()["id"]
+
+        response = await client.put(f"/v1/schedules/{schedule_id}", json=CRON_REQUEST)
+
+        assert response.json()["timezone"] == "UTC"
+        assert await _stored_timezone(engine, schedule_id) == "UTC"
+
+    async def test_pause_and_resume_keep_stored_zone(self, client: httpx.AsyncClient, engine: AsyncEngine) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=BERLIN_WEEKDAYS_REQUEST)).json()["id"]
+
+        await client.post(f"/v1/schedules/{schedule_id}/pause")
+        await client.post(f"/v1/schedules/{schedule_id}/resume")
+
+        assert await _stored_timezone(engine, schedule_id) == "Europe/Berlin"
+
+    async def test_failed_re_registration_restores_prior_zone(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock, engine: AsyncEngine
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=BERLIN_WEEKDAYS_REQUEST)).json()["id"]
+        mock_scheduler.add_job.side_effect = RuntimeError("job store unavailable")
+
+        response = await client.put(
+            f"/v1/schedules/{schedule_id}", json={**BERLIN_WEEKDAYS_REQUEST, "timezone": "Asia/Tokyo"}
+        )
+
+        assert response.status_code == 502
+        assert await _stored_timezone(engine, schedule_id) == "Europe/Berlin"
+
+    @pytest.mark.parametrize("body_extra", [{}, {"timezone": "UTC"}, {"timezone": None}])
+    async def test_omitted_null_or_utc_timezone_means_utc(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock, body_extra: dict[str, Any]
+    ) -> None:
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, **body_extra})
+
+        assert response.status_code == 201
+        assert response.json()["timezone"] == "UTC"
+        assert str(_registered_trigger(mock_scheduler).timezone) == "UTC"
+
+    @pytest.mark.parametrize("value", ["Mars/Olympus", "europe/berlin", "+02:00", ""])
+    async def test_invalid_timezone_on_create_is_422_and_stores_nothing(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock, value: str
+    ) -> None:
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "timezone": value})
+
+        assert response.status_code == 422
+        assert [error["loc"] for error in response.json()["detail"]] == [["body", "timezone"]]
+        mock_scheduler.add_job.assert_not_called()
+        assert (await client.get("/v1/schedules/")).json()["count"] == 0
+
+    async def test_invalid_timezone_on_update_leaves_schedule_unchanged(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock, engine: AsyncEngine
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=BERLIN_WEEKDAYS_REQUEST)).json()["id"]
+        mock_scheduler.add_job.reset_mock()
+
+        response = await client.put(f"/v1/schedules/{schedule_id}", json={**CRONS_REQUEST, "timezone": "europe/berlin"})
+
+        assert response.status_code == 422
+        mock_scheduler.add_job.assert_not_called()
+        stored = (await client.get(f"/v1/schedules/{schedule_id}")).json()
+        assert stored["timezone"] == "Europe/Berlin"
+        assert stored["trigger"]["cron"]["fields"]["day_of_week"] == "mon-fri"

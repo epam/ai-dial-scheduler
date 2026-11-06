@@ -1,14 +1,32 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
+from functools import cache
 from typing import Any
+import zoneinfo
 
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter, ValidationInfo, field_validator, model_validator
 
-from src.lib.constants import MAX_CRON_ENTRIES
+from src.lib.constants import DEFAULT_SCHEDULE_TIMEZONE, MAX_CRON_ENTRIES
 from src.lib.db.enums import HttpMethod, TargetType, TriggerType
 
 
 _HTTP_URL: TypeAdapter[AnyHttpUrl] = TypeAdapter(AnyHttpUrl)
+
+_TIMEZONE_DESCRIPTION = (
+    "IANA timezone identifier, for example 'Europe/Berlin'. Cron fields and any start_date, end_date "
+    "or date given without an offset are local times in this zone, so runs keep their wall-clock time "
+    "across daylight-saving changes. Defaults to 'UTC'; null also means 'UTC'. Case-sensitive. Every "
+    "value of the browser's Intl.supportedValuesOf('timeZone') is accepted, including legacy names such "
+    "as 'Europe/Kiev', and it is returned exactly as sent. UTC offsets such as '+02:00' are rejected. "
+    "Update replaces the whole schedule, so omitting timezone on update resets it to 'UTC'."
+)
+
+
+@cache
+def _known_timezones() -> frozenset[str]:
+    # Set membership is case-sensitive on every platform, unlike ZoneInfo(), which resolves names
+    # through the file system and accepts 'europe/berlin' on case-insensitive macOS volumes.
+    return frozenset(zoneinfo.available_timezones())
 
 
 class CronFields(BaseModel):
@@ -31,10 +49,10 @@ class CronTriggerSpec(BaseModel):
     start_date: datetime | None = None
     end_date: datetime | None = None
 
-    def trigger_kwargs(self) -> dict[str, Any]:
-        """Keyword arguments for the UTC-anchored APScheduler ``CronTrigger`` of this spec."""
+    def trigger_kwargs(self, timezone: tzinfo = UTC) -> dict[str, Any]:
+        """Keyword arguments for an APScheduler ``CronTrigger`` of this spec evaluated in ``timezone``."""
         fields = {k: v for k, v in self.fields.model_dump().items() if v is not None}
-        return {"timezone": UTC, "start_date": self.start_date, "end_date": self.end_date, **fields}
+        return {"timezone": timezone, "start_date": self.start_date, "end_date": self.end_date, **fields}
 
     @model_validator(mode="after")
     def validate_fields_are_schedulable(self) -> "CronTriggerSpec":
@@ -55,7 +73,8 @@ class ScheduleTrigger(BaseModel):
         description=(
             "List of cron specifications. The schedule fires whenever any entry fires, and runs "
             "once when entries coincide. Use it for different times on different days, such as "
-            "Monday 08:00 and Friday 10:00, instead of creating several schedules. All times are UTC."
+            "Monday 08:00 and Friday 10:00, instead of creating several schedules. Times are local to the "
+            "schedule's timezone."
         ),
     )
     date: datetime | None = None
@@ -211,6 +230,7 @@ class ScheduleRequest(BaseModel):
     service_id: str
     description: str | None = Field(default=None, max_length=1000)
     trigger: ScheduleTrigger
+    timezone: str = Field(default=DEFAULT_SCHEDULE_TIMEZONE, description=_TIMEZONE_DESCRIPTION)
     properties: ScheduleProperties
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -219,6 +239,20 @@ class ScheduleRequest(BaseModel):
     def validate_display_name(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("display_name must not be empty")
+        return v
+
+    @field_validator("timezone", mode="before")
+    @classmethod
+    def default_null_timezone(cls, v: object) -> object:
+        """Treat an explicit ``null`` timezone like an omitted one."""
+        return DEFAULT_SCHEDULE_TIMEZONE if v is None else v
+
+    @field_validator("timezone")
+    @classmethod
+    def validate_timezone(cls, v: str) -> str:
+        """Accept only identifiers in the IANA timezone database, matched case-sensitively."""
+        if v not in _known_timezones():
+            raise ValueError(f"unknown timezone {v!r}; expected an IANA identifier such as 'Europe/Berlin'")
         return v
 
 
@@ -237,6 +271,7 @@ class ScheduleResponse(BaseModel):
     description: str | None = None
     next_run_time: datetime | None
     trigger: dict[str, Any]
+    timezone: str
     properties: dict[str, Any]
     metadata: dict[str, Any] = Field(default_factory=dict)
     is_deleted: bool
@@ -264,6 +299,7 @@ class ScheduleListItem(BaseModel):
     next_run_time: datetime | None
     trigger_type: TriggerType
     trigger: dict[str, Any]
+    timezone: str
     is_deleted: bool
     created_by: str
     created_at: datetime

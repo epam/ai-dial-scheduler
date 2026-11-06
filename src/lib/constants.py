@@ -5,6 +5,7 @@ SERVICE_MIGRATIONS = "migrations"
 EXECUTE_SCHEDULED_JOB_REF = "src.worker.jobs:execute_scheduled_job"
 DEFAULT_PAGE_LIMIT = 20
 MAX_CRON_ENTRIES = 20
+DEFAULT_SCHEDULE_TIMEZONE = "UTC"
 
 HEARTBEAT_JOB_ID = "worker_heartbeat"
 HEARTBEAT_JOB_NAME = "worker_heartbeat"

@@ -55,6 +55,7 @@ def make_response(
         properties={"target_type": "chat_completion", "url": "https://example.com"},
         metadata=metadata if metadata is not None else {},
         is_deleted=is_deleted,
+        timezone="UTC",
         created_by=TEST_USER_ID,
         created_at=now,
         updated_at=now,
@@ -511,6 +512,7 @@ class TestListDeletedFilter:
             trigger_type="cron",
             trigger={"cron": {"fields": {"hour": 9}}},
             is_deleted=True,
+            timezone="UTC",
             created_by=TEST_USER_ID,
             created_at=now,
             updated_at=now,
@@ -660,6 +662,58 @@ class TestScheduleExamples:
         from src.api.v1.endpoints.schedules import _SCHEDULE_EXAMPLES
 
         assert len(_SCHEDULE_EXAMPLES["multiple_crons"]["value"]["trigger"]["crons"]) == 2
+
+    def test_with_timezone_example_sets_a_zone(self):
+        from src.api.v1.endpoints.schedules import _SCHEDULE_EXAMPLES
+
+        assert _SCHEDULE_EXAMPLES["with_timezone"]["value"]["timezone"] == "Europe/Berlin"
+
+    def test_no_example_claims_times_are_utc(self):
+        from src.api.v1.endpoints.schedules import _SCHEDULE_EXAMPLES
+
+        assert all("UTC" not in example["summary"] for example in _SCHEDULE_EXAMPLES.values())
+
+
+class TestScheduleTimezoneEndpoint:
+    def test_create_forwards_timezone_and_echoes_it(self, client, mock_service):
+        response_body = make_response().model_copy(update={"timezone": "Europe/Kiev"})
+        mock_service.create.return_value = response_body
+
+        response = client.post("/v1/schedules/", json={**VALID_REQUEST, "timezone": "Europe/Kiev"})
+
+        assert response.status_code == 201
+        assert mock_service.create.await_args[0][0].timezone == "Europe/Kiev"
+        assert response.json()["timezone"] == "Europe/Kiev"
+
+    def test_update_forwards_timezone(self, client, mock_service):
+        mock_service.update.return_value = make_response()
+
+        response = client.put("/v1/schedules/test-uuid", json={**VALID_REQUEST, "timezone": "Asia/Tokyo"})
+
+        assert response.status_code == 200
+        assert mock_service.update.await_args[0][1].timezone == "Asia/Tokyo"
+
+    @pytest.mark.parametrize("method", ["post", "put"])
+    @pytest.mark.parametrize("value", ["Mars/Olympus", "europe/berlin", "+02:00", ""])
+    def test_invalid_timezone_is_422_at_body_timezone(self, client, mock_service, method, value):
+        url = "/v1/schedules/" if method == "post" else "/v1/schedules/test-uuid"
+
+        response = getattr(client, method)(url, json={**VALID_REQUEST, "timezone": value})
+
+        assert response.status_code == 422
+        assert [error["loc"] for error in response.json()["detail"]] == [["body", "timezone"]]
+        mock_service.create.assert_not_awaited()
+        mock_service.update.assert_not_awaited()
+
+    def test_openapi_declares_timezone_on_request_and_responses(self, client):
+        schemas = client.get("/openapi.json").json()["components"]["schemas"]
+
+        request_field = schemas["ScheduleRequest"]["properties"]["timezone"]
+        assert request_field["default"] == "UTC"
+        assert "IANA" in request_field["description"]
+        assert "timezone" not in schemas["ScheduleRequest"].get("required", [])
+        for response_model in ("ScheduleResponse", "ScheduleListItem"):
+            assert "timezone" in schemas[response_model]["required"]
 
 
 class TestCreateScheduleWithCrons:

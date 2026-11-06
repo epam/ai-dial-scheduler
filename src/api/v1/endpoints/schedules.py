@@ -104,7 +104,7 @@ _SCHEDULE_EXAMPLES = {
         },
     },
     "multiple_crons": {
-        "summary": "Several cron times (Monday 08:00 and Friday 10:00 UTC)",
+        "summary": "Several cron times (Monday 08:00 and Friday 10:00)",
         "value": {
             "display_name": "Twice-weekly REST ping",
             "service_id": "dial-native",
@@ -114,6 +114,21 @@ _SCHEDULE_EXAMPLES = {
                     {"fields": {"day_of_week": "fri", "hour": 10, "minute": 0}},
                 ]
             },
+            "properties": {
+                "target_type": "rest",
+                "method": "POST",
+                "url": "https://example.com/api/ping",
+                "payload": {"source": "scheduler"},
+            },
+        },
+    },
+    "with_timezone": {
+        "summary": "Local wall-clock time (weekdays 09:00 in Berlin, all year round)",
+        "value": {
+            "display_name": "Weekday morning REST ping",
+            "service_id": "dial-native",
+            "timezone": "Europe/Berlin",
+            "trigger": {"cron": {"fields": {"day_of_week": "mon-fri", "hour": 9, "minute": 0}}},
             "properties": {
                 "target_type": "rest",
                 "method": "POST",

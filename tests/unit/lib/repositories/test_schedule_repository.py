@@ -103,6 +103,7 @@ class TestScheduleRepositoryUpdate:
             service_id="dial-native",
             trigger={"date": "2026-06-12T09:00:00Z"},
             kwargs={"target_type": "rest", "url": "https://example.com", "method": "POST"},
+            timezone="UTC",
         )
 
         session.commit.assert_awaited_once()
@@ -126,6 +127,7 @@ class TestScheduleRepositoryUpdate:
             service_id="dial-native",
             trigger={},
             kwargs={},
+            timezone="UTC",
             metadata={"tenant": "hcscd"},
         )
 
@@ -149,6 +151,7 @@ class TestScheduleRepositoryUpdate:
             service_id="dial-native",
             trigger={},
             kwargs={},
+            timezone="UTC",
         )
 
         assert schedule.schedule_metadata == {"tenant": "keep"}
@@ -166,6 +169,7 @@ class TestScheduleRepositoryUpdate:
             service_id="dial-native",
             trigger={},
             kwargs={},
+            timezone="UTC",
         )
 
         assert result is None
@@ -184,9 +188,50 @@ class TestScheduleRepositoryUpdate:
             service_id="dial-native",
             trigger={},
             kwargs={},
+            timezone="UTC",
         )
 
         assert result is None
+
+
+class TestScheduleRepositoryTimezone:
+    @pytest.mark.asyncio
+    async def test_update_assigns_timezone(self):
+        session = AsyncMock()
+        session.add = MagicMock()
+        schedule = make_schedule()
+        session.get = AsyncMock(return_value=schedule)
+        session.refresh = AsyncMock()
+        repo = ScheduleRepository(session)
+
+        await repo.update(
+            "sched-1",
+            "mock_user_id",
+            display_name="Test Schedule",
+            service_id="dial-native",
+            trigger={},
+            kwargs={},
+            timezone="Europe/Kiev",
+        )
+
+        assert schedule.timezone == "Europe/Kiev"
+
+    @pytest.mark.asyncio
+    async def test_update_requires_timezone(self):
+        repo = ScheduleRepository(AsyncMock())
+
+        with pytest.raises(TypeError, match="timezone"):
+            await repo.update(  # type: ignore[call-arg]
+                "sched-1",
+                "mock_user_id",
+                display_name="Test Schedule",
+                service_id="dial-native",
+                trigger={},
+                kwargs={},
+            )
+
+    def test_new_schedule_defaults_to_utc(self):
+        assert make_schedule().timezone == "UTC"
 
 
 class TestScheduleRepositoryDescription:
@@ -206,6 +251,7 @@ class TestScheduleRepositoryDescription:
             service_id="dial-native",
             trigger={},
             kwargs={},
+            timezone="UTC",
             description="fresh notes",
         )
 
@@ -228,6 +274,7 @@ class TestScheduleRepositoryDescription:
             service_id="dial-native",
             trigger={},
             kwargs={},
+            timezone="UTC",
             description=None,
         )
 

@@ -127,6 +127,27 @@ class TestMcpToolListing:
         assert '"crons"' in schema_text
         assert "fires whenever any entry fires" in schema_text
 
+    @pytest.mark.parametrize("tool_name", ["create_schedule_v1_schedules", "update_schedule_v1_schedules"])
+    async def test_schedule_write_tools_expose_timezone(self, tool_name: str) -> None:
+        """The timezone field and its guidance reach MCP clients; no description still claims UTC-only times."""
+        import json
+
+        from fastmcp import Client
+
+        from src.api.mcp.server import build_mcp_server
+
+        app = _build_app_with_mocked_service(MagicMock())
+        mcp_server, _ = build_mcp_server(app, _mock_settings())
+
+        async with Client(mcp_server) as client:
+            tools = await client.list_tools()
+
+        tool = next(t for t in tools if t.name == tool_name)
+        schema_text = json.dumps(tool.inputSchema)
+        assert '"timezone"' in schema_text
+        assert "IANA timezone identifier" in schema_text
+        assert "All times are UTC" not in schema_text
+
 
 class TestMcpToolInvocation:
     """T009 — calling a tool through MCP returns a REST-equivalent response."""
@@ -237,6 +258,7 @@ class TestMcpAuth:
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},
             is_deleted=False,
+            timezone="UTC",
             created_by="user-a@example.com",
             created_at=now,
             updated_at=now,
@@ -249,6 +271,7 @@ class TestMcpAuth:
             trigger_type=TriggerType.CRON,
             trigger={"cron": {"fields": {"hour": 9}}},
             is_deleted=False,
+            timezone="UTC",
             created_by="user-b@example.com",
             created_at=now,
             updated_at=now,

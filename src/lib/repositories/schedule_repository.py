@@ -147,6 +147,7 @@ class ScheduleRepository:
         service_id: str,
         trigger: dict[str, Any],
         kwargs: dict[str, Any],
+        timezone: str,
         description: str | None = None,
         metadata: dict[str, Any] | None = None,
         updated_at: datetime | None = None,
@@ -155,6 +156,7 @@ class ScheduleRepository:
 
         Pass `metadata` to replace the stored metadata; omit it to leave it unchanged.
         `description` is always assigned (full replacement, including back to NULL).
+        `timezone` is required and always assigned, so no caller can reset it by omission.
         Pass `updated_at` to explicitly restore a prior timestamp (compensating transaction).
         """
         schedule = await self._session.get(Schedule, schedule_id)
@@ -165,6 +167,7 @@ class ScheduleRepository:
         schedule.description = description
         schedule.trigger = trigger
         schedule.kwargs = kwargs
+        schedule.timezone = timezone
         if metadata is not None:
             schedule.schedule_metadata = metadata
         if updated_at is not None:
