@@ -1,0 +1,104 @@
+### Variables
+@baseUrl = {{dial_url}}/v1/deployments/applications/{{app_id}}/route
+
+
+### ============================================================
+### CREATE SCHEDULE IN A LOCAL TIMEZONE (weekdays 09:00 Berlin time, all year)
+### ============================================================
+
+# @name create_zoned_schedule
+POST {{baseUrl}}/v1/schedules/
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Weekday morning ping (Berlin)",
+  "service_id": "{{service_id}}",
+  "timezone": "Europe/Berlin",
+  "trigger": {
+    "cron": {"fields": {"day_of_week": "mon-fri", "hour": 9, "minute": 0}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "https://example.com/api/ping",
+    "payload": {"source": "scheduler"}
+  }
+}
+
+> {%
+    client.global.set("schedule_id", response.body["id"]);
+    client.test("timezone echoed as sent", () => client.assert(response.body["timezone"] === "Europe/Berlin"));
+%}
+
+
+### ============================================================
+### GET SCHEDULE: timezone returned unchanged, next_run_time in UTC (08:00Z winter / 07:00Z summer)
+### ============================================================
+
+# @name get_zoned_schedule
+GET {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}
+
+
+### ============================================================
+### UPDATE TO TOKYO: next_run_time becomes the next weekday 00:00Z
+### ============================================================
+
+# @name update_zoned_schedule
+PUT {{baseUrl}}/v1/schedules/{{schedule_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Weekday morning ping (Tokyo)",
+  "service_id": "{{service_id}}",
+  "timezone": "Asia/Tokyo",
+  "trigger": {
+    "cron": {"fields": {"day_of_week": "mon-fri", "hour": 9, "minute": 0}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "https://example.com/api/ping",
+    "payload": {"source": "scheduler"}
+  }
+}
+
+> {% client.test("timezone updated", () => client.assert(response.body["timezone"] === "Asia/Tokyo")); %}
+
+
+### ============================================================
+### INVALID TIMEZONE (wrong case): expect 422 at body.timezone, schedule unchanged
+### ============================================================
+
+# @name update_invalid_timezone
+PUT {{baseUrl}}/v1/schedules/{{schedule_id}}
+Content-Type: application/json
+Authorization: Bearer {{user_token}}
+
+{
+  "display_name": "Weekday morning ping (Tokyo)",
+  "service_id": "{{service_id}}",
+  "timezone": "europe/berlin",
+  "trigger": {
+    "cron": {"fields": {"day_of_week": "mon-fri", "hour": 9, "minute": 0}}
+  },
+  "properties": {
+    "target_type": "rest",
+    "method": "POST",
+    "url": "https://example.com/api/ping",
+    "payload": {"source": "scheduler"}
+  }
+}
+
+> {% client.test("rejected with 422", () => client.assert(response.status === 422)); %}
+
+
+### ============================================================
+### DELETE SCHEDULE (cleanup)
+### ============================================================
+
+# @name delete_zoned_schedule
+DELETE {{baseUrl}}/v1/schedules/{{schedule_id}}
+Authorization: Bearer {{user_token}}

@@ -1,4 +1,7 @@
 from datetime import UTC, datetime, timezone
+import json
+from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from pydantic import ValidationError
 import pytest
@@ -628,6 +631,7 @@ class TestRetryPolicy:
             trigger={},
             properties=dumped,
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -660,6 +664,7 @@ class TestScheduleMetadata:
             properties={},
             metadata={"tenant": "hcscd"},
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -676,6 +681,7 @@ class TestScheduleMetadata:
             trigger={},
             properties={},
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -716,6 +722,7 @@ class TestScheduleDescription:
             properties={},
             description="notes",
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -732,6 +739,7 @@ class TestScheduleDescription:
             trigger={},
             properties={},
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -749,6 +757,7 @@ class TestScheduleDescription:
             trigger={"cron": {"fields": {"hour": 9}}},
             description="notes",
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -766,6 +775,7 @@ class TestScheduleDescription:
             trigger_type=TriggerType.DATE,
             trigger={"date": "2026-06-12T09:00:00Z"},
             is_deleted=False,
+            timezone="UTC",
             created_by="u",
             created_at=now,
             updated_at=now,
@@ -797,3 +807,89 @@ class TestScheduleRequest:
     def test_service_id_persisted(self):
         req = ScheduleRequest(**{**_valid_request_kwargs(), "service_id": "dial-api-key"})
         assert req.service_id == "dial-api-key"
+
+
+# Snapshot of the browser's Intl.supportedValuesOf('timeZone') (Node 25.9 / ICU 78.3): what clients actually send.
+# Validation itself uses zoneinfo.available_timezones() (stdlib + tzdata); this fixture only proves every browser
+# value is accepted. It cannot come from a Python library, because it describes the client side of the contract.
+_BROWSER_TIMEZONES_PATH = Path(__file__).resolve().parents[3] / "helpers" / "browser_timezones.json"
+_BROWSER_TIMEZONES: list[str] = json.loads(_BROWSER_TIMEZONES_PATH.read_text())
+_UNKNOWN_TIMEZONE_MESSAGE = "unknown timezone"
+
+
+def _response_kwargs() -> dict:
+    now = datetime.now(UTC)
+    return {
+        "id": "x",
+        "display_name": "x",
+        "service_id": "dial-native",
+        "next_run_time": None,
+        "trigger": {},
+        "properties": {},
+        "is_deleted": False,
+        "created_by": "u",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def _list_item_kwargs() -> dict:
+    kwargs = _response_kwargs()
+    del kwargs["properties"]
+    return {**kwargs, "trigger_type": TriggerType.CRON}
+
+
+class TestScheduleTimezone:
+    def test_defaults_to_utc_when_omitted(self):
+        assert ScheduleRequest(**_valid_request_kwargs()).timezone == "UTC"
+
+    def test_null_means_utc(self):
+        assert ScheduleRequest(**_valid_request_kwargs(), timezone=None).timezone == "UTC"
+
+    def test_zone_kept_unchanged(self):
+        assert ScheduleRequest(**_valid_request_kwargs(), timezone="Europe/Berlin").timezone == "Europe/Berlin"
+
+    def test_browser_list_fixture_is_complete(self):
+        assert len(_BROWSER_TIMEZONES) == 418
+
+    @pytest.mark.parametrize("name", [*_BROWSER_TIMEZONES, "UTC", "Etc/UTC", "Europe/Kyiv"])
+    def test_browser_and_current_names_accepted_unchanged(self, name: str):
+        assert ScheduleRequest(**_valid_request_kwargs(), timezone=name).timezone == name
+
+    @pytest.mark.parametrize("name", ["Mars/Olympus", "europe/berlin", "+02:00", ""])
+    def test_invalid_name_rejected_at_timezone_location(self, name: str):
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleRequest(**_valid_request_kwargs(), timezone=name)
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"] == ("timezone",)
+        assert _UNKNOWN_TIMEZONE_MESSAGE in errors[0]["msg"]
+        assert "expected an IANA identifier such as 'Europe/Berlin'" in errors[0]["msg"]
+
+    def test_non_string_rejected_at_timezone_location(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleRequest(**_valid_request_kwargs(), timezone=120)
+        assert exc_info.value.errors()[0]["loc"] == ("timezone",)
+
+    def test_response_requires_timezone(self):
+        with pytest.raises(ValidationError, match="timezone"):
+            ScheduleResponse(**_response_kwargs())
+
+    def test_response_carries_timezone(self):
+        assert ScheduleResponse(**_response_kwargs(), timezone="Europe/Kiev").timezone == "Europe/Kiev"
+
+    def test_list_item_requires_timezone(self):
+        with pytest.raises(ValidationError, match="timezone"):
+            ScheduleListItem(**_list_item_kwargs())
+
+    def test_list_item_carries_timezone(self):
+        assert ScheduleListItem(**_list_item_kwargs(), timezone="Asia/Tokyo").timezone == "Asia/Tokyo"
+
+
+class TestCronTriggerSpecTimezone:
+    def test_trigger_kwargs_default_to_utc(self):
+        assert CronTriggerSpec(fields=CronFields(hour=9)).trigger_kwargs()["timezone"] == UTC
+
+    def test_trigger_kwargs_carry_given_zone(self):
+        tokyo = ZoneInfo("Asia/Tokyo")
+        assert CronTriggerSpec(fields=CronFields(hour=9)).trigger_kwargs(tokyo)["timezone"] == tokyo

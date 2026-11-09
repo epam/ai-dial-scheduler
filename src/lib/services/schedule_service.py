@@ -44,9 +44,9 @@ class ScheduleService:
         self._run_repo = run_repository
         self._scheduler = scheduler
 
-    async def _register_job(self, schedule_id: str, trigger: ScheduleTrigger, properties: dict[str, Any]) -> None:
-        """Register or replace the APScheduler job for a schedule."""
-        apscheduler_trigger = build_trigger(trigger)
+    async def _register_job(self, schedule_id: str, request: ScheduleRequest, properties: dict[str, Any]) -> None:
+        """Register or replace the APScheduler job for a schedule, evaluated in its timezone."""
+        apscheduler_trigger = build_trigger(request.trigger, request.timezone)
         kwargs = {**properties, "schedule_id": schedule_id}
         await asyncio.to_thread(
             self._scheduler.add_job,
@@ -58,11 +58,13 @@ class ScheduleService:
         )
 
     @staticmethod
-    def _trigger_log_fields(trigger: ScheduleTrigger) -> dict[str, Any]:
+    def _trigger_log_fields(request: ScheduleRequest) -> dict[str, Any]:
         """Describe the trigger for registration logs without exposing its field values."""
+        trigger = request.trigger
+        fields: dict[str, Any] = {"trigger_kind": trigger.trigger_type.value, "timezone": request.timezone}
         if trigger.crons is not None:
-            return {"trigger_kind": "crons", "cron_entries": len(trigger.crons)}
-        return {"trigger_kind": trigger.trigger_type.value}
+            fields |= {"trigger_kind": "crons", "cron_entries": len(trigger.crons)}
+        return fields
 
     @staticmethod
     def _to_response(schedule: Schedule, next_run_time: datetime | None) -> ScheduleResponse:
@@ -74,6 +76,7 @@ class ScheduleService:
             description=schedule.description,
             next_run_time=next_run_time,
             trigger=schedule.trigger,
+            timezone=schedule.timezone,
             properties=schedule.kwargs,
             metadata=schedule.schedule_metadata,
             is_deleted=schedule.is_deleted,
@@ -101,13 +104,14 @@ class ScheduleService:
             trigger=trigger_dict,
             kwargs=properties_dict,
             schedule_metadata=request.metadata,
+            timezone=request.timezone,
         )
         await self._repo.create(schedule)
         logger.info("Schedule persisted", schedule_id=schedule_id)
 
         try:
-            await self._register_job(schedule_id, request.trigger, properties_dict)
-            logger.info("Schedule job registered", schedule_id=schedule_id, **self._trigger_log_fields(request.trigger))
+            await self._register_job(schedule_id, request, properties_dict)
+            logger.info("Schedule job registered", schedule_id=schedule_id, **self._trigger_log_fields(request))
         except Exception as exc:
             logger.warning(
                 "Job registration failed, rolling back schedule row",
@@ -137,6 +141,7 @@ class ScheduleService:
         prior_service_id = prior_schedule.service_id
         prior_description = prior_schedule.description
         prior_trigger = prior_schedule.trigger
+        prior_timezone = prior_schedule.timezone
         prior_kwargs = prior_schedule.kwargs
         prior_metadata = prior_schedule.schedule_metadata
         prior_updated_at = prior_schedule.updated_at
@@ -153,6 +158,7 @@ class ScheduleService:
             description=request.description,
             trigger=new_trigger_dict,
             kwargs=new_properties_dict,
+            timezone=request.timezone,
             metadata=request.metadata,
         )
         if updated is None:
@@ -161,10 +167,8 @@ class ScheduleService:
         logger.info("Schedule updated", schedule_id=schedule_id)
 
         try:
-            await self._register_job(schedule_id, request.trigger, new_properties_dict)
-            logger.info(
-                "Schedule job re-registered", schedule_id=schedule_id, **self._trigger_log_fields(request.trigger)
-            )
+            await self._register_job(schedule_id, request, new_properties_dict)
+            logger.info("Schedule job re-registered", schedule_id=schedule_id, **self._trigger_log_fields(request))
         except Exception as registration_exc:
             logger.warning(
                 "Job re-registration failed, restoring prior schedule values",
@@ -180,6 +184,7 @@ class ScheduleService:
                     description=prior_description,
                     trigger=prior_trigger,
                     kwargs=prior_kwargs,
+                    timezone=prior_timezone,
                     metadata=prior_metadata,
                     updated_at=prior_updated_at,
                 )
@@ -407,6 +412,7 @@ class ScheduleService:
                     next_run_time=next_run_time,
                     trigger_type=trigger_type,
                     trigger=schedule.trigger,
+                    timezone=schedule.timezone,
                     is_deleted=schedule.is_deleted,
                     created_by=schedule.created_by,
                     created_at=schedule.created_at,

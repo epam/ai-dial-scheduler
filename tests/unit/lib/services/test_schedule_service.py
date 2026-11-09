@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.combining import OrTrigger
 from apscheduler.triggers.cron import CronTrigger
@@ -1702,3 +1703,143 @@ class TestScheduleServiceCrons:
         result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
 
         assert result.results[0].trigger_type == TriggerType.CRON
+
+
+def make_zoned_request(timezone: str = "Europe/Berlin") -> ScheduleRequest:
+    request = make_request()
+    request.timezone = timezone
+    return request
+
+
+def _zoned_schedule(timezone: str) -> Schedule:
+    schedule = _stored_schedule({"cron": {"fields": {"hour": 9}}, "crons": None, "date": None})
+    schedule.timezone = timezone
+    return schedule
+
+
+class TestScheduleServiceTimezone:
+    @pytest.mark.asyncio
+    async def test_create_persists_timezone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Europe/Berlin")
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.create(make_zoned_request(), "mock_user_id")
+
+        persisted: Schedule = repo.create.await_args[0][0]
+        assert persisted.timezone == "Europe/Berlin"
+
+    @pytest.mark.asyncio
+    async def test_create_registers_trigger_in_schedule_zone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Europe/Berlin")
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as to_thread:
+            await service.create(make_zoned_request(), "mock_user_id")
+
+        assert to_thread.await_args[0][2].timezone == ZoneInfo("Europe/Berlin")
+
+    @pytest.mark.asyncio
+    async def test_create_response_carries_stored_timezone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Europe/Kiev")
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            result = await service.create(make_zoned_request("Europe/Kiev"), "mock_user_id")
+
+        assert result.timezone == "Europe/Kiev"
+
+    @pytest.mark.asyncio
+    async def test_get_response_carries_timezone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Asia/Tokyo")
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, MagicMock())
+
+        result = await service.get("test-uuid", "mock_user_id")
+
+        assert result.timezone == "Asia/Tokyo"
+
+    @pytest.mark.asyncio
+    async def test_list_items_carry_timezone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("America/New_York")
+        repo.list.return_value = (1, [(schedule, schedule.created_at)])
+        service = make_service(repo, MagicMock())
+
+        result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
+
+        assert result.results[0].timezone == "America/New_York"
+
+    @pytest.mark.asyncio
+    async def test_update_passes_timezone_and_registers_in_new_zone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("UTC")
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as to_thread:
+            await service.update("test-uuid", make_zoned_request("Asia/Tokyo"), "mock_user_id")
+
+        assert repo.update.await_args.kwargs["timezone"] == "Asia/Tokyo"
+        assert to_thread.await_args[0][2].timezone == ZoneInfo("Asia/Tokyo")
+
+    @pytest.mark.asyncio
+    async def test_update_without_timezone_stores_utc(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Europe/Berlin")
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.update("test-uuid", make_request(), "mock_user_id")
+
+        assert repo.update.await_args.kwargs["timezone"] == "UTC"
+
+    @pytest.mark.asyncio
+    async def test_update_restores_prior_timezone_on_job_failure(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Europe/Berlin")
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=Exception("add_job failed")),
+        ):
+            with pytest.raises(JobRegistrationError):
+                await service.update("test-uuid", make_zoned_request("Asia/Tokyo"), "mock_user_id")
+
+        assert repo.update.await_count == 2
+        assert repo.update.await_args_list[1].kwargs["timezone"] == "Europe/Berlin"
+
+    @pytest.mark.asyncio
+    async def test_registration_logs_include_timezone(self):
+        repo = AsyncMock()
+        schedule = _zoned_schedule("Europe/Berlin")
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with structlog.testing.capture_logs() as logs:
+            with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+                await service.create(make_zoned_request(), "mock_user_id")
+                await service.update("test-uuid", make_zoned_request("Asia/Tokyo"), "mock_user_id")
+
+        registered = [entry for entry in logs if entry["event"] == "Schedule job registered"]
+        re_registered = [entry for entry in logs if entry["event"] == "Schedule job re-registered"]
+        assert registered[0]["timezone"] == "Europe/Berlin"
+        assert re_registered[0]["timezone"] == "Asia/Tokyo"

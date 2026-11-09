@@ -19,6 +19,10 @@
   /schedules/{id} only when the schedule has run history (otherwise the row is deleted outright).
   Never cleared — there is no restore. Rows that existed before this column was added were
   backfilled to false
+- timezone: str <- VARCHAR(64) NOT NULL DEFAULT 'UTC'; IANA timezone identifier in which the
+  trigger's cron fields and naive datetimes are evaluated, stored exactly as submitted (legacy
+  names such as "Europe/Kiev" are not renamed). Rows that existed before this column was added
+  were backfilled to 'UTC', which is how they had always been evaluated
 
 
 ## schedule_runs

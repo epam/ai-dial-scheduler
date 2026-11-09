@@ -160,6 +160,7 @@ class TestScheduleRepositoryUpdate:
                 service_id="dial-native",
                 trigger={"date": "2026-12-01T09:00:00"},
                 kwargs={"target_type": "rest", "url": "https://new.example.com", "method": "POST"},
+                timezone="UTC",
             )
             assert updated is not None
             assert updated.display_name == "Updated Name"
@@ -181,6 +182,7 @@ class TestScheduleRepositoryUpdate:
                 service_id="dial-native",
                 trigger=schedule.trigger,
                 kwargs=schedule.kwargs,
+                timezone="UTC",
             )
             assert updated is not None
             assert updated.updated_at >= original_updated_at
@@ -202,6 +204,7 @@ class TestScheduleRepositoryUpdate:
                 service_id="dial-native",
                 trigger=schedule.trigger,
                 kwargs=schedule.kwargs,
+                timezone="UTC",
                 updated_at=prior_updated_at,
             )
             assert restored is not None
@@ -222,6 +225,7 @@ class TestScheduleRepositoryUpdate:
                 service_id="dial-native",
                 trigger=schedule.trigger,
                 kwargs=schedule.kwargs,
+                timezone="UTC",
             )
             assert result is None
         finally:
@@ -339,3 +343,61 @@ class TestScheduleRepositoryList:
             assert row[1] == datetime.fromtimestamp(epoch, tz=UTC)
         finally:
             await _delete_schedules(sess, sid)
+
+
+# ---------------------------------------------------------------------------
+# Timezone column
+# ---------------------------------------------------------------------------
+
+
+class TestScheduleRepositoryTimezone:
+    async def test_row_inserted_without_timezone_gets_utc_server_default(self, sess: AsyncSession) -> None:
+        """Mirrors rows that existed before the column: the server default fills 'UTC'."""
+        schedule_id = str(uuid.uuid4())
+        schedules_table = Schedule.__table__  # type: ignore[attr-defined]
+        await sess.execute(
+            sa.insert(schedules_table).values(
+                id=schedule_id,
+                display_name="Pre-timezone row",
+                created_by="test-user",
+                service_id="dial-native",
+                trigger={"cron": {"fields": {"hour": 9}}},
+                kwargs={"target_type": "chat_completion", "url": "https://example.com"},
+            )
+        )
+        await sess.commit()
+        repo = ScheduleRepository(sess)
+
+        try:
+            fetched = await repo.get(schedule_id, "test-user")
+            _, rows = await repo.list("test-user", limit=100, offset=0)
+            assert fetched is not None
+            assert fetched[0].timezone == "UTC"
+            assert {row[0].id: row[0].timezone for row in rows}[schedule_id] == "UTC"
+        finally:
+            await _delete_schedules(sess, schedule_id)
+
+    async def test_create_and_update_persist_timezone_as_submitted(self, sess: AsyncSession) -> None:
+        schedule = _make_schedule()
+        schedule.timezone = "Europe/Kiev"
+        repo = ScheduleRepository(sess)
+        await repo.create(schedule)
+
+        try:
+            created = await repo.get(schedule.id, "test-user")
+            assert created is not None
+            assert created[0].timezone == "Europe/Kiev"
+
+            updated = await repo.update(
+                schedule.id,
+                "test-user",
+                display_name=schedule.display_name,
+                service_id=schedule.service_id,
+                trigger=schedule.trigger,
+                kwargs=schedule.kwargs,
+                timezone="America/Argentina/ComodRivadavia",
+            )
+            assert updated is not None
+            assert updated.timezone == "America/Argentina/ComodRivadavia"
+        finally:
+            await _delete_schedules(sess, schedule.id)
