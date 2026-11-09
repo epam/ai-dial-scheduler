@@ -103,6 +103,25 @@ _SCHEDULE_EXAMPLES = {
             },
         },
     },
+    "multiple_crons": {
+        "summary": "Several cron times (Monday 08:00 and Friday 10:00 UTC)",
+        "value": {
+            "display_name": "Twice-weekly REST ping",
+            "service_id": "dial-native",
+            "trigger": {
+                "crons": [
+                    {"fields": {"day_of_week": "mon", "hour": 8, "minute": 0}},
+                    {"fields": {"day_of_week": "fri", "hour": 10, "minute": 0}},
+                ]
+            },
+            "properties": {
+                "target_type": "rest",
+                "method": "POST",
+                "url": "https://example.com/api/ping",
+                "payload": {"source": "scheduler"},
+            },
+        },
+    },
     "sse": {
         "summary": "SSE streaming call",
         "value": {

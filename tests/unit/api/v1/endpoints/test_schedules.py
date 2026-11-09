@@ -646,3 +646,74 @@ class TestListModelFilter:
         params = spec["paths"]["/v1/schedules/"]["get"]["parameters"]
 
         assert "model" in {p["name"] for p in params if p["in"] == "query"}
+
+
+class TestScheduleExamples:
+    def test_every_example_is_a_valid_request(self):
+        from src.api.v1.endpoints.schedules import _SCHEDULE_EXAMPLES
+        from src.lib.schemas.schedule import ScheduleRequest
+
+        for example in _SCHEDULE_EXAMPLES.values():
+            ScheduleRequest.model_validate(example["value"])
+
+    def test_multiple_crons_example_lists_two_entries(self):
+        from src.api.v1.endpoints.schedules import _SCHEDULE_EXAMPLES
+
+        assert len(_SCHEDULE_EXAMPLES["multiple_crons"]["value"]["trigger"]["crons"]) == 2
+
+
+class TestCreateScheduleWithCrons:
+    def test_create_accepts_crons_list(self, client, mock_service):
+        body = {
+            **VALID_REQUEST,
+            "trigger": {"crons": [{"fields": {"hour": 8}}, {"fields": {"hour": 10}}]},
+        }
+        mock_service.create.return_value = make_response()
+
+        response = client.post("/v1/schedules/", json=body)
+
+        assert response.status_code == 201
+        sent = mock_service.create.await_args[0][0]
+        assert sent.trigger.crons is not None
+        assert len(sent.trigger.crons) == 2
+
+    @pytest.mark.parametrize(
+        "trigger",
+        [
+            {"crons": []},
+            {"crons": [{"fields": {"hour": 9}}] * 21},
+            {"cron": {"fields": {"hour": 9}}, "crons": [{"fields": {"hour": 9}}]},
+        ],
+    )
+    def test_create_rejects_invalid_crons(self, client, mock_service, trigger):
+        response = client.post("/v1/schedules/", json={**VALID_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+        mock_service.create.assert_not_awaited()
+
+    def test_create_out_of_range_entry_returns_422_naming_the_entry(self, client, mock_service):
+        trigger = {"crons": [{"fields": {"hour": 9}}, {"fields": {"hour": 25}}]}
+
+        response = client.post("/v1/schedules/", json={**VALID_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+        locations = [tuple(error["loc"]) for error in response.json()["detail"]]
+        assert all(loc[:4] == ("body", "trigger", "crons", 1) for loc in locations)
+        mock_service.create.assert_not_awaited()
+
+    def test_create_out_of_range_single_cron_returns_422(self, client, mock_service):
+        trigger = {"cron": {"fields": {"hour": 25}}}
+
+        response = client.post("/v1/schedules/", json={**VALID_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+        mock_service.create.assert_not_awaited()
+
+    def test_create_error_locates_invalid_entry(self, client, mock_service):
+        trigger = {"crons": [{"fields": {"hour": 9}}, {"fields": {"hour": {"bad": 1}}}]}
+
+        response = client.post("/v1/schedules/", json={**VALID_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+        locations = [tuple(error["loc"]) for error in response.json()["detail"]]
+        assert all(loc[:4] == ("body", "trigger", "crons", 1) for loc in locations)

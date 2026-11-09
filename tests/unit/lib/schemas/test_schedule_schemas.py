@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timezone
 from pydantic import ValidationError
 import pytest
 
+from src.lib.constants import MAX_CRON_ENTRIES
 from src.lib.db.enums import HttpMethod, TargetType, TriggerType
 from src.lib.schemas.schedule import (
     CronFields,
@@ -55,6 +56,93 @@ class TestScheduleTrigger:
         fields = CronFields()
         assert fields.year is None
         assert fields.minute is None
+
+
+def _cron_entry(hour: int = 9, **fields: str | int) -> CronTriggerSpec:
+    return CronTriggerSpec(fields=CronFields(hour=hour, **fields))
+
+
+class TestScheduleTriggerCrons:
+    def test_single_entry_list_valid(self):
+        t = ScheduleTrigger(crons=[_cron_entry()])
+        assert t.trigger_type == TriggerType.CRON
+        assert t.cron is None
+        assert t.crons is not None
+        assert len(t.crons) == 1
+
+    def test_multiple_entries_valid(self):
+        t = ScheduleTrigger(crons=[_cron_entry(8, day_of_week="mon"), _cron_entry(10, day_of_week="fri")])
+        assert t.trigger_type == TriggerType.CRON
+        assert t.crons is not None
+        assert len(t.crons) == 2
+
+    def test_cron_and_crons_raises(self):
+        with pytest.raises(ValidationError, match="only one trigger allowed"):
+            ScheduleTrigger(cron=_cron_entry(), crons=[_cron_entry()])
+
+    def test_crons_and_date_raises(self):
+        with pytest.raises(ValidationError, match="only one trigger allowed"):
+            ScheduleTrigger(crons=[_cron_entry()], date=datetime(2026, 6, 12, 9, 0, tzinfo=timezone.utc))
+
+    def test_all_three_raises(self):
+        with pytest.raises(ValidationError, match="only one trigger allowed"):
+            ScheduleTrigger(
+                cron=_cron_entry(),
+                crons=[_cron_entry()],
+                date=datetime(2026, 6, 12, 9, 0, tzinfo=timezone.utc),
+            )
+
+    def test_none_set_raises(self):
+        with pytest.raises(ValidationError, match="exactly one trigger required"):
+            ScheduleTrigger(crons=None)
+
+    def test_legacy_stored_trigger_without_crons_validates(self):
+        legacy = {"cron": {"fields": {"hour": 9}}, "date": None}
+        t = ScheduleTrigger.model_validate(legacy)
+        assert t.crons is None
+        assert t.trigger_type == TriggerType.CRON
+
+    def test_single_cron_round_trips_unchanged(self):
+        original = ScheduleTrigger(cron=_cron_entry())
+        restored = ScheduleTrigger.model_validate(original.model_dump(mode="json"))
+        assert restored == original
+
+    def test_empty_list_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleTrigger(crons=[])
+        assert exc_info.value.errors()[0]["loc"] == ("crons",)
+
+    def test_max_entries_accepted(self):
+        t = ScheduleTrigger(crons=[_cron_entry()] * MAX_CRON_ENTRIES)
+        assert t.crons is not None
+        assert len(t.crons) == MAX_CRON_ENTRIES
+
+    def test_above_max_entries_rejected(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleTrigger(crons=[_cron_entry()] * (MAX_CRON_ENTRIES + 1))
+        assert exc_info.value.errors()[0]["loc"] == ("crons",)
+
+    def test_invalid_entry_error_names_the_entry(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleTrigger.model_validate(
+                {"crons": [{"fields": {"hour": 9}}, {"fields": {"hour": {"bad": "value"}}}]},
+            )
+        locations = [error["loc"] for error in exc_info.value.errors()]
+        assert all(loc[:2] == ("crons", 1) for loc in locations)
+
+    def test_out_of_range_field_in_entry_is_rejected_with_its_index(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ScheduleTrigger.model_validate({"crons": [{"fields": {"hour": 9}}, {"fields": {"hour": 25}}]})
+        assert all(error["loc"][:2] == ("crons", 1) for error in exc_info.value.errors())
+
+    def test_out_of_range_field_in_single_cron_is_rejected(self):
+        with pytest.raises(ValidationError, match="maximum value"):
+            ScheduleTrigger.model_validate({"cron": {"fields": {"hour": 25}}})
+
+    def test_duplicate_entries_accepted(self):
+        t = ScheduleTrigger(crons=[_cron_entry(), _cron_entry()])
+        assert t.crons is not None
+        assert len(t.crons) == 2
 
 
 class TestScheduleProperties:

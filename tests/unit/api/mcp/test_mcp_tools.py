@@ -107,6 +107,26 @@ class TestMcpToolListing:
         properties = tool.inputSchema.get("properties", {})
         assert "api_key" not in {p.lower().replace("-", "_") for p in properties}
 
+    @pytest.mark.parametrize("tool_name", ["create_schedule_v1_schedules", "update_schedule_v1_schedules"])
+    async def test_schedule_write_tools_expose_trigger_crons(self, tool_name: str) -> None:
+        """The list-of-crons trigger and its guidance reach MCP clients through the input schema."""
+        import json
+
+        from fastmcp import Client
+
+        from src.api.mcp.server import build_mcp_server
+
+        app = _build_app_with_mocked_service(MagicMock())
+        mcp_server, _ = build_mcp_server(app, _mock_settings())
+
+        async with Client(mcp_server) as client:
+            tools = await client.list_tools()
+
+        tool = next(t for t in tools if t.name == tool_name)
+        schema_text = json.dumps(tool.inputSchema)
+        assert '"crons"' in schema_text
+        assert "fires whenever any entry fires" in schema_text
+
 
 class TestMcpToolInvocation:
     """T009 — calling a tool through MCP returns a REST-equivalent response."""

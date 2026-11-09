@@ -7,10 +7,14 @@ Requires TEST_DB_URL to be set; all tests are skipped otherwise.
 """
 
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 import uuid
 
+from apscheduler.triggers.combining import OrTrigger
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from fastapi import FastAPI
 import httpx
 import pytest
@@ -881,3 +885,188 @@ class TestIsDeletedFieldExposure:
             assert "is_deleted=true" in response.json()["next"]
         finally:
             await _clear_runs(engine)
+
+
+# ---------------------------------------------------------------------------
+# Multiple cron triggers (trigger.crons)
+# ---------------------------------------------------------------------------
+
+
+WEEKLY_CRONS: list[dict[str, Any]] = [
+    {"fields": {"day_of_week": "mon", "hour": 8, "minute": 0}},
+    {"fields": {"day_of_week": "fri", "hour": 10, "minute": 0}},
+]
+CRONS_REQUEST: dict[str, Any] = {**CRON_REQUEST, "trigger": {"crons": WEEKLY_CRONS}}
+
+
+def _registered_trigger(mock_scheduler: MagicMock) -> Any:
+    """The APScheduler trigger handed to the most recent add_job call."""
+    return mock_scheduler.add_job.call_args.args[1]
+
+
+class TestCronsSchedule:
+    async def test_create_returns_crons_as_submitted(self, client: httpx.AsyncClient) -> None:
+        response = await client.post("/v1/schedules/", json=CRONS_REQUEST)
+
+        assert response.status_code == 201
+        trigger = response.json()["trigger"]
+        assert [entry["fields"]["day_of_week"] for entry in trigger["crons"]] == ["mon", "fri"]
+        assert [entry["fields"]["hour"] for entry in trigger["crons"]] == [8, 10]
+        assert trigger["cron"] is None
+
+    async def test_create_registers_one_job_with_earliest_fire_time_across_entries(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        response = await client.post("/v1/schedules/", json=CRONS_REQUEST)
+
+        assert response.status_code == 201
+        mock_scheduler.add_job.assert_called_once()
+        trigger = _registered_trigger(mock_scheduler)
+        friday_after_slot = datetime(2026, 11, 6, 11, 0, tzinfo=UTC)
+        assert trigger.get_next_fire_time(None, friday_after_slot) == datetime(2026, 11, 9, 8, 0, tzinfo=UTC)
+
+    async def test_coinciding_entries_register_a_single_fire_time(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        same = {"fields": {"hour": 9, "minute": 0}}
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "trigger": {"crons": [same, same]}})
+
+        assert response.status_code == 201
+        mock_scheduler.add_job.assert_called_once()
+        trigger = _registered_trigger(mock_scheduler)
+        first = trigger.get_next_fire_time(None, datetime(2026, 11, 9, 0, 0, tzinfo=UTC))
+        assert first == datetime(2026, 11, 9, 9, 0, tzinfo=UTC)
+        assert trigger.get_next_fire_time(first, first) == datetime(2026, 11, 10, 9, 0, tzinfo=UTC)
+
+    async def test_list_reports_cron_trigger_type(self, client: httpx.AsyncClient) -> None:
+        await client.post("/v1/schedules/", json=CRONS_REQUEST)
+
+        response = await client.get("/v1/schedules/")
+
+        assert response.status_code == 200
+        assert response.json()["results"][0]["trigger_type"] == "cron"
+
+    async def test_update_switches_between_trigger_kinds(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRON_REQUEST)).json()["id"]
+        date_request = {**CRON_REQUEST, "trigger": {"date": "2030-01-01T09:00:00"}}
+
+        for body, expected in (
+            (CRONS_REQUEST, OrTrigger),
+            (date_request, DateTrigger),
+            (CRON_REQUEST, CronTrigger),
+        ):
+            response = await client.put(f"/v1/schedules/{schedule_id}", json=body)
+            assert response.status_code == 200
+            assert isinstance(_registered_trigger(mock_scheduler), expected)
+
+        stored = (await client.get(f"/v1/schedules/{schedule_id}")).json()["trigger"]
+        assert stored["crons"] is None
+        assert stored["cron"] is not None
+
+    async def test_pause_and_resume_keep_crons_trigger(self, client: httpx.AsyncClient) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRONS_REQUEST)).json()["id"]
+
+        assert (await client.post(f"/v1/schedules/{schedule_id}/pause")).status_code == 200
+        assert (await client.post(f"/v1/schedules/{schedule_id}/resume")).status_code == 200
+
+        trigger = (await client.get(f"/v1/schedules/{schedule_id}")).json()["trigger"]
+        assert len(trigger["crons"]) == 2
+
+    async def test_delete_removes_the_single_job(self, client: httpx.AsyncClient, mock_scheduler: MagicMock) -> None:
+        schedule_id = (await client.post("/v1/schedules/", json=CRONS_REQUEST)).json()["id"]
+
+        response = await client.delete(f"/v1/schedules/{schedule_id}")
+
+        assert response.status_code == 204
+        mock_scheduler.remove_job.assert_called_once_with(schedule_id)
+
+    @pytest.mark.parametrize(
+        "trigger",
+        [
+            {"crons": []},
+            {"crons": [{"fields": {"hour": 9}}] * 21},
+            {"cron": {"fields": {"hour": 9}}, "crons": [{"fields": {"hour": 9}}]},
+            {"crons": [{"fields": {"hour": 9}}], "date": "2030-01-01T09:00:00"},
+        ],
+    )
+    async def test_invalid_trigger_returns_422(self, client: httpx.AsyncClient, trigger: dict[str, Any]) -> None:
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+
+    async def test_out_of_range_entry_returns_422_not_502(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        trigger = {"crons": [{"fields": {"hour": 9}}, {"fields": {"hour": 25}}]}
+
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+        locations = [tuple(error["loc"]) for error in response.json()["detail"]]
+        assert all(loc[:4] == ("body", "trigger", "crons", 1) for loc in locations)
+        mock_scheduler.add_job.assert_not_called()
+
+    async def test_invalid_entry_error_names_the_entry(self, client: httpx.AsyncClient) -> None:
+        trigger = {"crons": [{"fields": {"hour": 9}}, {"fields": {"hour": {"bad": 1}}}]}
+
+        response = await client.post("/v1/schedules/", json={**CRON_REQUEST, "trigger": trigger})
+
+        assert response.status_code == 422
+        locations = [tuple(error["loc"]) for error in response.json()["detail"]]
+        assert all(loc[:4] == ("body", "trigger", "crons", 1) for loc in locations)
+
+
+class TestLegacyTriggerRows:
+    async def _insert_legacy(self, engine: AsyncEngine) -> str:
+        schedule_id = str(uuid.uuid4())
+        async with AsyncSession(engine, expire_on_commit=False) as session:
+            session.add(
+                Schedule(
+                    id=schedule_id,
+                    display_name="Legacy",
+                    created_by=INTEGRATION_USER_ID,
+                    service_id="dial-native",
+                    trigger={"cron": {"fields": {"hour": 9}}, "date": None},
+                    kwargs=CRON_REQUEST["properties"],
+                )
+            )
+            await session.commit()
+        return schedule_id
+
+    async def test_get_and_list_read_row_without_crons_key(
+        self, client: httpx.AsyncClient, engine: AsyncEngine
+    ) -> None:
+        schedule_id = await self._insert_legacy(engine)
+
+        got = await client.get(f"/v1/schedules/{schedule_id}")
+        listed = await client.get("/v1/schedules/")
+
+        assert got.status_code == 200
+        assert got.json()["trigger"].get("crons") is None
+        assert got.json()["trigger"]["cron"]["fields"]["hour"] == 9
+        assert listed.json()["results"][0]["trigger_type"] == "cron"
+
+    async def test_update_legacy_row_to_crons(
+        self, client: httpx.AsyncClient, engine: AsyncEngine, mock_scheduler: MagicMock
+    ) -> None:
+        schedule_id = await self._insert_legacy(engine)
+
+        response = await client.put(f"/v1/schedules/{schedule_id}", json=CRONS_REQUEST)
+
+        assert response.status_code == 200
+        assert len(response.json()["trigger"]["crons"]) == 2
+        mock_scheduler.add_job.assert_called_once()
+
+    async def test_one_entry_list_behaves_like_single_cron(
+        self, client: httpx.AsyncClient, mock_scheduler: MagicMock
+    ) -> None:
+        await client.post("/v1/schedules/", json=CRON_REQUEST)
+        single = _registered_trigger(mock_scheduler)
+        one_entry = {**CRON_REQUEST, "trigger": {"crons": [CRON_REQUEST["trigger"]["cron"]]}}
+        await client.post("/v1/schedules/", json=one_entry)
+        listed = _registered_trigger(mock_scheduler)
+
+        now = datetime(2026, 11, 9, 0, 0, tzinfo=UTC)
+        assert listed.get_next_fire_time(None, now) == single.get_next_fire_time(None, now)

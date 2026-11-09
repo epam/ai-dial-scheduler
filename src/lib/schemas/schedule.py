@@ -1,8 +1,10 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
+from apscheduler.triggers.cron import CronTrigger
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter, ValidationInfo, field_validator, model_validator
 
+from src.lib.constants import MAX_CRON_ENTRIES
 from src.lib.db.enums import HttpMethod, TargetType, TriggerType
 
 
@@ -29,26 +31,47 @@ class CronTriggerSpec(BaseModel):
     start_date: datetime | None = None
     end_date: datetime | None = None
 
+    def trigger_kwargs(self) -> dict[str, Any]:
+        """Keyword arguments for the UTC-anchored APScheduler ``CronTrigger`` of this spec."""
+        fields = {k: v for k, v in self.fields.model_dump().items() if v is not None}
+        return {"timezone": UTC, "start_date": self.start_date, "end_date": self.end_date, **fields}
+
+    @model_validator(mode="after")
+    def validate_fields_are_schedulable(self) -> "CronTriggerSpec":
+        # Rejects out-of-range values (e.g. hour 25) at request time, so the client gets a 422
+        # that locates the entry instead of a registration failure after the row is written.
+        CronTrigger(**self.trigger_kwargs())
+        return self
+
 
 class ScheduleTrigger(BaseModel):
-    """Exactly one of cron/date must be provided."""
+    """Exactly one of cron/crons/date must be provided."""
 
     cron: CronTriggerSpec | None = None
+    crons: list[CronTriggerSpec] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=MAX_CRON_ENTRIES,
+        description=(
+            "List of cron specifications. The schedule fires whenever any entry fires, and runs "
+            "once when entries coincide. Use it for different times on different days, such as "
+            "Monday 08:00 and Friday 10:00, instead of creating several schedules. All times are UTC."
+        ),
+    )
     date: datetime | None = None
 
     @model_validator(mode="after")
     def validate_exactly_one(self) -> "ScheduleTrigger":
-        has_cron = self.cron is not None
-        has_date = self.date is not None
-        if has_cron and has_date:
+        provided = sum(trigger is not None for trigger in (self.cron, self.crons, self.date))
+        if provided > 1:
             raise ValueError("only one trigger allowed")
-        if not has_cron and not has_date:
+        if provided == 0:
             raise ValueError("exactly one trigger required")
         return self
 
     @property
     def trigger_type(self) -> TriggerType:
-        return TriggerType.CRON if self.cron is not None else TriggerType.DATE
+        return TriggerType.DATE if self.date is not None else TriggerType.CRON
 
 
 class RetryPolicy(BaseModel):

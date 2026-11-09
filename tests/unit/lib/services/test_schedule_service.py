@@ -1,6 +1,9 @@
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from apscheduler.triggers.combining import OrTrigger
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 import pytest
 import structlog.testing
 
@@ -1551,3 +1554,151 @@ class TestScheduleServiceListModel:
         result = await service.list("mock_user_id", Paginator(limit=2, offset=0, base_path="/schedules"))
 
         assert "model=" not in result.next
+
+
+def make_crons_request() -> ScheduleRequest:
+    """Request whose trigger is a Monday 08:00 / Friday 10:00 list of cron entries."""
+    request = make_request()
+    request.trigger = ScheduleTrigger(
+        crons=[
+            CronTriggerSpec(fields=CronFields(day_of_week="mon", hour=8, minute=0)),
+            CronTriggerSpec(fields=CronFields(day_of_week="fri", hour=10, minute=0)),
+        ]
+    )
+    return request
+
+
+def _stored_schedule(trigger: dict) -> Schedule:
+    now = datetime.now(UTC)
+    schedule = make_schedule()
+    schedule.trigger = trigger
+    schedule.created_at = now
+    schedule.updated_at = now
+    return schedule
+
+
+class TestScheduleServiceCrons:
+    @pytest.mark.asyncio
+    async def test_create_registers_one_job_with_or_trigger(self):
+        repo = AsyncMock()
+        scheduler = MagicMock()
+        schedule = _stored_schedule(make_crons_request().trigger.model_dump(mode="json"))
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, scheduler)
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as to_thread:
+            await service.create(make_crons_request(), "mock_user_id")
+
+        to_thread.assert_awaited_once()
+        args, kwargs = to_thread.await_args
+        assert args[0] == scheduler.add_job
+        assert isinstance(args[2], OrTrigger)
+        assert len(args[2].triggers) == 2
+        assert kwargs["id"] == kwargs["kwargs"]["schedule_id"]
+        assert kwargs["replace_existing"] is True
+
+    @pytest.mark.asyncio
+    async def test_create_persists_crons_in_trigger_json(self):
+        repo = AsyncMock()
+        schedule = _stored_schedule(make_crons_request().trigger.model_dump(mode="json"))
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+            await service.create(make_crons_request(), "mock_user_id")
+
+        persisted: Schedule = repo.create.await_args[0][0]
+        assert len(persisted.trigger["crons"]) == 2
+        assert persisted.trigger["cron"] is None
+        assert persisted.trigger["date"] is None
+
+    @pytest.mark.asyncio
+    async def test_create_logs_trigger_kind_and_entry_count(self):
+        repo = AsyncMock()
+        schedule = _stored_schedule(make_crons_request().trigger.model_dump(mode="json"))
+        repo.create.return_value = schedule
+        repo.get.return_value = (schedule, schedule.created_at)
+        service = make_service(repo, MagicMock())
+
+        with structlog.testing.capture_logs() as logs:
+            with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()):
+                await service.create(make_crons_request(), "mock_user_id")
+
+        registered = [entry for entry in logs if entry["event"] == "Schedule job registered"]
+        assert registered[0]["trigger_kind"] == "crons"
+        assert registered[0]["cron_entries"] == 2
+
+    @pytest.mark.asyncio
+    async def test_update_switches_single_cron_to_crons(self):
+        repo = AsyncMock()
+        schedule = _stored_schedule({"cron": {"fields": {"hour": 9}}, "date": None})
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as to_thread:
+            await service.update("test-uuid", make_crons_request(), "mock_user_id")
+
+        assert isinstance(to_thread.await_args[0][2], OrTrigger)
+        assert len(repo.update.await_args.kwargs["trigger"]["crons"]) == 2
+        assert repo.update.await_args.kwargs["trigger"]["cron"] is None
+
+    @pytest.mark.asyncio
+    async def test_update_switches_crons_to_date(self):
+        repo = AsyncMock()
+        schedule = _stored_schedule({"crons": [{"fields": {"hour": 8}}, {"fields": {"hour": 10}}]})
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as to_thread:
+            await service.update("test-uuid", make_date_request(), "mock_user_id")
+
+        assert isinstance(to_thread.await_args[0][2], DateTrigger)
+        assert repo.update.await_args.kwargs["trigger"]["crons"] is None
+
+    @pytest.mark.asyncio
+    async def test_update_switches_crons_back_to_single_cron(self):
+        repo = AsyncMock()
+        schedule = _stored_schedule({"crons": [{"fields": {"hour": 8}}, {"fields": {"hour": 10}}]})
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch("src.lib.services.schedule_service.asyncio.to_thread", new=AsyncMock()) as to_thread:
+            await service.update("test-uuid", make_request(), "mock_user_id")
+
+        assert isinstance(to_thread.await_args[0][2], CronTrigger)
+        assert repo.update.await_args.kwargs["trigger"]["crons"] is None
+
+    @pytest.mark.asyncio
+    async def test_update_restores_prior_legacy_trigger_on_job_failure(self):
+        legacy = {"cron": {"fields": {"hour": 9}}, "date": None}
+        repo = AsyncMock()
+        schedule = _stored_schedule(legacy)
+        repo.get.return_value = (schedule, schedule.created_at)
+        repo.update.return_value = schedule
+        service = make_service(repo, MagicMock())
+
+        with patch(
+            "src.lib.services.schedule_service.asyncio.to_thread",
+            new=AsyncMock(side_effect=Exception("add_job failed")),
+        ):
+            with pytest.raises(JobRegistrationError):
+                await service.update("test-uuid", make_crons_request(), "mock_user_id")
+
+        assert repo.update.await_count == 2
+        assert repo.update.await_args.kwargs["trigger"] == legacy
+
+    @pytest.mark.asyncio
+    async def test_list_reports_cron_type_for_crons_trigger(self):
+        repo = AsyncMock()
+        schedule = _stored_schedule({"cron": None, "crons": [{"fields": {"hour": 8}}], "date": None})
+        repo.list.return_value = (1, [(schedule, schedule.created_at)])
+        service = make_service(repo, MagicMock())
+
+        result = await service.list("mock_user_id", Paginator(limit=10, offset=0, base_path="/schedules"))
+
+        assert result.results[0].trigger_type == TriggerType.CRON
