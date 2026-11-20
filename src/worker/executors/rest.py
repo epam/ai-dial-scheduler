@@ -8,6 +8,7 @@ from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
+from src.lib.utils.user_agent import strip_user_agent
 from src.worker.clients import HttpClientProvider
 from src.worker.executors.base import build_timeout
 
@@ -16,7 +17,10 @@ class RestExecutor:
     async def execute(
         self, ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
     ) -> dict[str, Any]:
-        headers = {**properties.extra_headers, credentials.header_name: credentials.header_value.get_secret_value()}
+        headers = {
+            **strip_user_agent(properties.extra_headers),
+            credentials.header_name: credentials.header_value.get_secret_value(),
+        }
         client = ctx.http_client or HttpClientProvider().client
 
         request_kwargs: dict[str, Any] = {

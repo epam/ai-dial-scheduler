@@ -330,6 +330,9 @@ on-behalf-of (OBO) credentials authenticate **every** run of this schedule.
   does **not** consume the retry budget.
 - The injected auth header always overrides a same-named entry in `properties.extra_headers` —
   callers cannot use `extra_headers` to bypass the authenticated identity.
+- Every outbound request (DIAL Core calls and target runs) carries
+  `User-Agent: ai-dial-scheduler/<version>`, so scheduler traffic can be filtered in DIAL Core logs
+  and traces. A `User-Agent` entry in `properties.extra_headers` is ignored.
 - Schedules created before this field existed were backfilled with `service_id = "dial-oauth"`,
   then moved to `"dial-native"` when the scheduler adopted DIAL-native offline delegation.
 

@@ -36,7 +36,9 @@ occur; it is not enforced by the database.
 - `extra_headers` — type: dict[str, str]. The injected per-user auth header (resolved from the
   schedule's `service_id` via DIAL's on-behalf-of credentials, applied as `header_name:
   header_value`) always overrides any same-named entry in `extra_headers` — callers cannot use
-  `extra_headers` to override or bypass the authenticated identity a schedule runs as.
+  `extra_headers` to override or bypass the authenticated identity a schedule runs as. A
+  `User-Agent` entry (any casing) is ignored: every run is sent with
+  `User-Agent: ai-dial-scheduler/<version>` so scheduler traffic stays identifiable.
 - `api_version` — type: nullable str. Required for chat completion and responses.
 - `create_conversation` — type: bool, defaults to `false`. Only allowed for `target_type`
   `chat_completion`; setting it `true` for `responses`/`rest`/`sse` is rejected with a validation error. When

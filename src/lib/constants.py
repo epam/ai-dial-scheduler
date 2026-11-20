@@ -11,6 +11,10 @@ HEARTBEAT_JOB_ID = "worker_heartbeat"
 HEARTBEAT_JOB_NAME = "worker_heartbeat"
 API_KEY_HEADER = "Api-Key"
 
+# Sent on every outbound request so DIAL Core (logs, traces) can tell scheduler traffic apart.
+USER_AGENT_HEADER = "User-Agent"
+USER_AGENT_PRODUCT = "ai-dial-scheduler"
+
 MCP_SERVER_NAME = "aidial-scheduler"
 MCP_BACKING_BASE_URL = "http://scheduler.internal"
 
