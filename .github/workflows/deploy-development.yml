@@ -24,7 +24,7 @@ jobs:
             gitlab-project-id: "3372"
 
     name: Deploy to ${{ matrix.environment-name }}
-    uses: epam/ai-dial-ci/.github/workflows/deploy-development.yml@00484ead5dc3904a787c5af8d0bdd8f4fdf087c1 # 4.13.2
+    uses: epam/ai-dial-ci/.github/workflows/deploy-development.yml@eaa6d99d6471b7a3f7369d1d11a90f8d57235224 # 5.1.0
     with:
       gitlab-project-id: ${{ matrix.gitlab-project-id }}
       environment-name: ${{ matrix.environment-name }}
