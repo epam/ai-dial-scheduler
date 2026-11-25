@@ -170,7 +170,7 @@ class DialClient:
 
         Raises:
             ConversationCreationError: On any non-2xx, transport error, or a body missing
-                ``bucket``. Callers treat this as a non-fatal, post-run failure.
+                ``bucket``. Callers treat this as non-fatal: the run proceeds without a conversation.
         """
         url = f"{self._base_url}{BUCKET_PATH}"
         headers = {credentials.header_name: credentials.header_value.get_secret_value()}

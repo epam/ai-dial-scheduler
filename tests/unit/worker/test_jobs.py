@@ -13,12 +13,18 @@ from src.lib.exceptions.errors import (
     ScheduleRunError,
     StreamIdleTimeoutError,
 )
+from src.lib.schemas.conversation import ConversationLocation
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 
 
 SCHEDULE_ID = "sched-jobs-001"
+CONV_RUN_ID = "run-conv-loc-001"
+CONV_LOCATION = ConversationLocation(
+    deployment_id="gpt-4o", bucket="bkt", schedule_id=SCHEDULE_ID, run_id=CONV_RUN_ID, display_name="Daily"
+)
+CONV_ID = f"conversations/bkt/.scheduler/{SCHEDULE_ID}/gpt-4o__Daily__{CONV_RUN_ID}"
 
 
 @pytest.fixture(autouse=True)
@@ -1199,7 +1205,7 @@ class TestMaybeCreateConversationIsBestEffort:
 
     @staticmethod
     def _ctx():
-        return RunContext(run_id="run-fr011", schedule_id=SCHEDULE_ID)
+        return RunContext(run_id="run-fr011", schedule_id=SCHEDULE_ID, conversation_location=CONV_LOCATION)
 
     @staticmethod
     def _creds():
@@ -1264,7 +1270,7 @@ class TestMaybeCreateConversationPersistId:
 
     @staticmethod
     def _ctx():
-        return RunContext(run_id="run-persist-001", schedule_id=SCHEDULE_ID)
+        return RunContext(run_id="run-persist-001", schedule_id=SCHEDULE_ID, conversation_location=CONV_LOCATION)
 
     @staticmethod
     def _creds():
@@ -1403,3 +1409,344 @@ class TestMaybeCreateConversationPersistId:
 
         create.assert_not_called()
         mock_repo.set_conversation_id.assert_not_awaited()
+
+
+def _chat_snapshot(**overrides) -> dict:
+    snapshot = {
+        "target_type": TargetType.CHAT_COMPLETION,
+        "url": "https://dial.example.com/openai/",
+        "payload": {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]},
+        "extra_headers": {},
+        "api_version": "2024-02-01",
+        "create_conversation": True,
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+_OTHER_TARGET_SNAPSHOTS = {
+    "chat_completion_not_opted_in": _chat_snapshot(create_conversation=False),
+    "responses": {
+        "target_type": TargetType.RESPONSES,
+        "url": "https://dial.example.com/openai/",
+        "payload": {"model": "gpt-4o", "input": "hi"},
+        "api_version": "2024-02-01",
+    },
+    "rest": {"target_type": TargetType.REST, "method": HttpMethod.POST, "url": "https://example.com", "payload": {}},
+    "sse": {"target_type": TargetType.SSE, "method": HttpMethod.POST, "url": "https://example.com", "payload": {}},
+}
+
+
+def _conv_ctx() -> RunContext:
+    return RunContext(run_id=CONV_RUN_ID, schedule_id=SCHEDULE_ID)
+
+
+@pytest.fixture
+def conversation_mocks(mocker, mock_run_repo):
+    """Patch location resolution, conversation creation and the executor for execute_run tests."""
+    calls: list[str] = []
+    seen_locations: list = []
+
+    async def _resolve(ctx, credentials, properties):
+        calls.append("resolve")
+        return CONV_LOCATION
+
+    async def _execute(ctx, credentials, properties):
+        calls.append("execute")
+        seen_locations.append(ctx.conversation_location)
+        return {"result": {"id": "cmpl-1", "choices": []}}
+
+    resolve = mocker.patch("src.worker.jobs.resolve_conversation_location", side_effect=_resolve)
+    create = mocker.patch("src.worker.jobs.create_run_conversation", return_value=CONV_ID)
+    executor = mocker.AsyncMock()
+    executor.execute = mocker.AsyncMock(side_effect=_execute)
+    mocker.patch("src.worker.jobs.resolve_executor", return_value=executor)
+    return mocker.MagicMock(
+        resolve=resolve,
+        create=create,
+        executor=executor,
+        calls=calls,
+        seen_locations=seen_locations,
+        run_repo=mock_run_repo,
+    )
+
+
+class TestConversationLocationInExecuteRun:
+    """US1: the location is resolved once, before any attempt, and reused for the conversation."""
+
+    async def test_resolved_before_the_target_request(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        conversation_mocks.resolve.assert_awaited_once()
+        assert conversation_mocks.calls == ["resolve", "execute"]
+        assert conversation_mocks.seen_locations == [CONV_LOCATION]
+
+    async def test_resolved_with_the_owner_credentials(self, conversation_mocks, mock_credentials):
+        from src.worker.jobs import execute_run
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert conversation_mocks.resolve.call_args.args[1] is mock_credentials.creds
+
+    async def test_every_retry_attempt_sees_the_same_location(self, mocker, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        mocker.patch("src.worker.retry.asyncio.sleep", new=mocker.AsyncMock())
+        outcomes = iter(
+            [
+                ScheduleRunError("503", schedule_id=SCHEDULE_ID, run_id=CONV_RUN_ID, status_code=503),
+                ScheduleRunError("503", schedule_id=SCHEDULE_ID, run_id=CONV_RUN_ID, status_code=503),
+                {"result": {"id": "cmpl-1", "choices": []}},
+            ]
+        )
+
+        async def _execute(ctx, credentials, properties):
+            conversation_mocks.seen_locations.append(ctx.conversation_location)
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        conversation_mocks.executor.execute.side_effect = _execute
+        snapshot = _chat_snapshot(retry={"interval_sequence": [1, 1], "retryable_errors": [503]})
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), snapshot)
+
+        conversation_mocks.resolve.assert_awaited_once()
+        assert len(conversation_mocks.seen_locations) == 3
+        assert all(location is conversation_mocks.seen_locations[0] for location in conversation_mocks.seen_locations)
+        assert conversation_mocks.seen_locations[0] == CONV_LOCATION
+
+    @pytest.mark.parametrize("snapshot", _OTHER_TARGET_SNAPSHOTS.values(), ids=_OTHER_TARGET_SNAPSHOTS.keys())
+    async def test_not_resolved_for_other_targets_or_without_opt_in(self, conversation_mocks, snapshot):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.executor.execute.side_effect = None
+        conversation_mocks.executor.execute.return_value = {"status_code": 200, "body": {}}
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), snapshot)
+
+        conversation_mocks.resolve.assert_not_awaited()
+        ctx = conversation_mocks.executor.execute.call_args.args[0]
+        assert ctx.conversation_location is None
+
+    async def test_success_saves_at_the_resolved_location(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        conversation_mocks.create.assert_awaited_once()
+        ctx = conversation_mocks.create.call_args.args[0]
+        assert ctx.conversation_location == CONV_LOCATION
+        conversation_mocks.run_repo.set_conversation_id.assert_awaited_once_with(CONV_RUN_ID, CONV_ID)
+
+    async def test_target_failure_still_sent_the_location_but_saves_nothing(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        async def _fail(ctx, credentials, properties):
+            conversation_mocks.seen_locations.append(ctx.conversation_location)
+            raise ScheduleRunError("500", schedule_id=SCHEDULE_ID, run_id=CONV_RUN_ID, status_code=500)
+
+        conversation_mocks.executor.execute.side_effect = _fail
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ScheduleRunError):
+                await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert conversation_mocks.seen_locations == [CONV_LOCATION]
+        conversation_mocks.create.assert_not_awaited()
+        conversation_mocks.run_repo.mark_error.assert_awaited_once()
+
+    async def test_resolution_is_logged(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        resolved = [log for log in logs if log.get("event") == "conversation_id_resolved"]
+        assert len(resolved) == 1
+        assert resolved[0]["log_level"] == "info"
+        assert resolved[0]["run_id"] == CONV_RUN_ID
+        assert resolved[0]["schedule_id"] == SCHEDULE_ID
+        assert resolved[0]["deployment_kind"] == "model"
+
+    async def test_application_deployment_kind_is_logged(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = None
+        conversation_mocks.resolve.return_value = CONV_LOCATION.model_copy(
+            update={"deployment_id": "applications/bkt/My App"}
+        )
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        resolved = [log for log in logs if log.get("event") == "conversation_id_resolved"]
+        assert resolved[0]["deployment_kind"] == "application"
+
+
+_RESOLVE_FAILURES = {
+    "bucket_status": ConversationCreationError("bucket request failed with status 503"),
+    "bucket_missing": ConversationCreationError("bucket response missing 'bucket'"),
+    "invalid_model": ConversationCreationError("payload.model must be a non-empty string to create a conversation"),
+    "schedule_missing": ConversationCreationError(f"schedule not found: {SCHEDULE_ID}"),
+    "unexpected": RuntimeError("boom"),
+}
+
+
+class TestConversationLocationFailure:
+    """US2: a failed resolution never breaks the run; the header is omitted and nothing is saved."""
+
+    @pytest.mark.parametrize("failure", _RESOLVE_FAILURES.values(), ids=_RESOLVE_FAILURES.keys())
+    async def test_run_succeeds_without_location_or_conversation(self, conversation_mocks, failure):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = failure
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        conversation_mocks.executor.execute.assert_awaited_once()
+        assert conversation_mocks.seen_locations == [None]
+        conversation_mocks.run_repo.mark_success.assert_awaited_once()
+        conversation_mocks.create.assert_not_awaited()
+        conversation_mocks.run_repo.set_conversation_id.assert_not_awaited()
+
+        failed = [log for log in logs if log.get("event") == "conversation_id_resolve_failed"]
+        assert len(failed) == 1
+        assert failed[0]["log_level"] == "warning"
+        assert failed[0]["run_id"] == CONV_RUN_ID
+        assert failed[0]["schedule_id"] == SCHEDULE_ID
+        assert failed[0]["reason"] == str(failure)
+
+        skipped = [log for log in logs if log.get("event") == "conversation_create_skipped"]
+        assert len(skipped) == 1
+        assert skipped[0]["log_level"] == "info"
+        assert skipped[0]["reason"] == "conversation_id_unresolved"
+        assert skipped[0]["run_id"] == CONV_RUN_ID
+
+        for log in logs:
+            assert "obo-token" not in str(log)
+
+    async def test_target_failure_is_recorded_as_before(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = ConversationCreationError("bucket request failed with status 503")
+        conversation_mocks.executor.execute.side_effect = ScheduleRunError(
+            "500", schedule_id=SCHEDULE_ID, run_id=CONV_RUN_ID, status_code=500
+        )
+
+        with structlog.testing.capture_logs() as logs:
+            with pytest.raises(ScheduleRunError):
+                await execute_run(_conv_ctx(), _chat_snapshot())
+
+        conversation_mocks.run_repo.mark_error.assert_awaited_once()
+        conversation_mocks.run_repo.mark_success.assert_not_awaited()
+        assert len([log for log in logs if log.get("event") == "conversation_id_resolve_failed"]) == 1
+        assert not [log for log in logs if log.get("event") == "conversation_create_skipped"]
+        conversation_mocks.create.assert_not_awaited()
+
+    async def test_resolution_is_attempted_once_across_retries(self, mocker, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        mocker.patch("src.worker.retry.asyncio.sleep", new=mocker.AsyncMock())
+        conversation_mocks.resolve.side_effect = ConversationCreationError("bucket request failed with status 503")
+        conversation_mocks.executor.execute.side_effect = [
+            ScheduleRunError("503", schedule_id=SCHEDULE_ID, run_id=CONV_RUN_ID, status_code=503),
+            {"result": {"id": "cmpl-1", "choices": []}},
+        ]
+        snapshot = _chat_snapshot(retry={"interval_sequence": [1], "retryable_errors": [503]})
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), snapshot)
+
+        conversation_mocks.resolve.assert_awaited_once()
+        assert len([log for log in logs if log.get("event") == "conversation_id_resolve_failed"]) == 1
+
+
+class TestConversationLogContext:
+    """US5: once resolved, the raw conversation id is on every later log entry of the run."""
+
+    async def test_resolved_id_is_bound_for_later_events(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        bound_during_attempt: list[dict] = []
+
+        async def _execute(ctx, credentials, properties):
+            bound_during_attempt.append(dict(get_contextvars()))
+            return {"result": {"id": "cmpl-1", "choices": []}}
+
+        conversation_mocks.executor.execute.side_effect = _execute
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert bound_during_attempt[0]["conversation_id"] == CONV_ID
+        assert get_contextvars()["conversation_id"] == CONV_ID
+
+    async def test_nothing_is_bound_when_resolution_fails(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = ConversationCreationError("bucket request failed with status 503")
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert "conversation_id" not in get_contextvars()
+
+    async def test_scheduled_job_clears_the_bound_id_afterwards(self, mocker, conversation_mocks):
+        from src.worker.jobs import execute_scheduled_job
+
+        snapshot = _chat_snapshot()
+        with structlog.testing.capture_logs():
+            await execute_scheduled_job(schedule_id=SCHEDULE_ID, **snapshot)
+
+        conversation_mocks.resolve.assert_awaited_once()
+        assert get_contextvars() == {}
+
+    async def test_unexpected_resolver_error_keeps_the_traceback(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = RuntimeError("boom")
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        failed = [log for log in logs if log.get("event") == "conversation_id_resolve_failed"]
+        assert failed[0].get("exc_info") is True
+
+    async def test_expected_resolver_error_has_no_traceback(self, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = ConversationCreationError("bucket request failed with status 503")
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        failed = [log for log in logs if log.get("event") == "conversation_id_resolve_failed"]
+        assert "exc_info" not in failed[0]
+
+    async def test_resolve_failed_warning_carries_trace_and_span_ids(self, conversation_mocks):
+        from opentelemetry.sdk.trace import TracerProvider
+
+        from src.lib.utils.logging import _add_trace_span_ids
+        from src.worker.jobs import execute_run
+
+        conversation_mocks.resolve.side_effect = ConversationCreationError("bucket request failed with status 503")
+        tracer = TracerProvider().get_tracer("t")
+
+        with tracer.start_as_current_span(f"job:schedule:{SCHEDULE_ID}") as span:
+            with structlog.testing.capture_logs(processors=[_add_trace_span_ids]) as logs:
+                await execute_run(_conv_ctx(), _chat_snapshot())
+            span_ctx = span.get_span_context()
+
+        failed = [log for log in logs if log.get("event") == "conversation_id_resolve_failed"]
+        assert failed[0]["trace_id"] == format(span_ctx.trace_id, "032x")
+        assert failed[0]["span_id"] == format(span_ctx.span_id, "016x")

@@ -6,6 +6,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from src.lib.db.enums import ScheduleRunStatus
+from src.lib.schemas.conversation import ConversationLocation
 
 
 class RunTimeouts(BaseModel):
@@ -35,6 +36,10 @@ class RunContext(BaseModel):
 
     The ``effective_*`` fields are resolved once per attempt by the orchestrator and are the
     only source executors read -- never ``properties`` directly.
+
+    ``conversation_location`` is set once per run by ``execute_run`` for chat completion schedules
+    with ``create_conversation``, before any attempt. The chat completion executor derives the
+    ``X-CONVERSATION-ID`` header from it and conversation creation saves at that same location.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -45,6 +50,7 @@ class RunContext(BaseModel):
     timeouts: RunTimeouts | None = None
     effective_timeout: float | None = None
     effective_idle_timeout: float | None = None
+    conversation_location: ConversationLocation | None = None
 
 
 class RunListItem(BaseModel):

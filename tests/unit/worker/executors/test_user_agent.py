@@ -25,7 +25,6 @@ from src.worker.executors.sse import SseExecutor
 
 
 CREDS = OboCredentials(header_name="Api-Key", header_value=SecretStr("obo-token"))
-SPOOFED_HEADERS = {"user-agent": "spoofed/1.0", "X-Custom": "kept"}
 
 CHAT_COMPLETION_BODY = {
     "id": "cmpl-1",
@@ -118,9 +117,10 @@ async def test_sends_scheduler_user_agent(executor, props_kwargs, ctx, captured)
     assert captured[0].headers.get_list(USER_AGENT_HEADER) == [get_user_agent()]
 
 
+@pytest.mark.parametrize("spoofed_name", ["user-agent", "USER-AGENT", "User-Agent"])
 @pytest.mark.parametrize(("executor", "props_kwargs"), EXECUTOR_CASES)
-async def test_user_supplied_user_agent_cannot_override(executor, props_kwargs, ctx, captured):
-    props = ScheduleProperties(**props_kwargs, extra_headers=SPOOFED_HEADERS)
+async def test_user_supplied_user_agent_cannot_override(executor, props_kwargs, spoofed_name, ctx, captured):
+    props = ScheduleProperties(**props_kwargs, extra_headers={spoofed_name: "spoofed/1.0", "X-Custom": "kept"})
 
     with structlog.testing.capture_logs():
         await executor.execute(ctx, CREDS, props)

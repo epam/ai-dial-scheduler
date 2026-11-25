@@ -14,6 +14,11 @@ API_KEY_HEADER = "Api-Key"
 # Sent on every outbound request so DIAL Core (logs, traces) can tell scheduler traffic apart.
 USER_AGENT_HEADER = "User-Agent"
 USER_AGENT_PRODUCT = "ai-dial-scheduler"
+# DIAL Core and DIAL Admin key sessions on this header; chat completion runs send their conversation id in it.
+CONVERSATION_ID_HEADER = "X-CONVERSATION-ID"
+# Upper bound for the encoded header value; proxies and DIAL Core reject header sets above ~8 KiB, which would
+# turn a successful run into a failed one. Longer ids are not sent (and no conversation is saved).
+MAX_CONVERSATION_ID_HEADER_BYTES = 4096
 
 MCP_SERVER_NAME = "aidial-scheduler"
 MCP_BACKING_BASE_URL = "http://scheduler.internal"
