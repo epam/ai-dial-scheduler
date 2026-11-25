@@ -120,6 +120,12 @@ For `target_type: chat_completion`, send `properties.create_conversation: true` 
 asked for runs not to be saved — each successful run is then stored as a DIAL conversation titled
 after `display_name` and readable in DIAL Chat. See [properties.md](./properties.md).
 
+Runs are independent: each one sends the saved `payload` unchanged, with no history from earlier
+runs, and each successful run with `create_conversation` produces a separate conversation. A daily
+schedule therefore shows up in DIAL Chat as one conversation per day, all titled after
+`display_name` in the schedule's `.scheduler/{schedule_id}/` folder. See
+[Run isolation](./properties.md#run-isolation).
+
 Creating a schedule for a `service_id` the caller is not currently signed in to is rejected with
 **403** before any row is written — see [Sign-In Status](#sign-in-status) below. This is a
 separate, earlier check than the run-time OBO failure described above: a **403** here means the

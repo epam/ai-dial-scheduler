@@ -45,6 +45,11 @@ occur; it is not enforced by the database.
   conversation is non-fatal and does not affect the run outcome. Recommended value for
   `chat_completion` schedules is `true` — the field's OpenAPI description says so, so MCP clients
   creating a schedule opt in unless the caller asked for runs not to be saved.
+  Each successful run gets its own conversation; runs never share or extend one. The conversation
+  holds the schedule's `payload.messages` followed by that run's assistant response only. It is
+  stored at `{bucket}/.scheduler/{schedule_id}/[{deployment folders}/]{deployment}__{display_name}__{run_id}`,
+  so all conversations of one schedule sit in the same folder, carry the same title, and differ
+  only by the `run_id` in their path. See [Run isolation](#run-isolation).
 - `timeout` — type: nullable number, seconds, must be positive. The absolute ceiling on a single
   attempt, measured from the moment the request is built. It never resets while the attempt runs,
   so it is sized as a backstop against a run that never ends rather than as a routine bound. When
@@ -73,3 +78,25 @@ existing `schedules.kwargs` JSONB. A ceiling expiry logs as `attempt_timed_out` 
 as `attempt_idle_timed_out`, so the two are distinguishable without reading the error text.
 
 Has a corresponding Pydantic model and is validated before each run start.
+
+## Run isolation
+
+Runs are stateless. Every run, whether fired by the trigger or started on demand, sends the stored
+`payload` exactly as saved. Nothing from earlier runs is added to it: previous responses are not
+appended to `payload.messages`, and no `previous_response_id` is injected for `responses` targets.
+A schedule that fires daily for a week therefore makes seven independent requests with identical
+input, and the target sees no memory of what it answered the day before.
+
+A run's response is kept only in its own run record (`schedule_runs.result`) and, when
+`create_conversation` is `true`, in its own DIAL conversation. Continuing that conversation in DIAL
+Chat continues that run alone and does not affect later runs.
+
+Two consequences follow:
+
+- A `previous_response_id` set by the caller in `payload` is the same on every run, so each run
+  branches from that one fixed response rather than from the previous run.
+- A target application that keeps its own per-user state may still carry context between runs. That
+  is the application's behaviour, outside the scheduler's control.
+
+There is currently no mode in which runs of one schedule accumulate history in a single
+conversation.
