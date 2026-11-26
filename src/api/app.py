@@ -4,7 +4,6 @@ from typing import Any
 
 from aidial_sdk import DIALApp
 from aidial_sdk.telemetry.types import TelemetryConfig
-import httpx
 from starlette.middleware.cors import CORSMiddleware
 import uvicorn
 
@@ -12,6 +11,7 @@ from src.api.v1.endpoints.health import router as health_router
 from src.api.v1.endpoints.runs import router as runs_router
 from src.api.v1.endpoints.schedules import router as schedules_router
 from src.api.v1.endpoints.sign_in import router as sign_in_router
+from src.lib.clients.http_client import create_http_client
 from src.lib.db.engine import Database
 from src.lib.scheduler import create_scheduler
 from src.lib.schemas.run import RunTimeouts
@@ -32,18 +32,7 @@ async def lifespan(app: DIALApp) -> AsyncGenerator[None, None]:
     app.state.scheduler = scheduler  # type: ignore[attr-defined]
     try:
         api_http = settings.api_http
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=api_http.connect_timeout_seconds,
-                read=api_http.read_timeout_seconds,
-                write=api_http.write_timeout_seconds,
-                pool=api_http.pool_timeout_seconds,
-            ),
-            limits=httpx.Limits(
-                max_connections=api_http.max_connections,
-                max_keepalive_connections=api_http.max_keepalive_connections,
-            ),
-        ) as app_client:
+        async with create_http_client(api_http) as app_client:
             logger.info("Created global HTTP Client for the app lifespan.")
             app.state.app_client = app_client  # type: ignore[attr-defined]
             run_launcher = BackgroundRunLauncher(

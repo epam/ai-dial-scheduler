@@ -5,6 +5,8 @@ import pytest
 
 from src.lib.schemas.conversation import (
     ApplicationDetails,
+    ConversationBuildInput,
+    ConversationLocation,
     DialConversation,
     DialMessage,
     DialModel,
@@ -119,3 +121,32 @@ class TestApplicationDetails:
     def test_missing_reference_raises(self):
         with pytest.raises(ValidationError):
             ApplicationDetails.model_validate({"display_name": "no ref"})
+
+
+_LOCATION_FIELDS = dict(deployment_id="gpt-4o", bucket="bkt", schedule_id="s-1", run_id="r-1", display_name="Daily")
+
+
+class TestConversationLocation:
+    def test_holds_path_facing_fields(self):
+        location = ConversationLocation(**_LOCATION_FIELDS)
+        assert location.model_dump() == _LOCATION_FIELDS
+
+    @pytest.mark.parametrize("missing", sorted(_LOCATION_FIELDS))
+    def test_every_field_is_required(self, missing):
+        fields = {name: value for name, value in _LOCATION_FIELDS.items() if name != missing}
+        with pytest.raises(ValidationError):
+            ConversationLocation(**fields)
+
+
+class TestConversationBuildInputExtendsLocation:
+    def test_is_a_conversation_location(self):
+        assert issubclass(ConversationBuildInput, ConversationLocation)
+
+    def test_accepts_the_existing_keyword_set(self):
+        build_input = ConversationBuildInput(**_LOCATION_FIELDS, model_id="ref-1")
+        assert build_input.model_id == "ref-1"
+        assert build_input.deployment_id == "gpt-4o"
+
+    def test_model_id_is_required(self):
+        with pytest.raises(ValidationError):
+            ConversationBuildInput(**_LOCATION_FIELDS)

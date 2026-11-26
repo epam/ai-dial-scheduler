@@ -72,6 +72,19 @@ class TestLaunch:
         assert ctx.timeouts.streaming_max_duration == 900.0
         assert ctx.timeouts.idle_timeout == 20.0
 
+    async def test_launcher_leaves_conversation_location_to_execute_run(self, mocker, launcher) -> None:
+        """The launcher does not pre-set the location: on-demand runs get it from the shared execute_run.
+
+        The resolution itself is covered by ``TestConversationLocationInExecuteRun`` in test_jobs.py.
+        """
+        execute = mocker.patch("src.lib.services.run_launcher.execute_run", new_callable=AsyncMock)
+
+        launcher.launch(RUN_ID, SCHEDULE_ID, SNAPSHOT)
+        await launcher.drain()
+
+        ctx, _ = execute.await_args.args
+        assert ctx.conversation_location is None
+
     async def test_returns_before_the_run_finishes(self, mocker, launcher):
         started = asyncio.Event()
         release = asyncio.Event()

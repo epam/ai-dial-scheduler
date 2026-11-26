@@ -6,14 +6,28 @@ from pydantic import SecretStr
 import pytest
 import structlog.testing
 
-from src.lib.constants import CONVERSATION_NAME_SEPARATOR
+from src.lib.constants import CONVERSATION_ID_PREFIX, CONVERSATION_NAME_SEPARATOR
 from src.lib.db.enums import TargetType
 from src.lib.exceptions.errors import ConversationCreationError
-from src.lib.schemas.conversation import ApplicationDetails, ConversationBuildInput, DialConversation
+from src.lib.schemas.conversation import (
+    ApplicationDetails,
+    ConversationBuildInput,
+    ConversationLocation,
+    DialConversation,
+)
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
-from src.worker.conversation import build_conversation, create_run_conversation, encode_name_part
+from src.lib.utils.conversation_header import encode_header_value
+from src.worker.conversation import (
+    build_conversation,
+    conversation_id_for,
+    conversation_resource_path,
+    create_run_conversation,
+    deployment_kind,
+    encode_name_part,
+    resolve_conversation_location,
+)
 
 
 RUN_ID = "run-conv-001"
@@ -21,12 +35,31 @@ SCHEDULE_ID = "sched-conv-001"
 BUCKET = "bkt-xyz"
 DEPLOYMENT_ID = "chathub-claude4"
 DISPLAY_NAME = "hello"
+MODEL_DEPLOYMENT = "gpt-5.6-sol-2026-07-09-reasoning"
 
 
 def make_ctx(**kwargs) -> RunContext:
-    defaults = dict(run_id=RUN_ID, schedule_id=SCHEDULE_ID)
+    # Credential resolution records the display name on the context before conversation work runs.
+    defaults = dict(run_id=RUN_ID, schedule_id=SCHEDULE_ID, schedule_display_name=DISPLAY_NAME)
     defaults.update(kwargs)
     return RunContext(**defaults)
+
+
+def make_location(**kwargs) -> ConversationLocation:
+    defaults = dict(
+        deployment_id=MODEL_DEPLOYMENT,
+        bucket=BUCKET,
+        schedule_id=SCHEDULE_ID,
+        run_id=RUN_ID,
+        display_name=DISPLAY_NAME,
+    )
+    defaults.update(kwargs)
+    return ConversationLocation(**defaults)
+
+
+def make_located_ctx(**location_overrides) -> RunContext:
+    """A run context whose conversation location was resolved before the target request."""
+    return make_ctx(conversation_location=make_location(**location_overrides))
 
 
 def make_creds(**kwargs) -> OboCredentials:
@@ -39,7 +72,7 @@ def make_properties(**kwargs) -> ScheduleProperties:
     defaults = dict(
         target_type=TargetType.CHAT_COMPLETION,
         url="https://dial.example.com/openai/",
-        payload={"model": "gpt-5.6-sol-2026-07-09-reasoning", "messages": [{"role": "user", "content": "hi"}]},
+        payload={"model": MODEL_DEPLOYMENT, "messages": [{"role": "user", "content": "hi"}]},
         api_version="2024-02-01",
         create_conversation=True,
     )
@@ -390,25 +423,7 @@ class TestBuildConversationCustomContent:
 
 
 @pytest.fixture
-def mock_schedule(mocker):
-    """Patch the worker's DB session + ScheduleRepository so the display name resolves."""
-    schedule = mocker.MagicMock()
-    schedule.display_name = DISPLAY_NAME
-    repo = mocker.MagicMock()
-    repo.get_by_id = mocker.AsyncMock(return_value=schedule)
-    mocker.patch("src.worker.conversation.ScheduleRepository", return_value=repo)
-
-    session = mocker.MagicMock()
-    session.__aenter__ = mocker.AsyncMock(return_value=session)
-    session.__aexit__ = mocker.AsyncMock(return_value=None)
-    database = mocker.MagicMock()
-    database.sessionmaker.return_value = session
-    mocker.patch("src.worker.conversation.Database", return_value=database)
-    return repo
-
-
-@pytest.fixture
-def mock_dial(mocker, mock_schedule):
+def mock_dial(mocker):
     dial_client = mocker.MagicMock()
     dial_client.get_bucket = mocker.AsyncMock(return_value=BUCKET)
     dial_client.get_application = mocker.AsyncMock()
@@ -424,94 +439,193 @@ def mock_dial(mocker, mock_schedule):
     return dial_client
 
 
-class TestCreateRunConversationOrchestration:
-    async def test_resolves_bucket_then_writes(self, mock_dial):
-        with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        mock_dial.get_bucket.assert_awaited_once()
-        mock_dial.put_conversation.assert_awaited_once()
-        # Conversation id embeds the bucket returned by get_bucket.
-        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
-        assert f"/{BUCKET}/" in written.id
-
-    async def test_returns_conversation_id_after_successful_put(self, mock_dial):
-        """Case 10: create_run_conversation returns conversation.id including the conversations/ prefix."""
-        with structlog.testing.capture_logs():
-            result = await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        # Must return the addressable id, not the bare resource path
-        assert isinstance(result, str)
-        assert result.startswith("conversations/")
-        assert f"/{BUCKET}/" in result
-
-    async def test_returned_id_matches_put_path(self, mock_dial):
-        """The returned id must be the same id used for the PUT (no drift)."""
-        from src.lib.constants import CONVERSATION_ID_PREFIX
-
-        with structlog.testing.capture_logs():
-            returned_id = await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        put_path = mock_dial.put_conversation.call_args.kwargs["path"]
-        # The path is the id without the conversations/ prefix
-        assert returned_id == f"{CONVERSATION_ID_PREFIX}{put_path}"
-
-    async def test_returned_id_contains_run_id(self, mock_dial):
-        """The returned id embeds the run_id so each run gets a unique path."""
-        with structlog.testing.capture_logs():
-            result = await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        assert RUN_ID in result
-
-    async def test_model_deployment_skips_get_application(self, mock_dial):
-        with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        mock_dial.get_application.assert_not_awaited()
-        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
-        assert written.model.id == "gpt-5.6-sol-2026-07-09-reasoning"
-
-    async def test_user_credential_passed_to_calls(self, mock_dial):
-        creds = make_creds(header_name="Authorization", header_value=SecretStr("Bearer owner-token"))
-        with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), creds, make_properties(), _result())
-
-        assert mock_dial.get_bucket.call_args.args[0] is creds
-        assert mock_dial.put_conversation.call_args.kwargs["credentials"] is creds
-
-    async def test_secret_not_logged(self, mock_dial):
-        creds = make_creds(header_value=SecretStr("super-secret"))
-        with structlog.testing.capture_logs() as logs:
-            await create_run_conversation(make_ctx(), creds, make_properties(), _result())
-
-        for log in logs:
-            assert "super-secret" not in str(log)
-
-    async def test_name_uses_fetched_display_name_and_resolved_deployment(self, mock_dial, mock_schedule):
-        with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        mock_schedule.get_by_id.assert_awaited_once_with(SCHEDULE_ID)
-        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
-        assert written.name == DISPLAY_NAME
-        # For a model deployment the resolved model id equals the payload model (verbatim segment).
-        assert leaf(written) == f"gpt-5.6-sol-2026-07-09-reasoning__{DISPLAY_NAME}__{RUN_ID}"
-
-    async def test_bucket_failure_raises_conversation_error(self, mock_dial):
-        mock_dial.get_bucket.side_effect = ConversationCreationError("bucket down")
-
-        with structlog.testing.capture_logs():
-            with pytest.raises(ConversationCreationError):
-                await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
-
-        mock_dial.put_conversation.assert_not_awaited()
-
-
 _APP_MODEL = "applications/bkt/Untitled app 1101__0.0.1"
 
 
 def _app_payload() -> dict:
     return {"model": _APP_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+
+
+class TestResolveConversationLocation:
+    """The location is resolved once, before the target request, without touching the conversation."""
+
+    async def test_returns_the_full_location(self, mock_dial):
+        location = await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
+
+        assert location == make_location()
+
+    async def test_percent_encoded_application_id_is_decoded(self, mock_dial):
+        # DIAL hands out application ids in URL form; everything downstream works on raw names.
+        props = make_properties(payload={"model": f"applications/{BUCKET}/Planning%20Assistant__0.0.1", "messages": []})
+
+        location = await resolve_conversation_location(make_ctx(), make_creds(), props)
+
+        assert location.deployment_id == f"applications/{BUCKET}/Planning Assistant__0.0.1"
+
+    async def test_neither_looks_up_the_application_nor_writes(self, mock_dial):
+        await resolve_conversation_location(make_ctx(), make_creds(), make_properties(payload=_app_payload()))
+
+        mock_dial.get_application.assert_not_awaited()
+        mock_dial.put_conversation.assert_not_awaited()
+
+    async def test_bucket_is_fetched_once_with_the_owner_credentials(self, mock_dial):
+        creds = make_creds(header_name="Authorization", header_value=SecretStr("Bearer owner-token"))
+
+        await resolve_conversation_location(make_ctx(), creds, make_properties())
+
+        mock_dial.get_bucket.assert_awaited_once()
+        assert mock_dial.get_bucket.call_args.args[0] is creds
+
+    async def test_display_name_comes_from_the_run_context(self, mock_dial):
+        location = await resolve_conversation_location(
+            make_ctx(schedule_display_name="Щоденний звіт"), make_creds(), make_properties()
+        )
+
+        assert location.display_name == "Щоденний звіт"
+
+    def test_does_not_read_the_schedule_again(self):
+        # Credential resolution already loaded the row; a second read could disagree with it.
+        import src.worker.conversation as conversation_module
+
+        assert not hasattr(conversation_module, "ScheduleRepository")
+        assert not hasattr(conversation_module, "Database")
+
+    async def test_bucket_failure_raises(self, mock_dial):
+        mock_dial.get_bucket.side_effect = ConversationCreationError("bucket request failed with status 503")
+
+        with pytest.raises(ConversationCreationError, match="bucket"):
+            await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
+
+    async def test_display_name_not_recorded_raises_before_the_bucket_lookup(self, mock_dial):
+        with pytest.raises(ConversationCreationError, match=f"schedule display name not loaded: {SCHEDULE_ID}"):
+            await resolve_conversation_location(make_ctx(schedule_display_name=None), make_creds(), make_properties())
+
+        mock_dial.get_bucket.assert_not_awaited()
+
+    @pytest.mark.parametrize("bad_model", [123, ["gpt-4o"], {"id": "gpt-4o"}, ""])
+    async def test_non_string_model_raises_named_conversation_error(self, mock_dial, bad_model):
+        # payload is dict[str, Any]; the value is path-facing, so it must fail with a named
+        # error rather than an opaque AttributeError/TypeError from startswith()/unquote().
+        props = make_properties()
+        object.__setattr__(props, "payload", {"model": bad_model, "messages": []})
+
+        with pytest.raises(ConversationCreationError, match="payload.model"):
+            await resolve_conversation_location(make_ctx(), make_creds(), props)
+
+    async def test_missing_model_raises_conversation_error(self, mock_dial):
+        # Bypass schema validation (which normally guarantees presence) to exercise the guard.
+        props = make_properties()
+        object.__setattr__(props, "payload", {"messages": [{"role": "user", "content": "hi"}]})
+
+        with pytest.raises(ConversationCreationError, match="payload.model"):
+            await resolve_conversation_location(make_ctx(), make_creds(), props)
+
+
+class TestDeploymentKind:
+    @pytest.mark.parametrize(
+        ("deployment_id", "expected"), [(_APP_MODEL, "application"), (MODEL_DEPLOYMENT, "model"), ("apps/x", "model")]
+    )
+    def test_classifies_by_prefix(self, deployment_id, expected):
+        assert deployment_kind(deployment_id) == expected
+
+
+class TestConversationIdFor:
+    def test_is_the_prefixed_resource_path(self):
+        location = make_location()
+        assert conversation_id_for(location) == f"{CONVERSATION_ID_PREFIX}{conversation_resource_path(location)}"
+
+    @pytest.mark.parametrize(
+        ("deployment_id", "display_name"),
+        [(MODEL_DEPLOYMENT, DISPLAY_NAME), (_APP_MODEL, "Daily / Report"), ("gpt-4o", "Щоденний звіт 📈")],
+    )
+    def test_equals_the_built_document_id(self, deployment_id, display_name):
+        location = make_location(deployment_id=deployment_id, display_name=display_name)
+        build_input = ConversationBuildInput(**location.model_dump(), model_id="ref")
+
+        conv = build_conversation(make_properties(), _result(), build_input)
+
+        assert conversation_id_for(location) == conv.id
+
+
+class TestCreateRunConversationOrchestration:
+    async def test_reuses_the_resolved_location_without_lookups(self, mock_dial):
+        with structlog.testing.capture_logs():
+            await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
+
+        mock_dial.get_bucket.assert_not_awaited()
+        mock_dial.put_conversation.assert_awaited_once()
+        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        assert f"/{BUCKET}/" in written.id
+
+    async def test_returns_the_id_derived_from_the_location(self, mock_dial):
+        ctx = make_located_ctx()
+        with structlog.testing.capture_logs():
+            result = await create_run_conversation(ctx, make_creds(), make_properties(), _result())
+
+        assert result == conversation_id_for(ctx.conversation_location)
+        assert result.startswith("conversations/")
+
+    async def test_returned_id_matches_put_path(self, mock_dial):
+        """The returned id must be the same id used for the PUT (no drift)."""
+        with structlog.testing.capture_logs():
+            returned_id = await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
+
+        put_path = mock_dial.put_conversation.call_args.kwargs["path"]
+        assert returned_id == f"{CONVERSATION_ID_PREFIX}{put_path}"
+
+    async def test_returned_id_contains_run_id(self, mock_dial):
+        """The returned id embeds the run_id so each run gets a unique path."""
+        with structlog.testing.capture_logs():
+            result = await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
+
+        assert RUN_ID in result
+
+    async def test_model_deployment_skips_get_application(self, mock_dial):
+        with structlog.testing.capture_logs():
+            await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
+
+        mock_dial.get_application.assert_not_awaited()
+        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        assert written.model.id == MODEL_DEPLOYMENT
+
+    async def test_user_credential_passed_to_put(self, mock_dial):
+        creds = make_creds(header_name="Authorization", header_value=SecretStr("Bearer owner-token"))
+        with structlog.testing.capture_logs():
+            await create_run_conversation(make_located_ctx(), creds, make_properties(), _result())
+
+        assert mock_dial.put_conversation.call_args.kwargs["credentials"] is creds
+
+    async def test_secret_not_logged(self, mock_dial):
+        creds = make_creds(header_value=SecretStr("super-secret"))
+        with structlog.testing.capture_logs() as logs:
+            await create_run_conversation(make_located_ctx(), creds, make_properties(), _result())
+
+        for log in logs:
+            assert "super-secret" not in str(log)
+
+    async def test_name_and_leaf_come_from_the_location(self, mock_dial):
+        with structlog.testing.capture_logs():
+            await create_run_conversation(
+                make_located_ctx(display_name="Weekly"), make_creds(), make_properties(), _result()
+            )
+
+        written = mock_dial.put_conversation.call_args.kwargs["conversation"]
+        assert written.name == "Weekly"
+        assert leaf(written) == f"{MODEL_DEPLOYMENT}__Weekly__{RUN_ID}"
+
+    async def test_unresolved_location_raises_without_writing(self, mock_dial):
+        with structlog.testing.capture_logs():
+            with pytest.raises(ConversationCreationError, match="conversation location not resolved"):
+                await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+
+        mock_dial.put_conversation.assert_not_awaited()
+
+    async def test_put_failure_raises(self, mock_dial):
+        mock_dial.put_conversation.side_effect = ConversationCreationError("put failed")
+
+        with structlog.testing.capture_logs():
+            with pytest.raises(ConversationCreationError):
+                await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
 
 
 class TestConversationNameEdgeInputs:
@@ -533,21 +647,27 @@ class TestConversationNameEdgeInputs:
         assert leaf(conv).rsplit("__", 1)[1] == RUN_ID
 
     @pytest.mark.parametrize("display_name", ["Привет", "a" * 80])
-    async def test_create_run_conversation_never_raises_on_edge_names(self, mock_dial, mock_schedule, display_name):
-        mock_schedule.get_by_id.return_value.display_name = display_name
+    async def test_create_run_conversation_never_raises_on_edge_names(self, mock_dial, display_name):
         with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+            await create_run_conversation(
+                make_located_ctx(display_name=display_name), make_creds(), make_properties(), _result()
+            )
         mock_dial.put_conversation.assert_awaited_once()
 
 
 class TestCreateRunConversationApplication:
-    async def test_application_deployment_resolves_reference(self, mocker, mock_dial):
+    async def test_application_deployment_resolves_reference(self, mock_dial):
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
 
         with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result())
+            await create_run_conversation(
+                make_located_ctx(deployment_id=_APP_MODEL),
+                make_creds(),
+                make_properties(payload=_app_payload()),
+                _result(),
+            )
 
-        # The application lookup is retained: its reference is what the document reopens against.
+        # The application lookup is retained post-run: its reference is what the document reopens against.
         mock_dial.get_application.assert_awaited_once()
         assert mock_dial.get_application.call_args.args[1] == _APP_MODEL
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
@@ -562,7 +682,12 @@ class TestCreateRunConversationApplication:
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
 
         with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result())
+            await create_run_conversation(
+                make_located_ctx(deployment_id=_APP_MODEL),
+                make_creds(),
+                make_properties(payload=_app_payload()),
+                _result(),
+            )
 
         path = mock_dial.put_conversation.call_args.kwargs["path"]
         expected_leaf = f"Untitled app 1101__0.0.1__{DISPLAY_NAME}__{RUN_ID}"
@@ -576,7 +701,10 @@ class TestCreateRunConversationApplication:
         with structlog.testing.capture_logs():
             with pytest.raises(ConversationCreationError):
                 await create_run_conversation(
-                    make_ctx(), make_creds(), make_properties(payload=_app_payload()), _result()
+                    make_located_ctx(deployment_id=_APP_MODEL),
+                    make_creds(),
+                    make_properties(payload=_app_payload()),
+                    _result(),
                 )
 
         mock_dial.put_conversation.assert_not_awaited()
@@ -589,16 +717,22 @@ class TestCreateRunConversationPercentEncodedDeployment:
     # status 404": the space in the application name reaches the scheduler as %20.
     _ENCODED_APP_MODEL = "applications/bkt/Planning%20Assistant__0.0.1"
 
-    def _encoded_payload(self) -> dict:
-        return {"model": self._ENCODED_APP_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+    def _encoded_properties(self) -> ScheduleProperties:
+        return make_properties(
+            payload={"model": self._ENCODED_APP_MODEL, "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    async def _resolve_then_create(self) -> None:
+        props = self._encoded_properties()
+        ctx = make_ctx()
+        ctx.conversation_location = await resolve_conversation_location(ctx, make_creds(), props)
+        with structlog.testing.capture_logs():
+            await create_run_conversation(ctx, make_creds(), props, _result())
 
     async def test_application_is_looked_up_by_its_decoded_id(self, mock_dial):
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
 
-        with structlog.testing.capture_logs():
-            await create_run_conversation(
-                make_ctx(), make_creds(), make_properties(payload=self._encoded_payload()), _result()
-            )
+        await self._resolve_then_create()
 
         # DialClient escapes the id itself; handing it the encoded form would ask DIAL for
         # "Planning%2520Assistant__0.0.1" and 404.
@@ -607,10 +741,7 @@ class TestCreateRunConversationPercentEncodedDeployment:
     async def test_name_and_path_carry_the_decoded_application_name(self, mock_dial):
         mock_dial.get_application.return_value = ApplicationDetails(reference="c9e5decf-1284-421e-ab84-c790beea837d")
 
-        with structlog.testing.capture_logs():
-            await create_run_conversation(
-                make_ctx(), make_creds(), make_properties(payload=self._encoded_payload()), _result()
-            )
+        await self._resolve_then_create()
 
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         path = mock_dial.put_conversation.call_args.kwargs["path"]
@@ -624,18 +755,18 @@ class TestCreateRunConversationPercentEncodedDeployment:
 
     async def test_model_deployment_id_is_unaffected(self, mock_dial):
         with structlog.testing.capture_logs():
-            await create_run_conversation(make_ctx(), make_creds(), make_properties(), _result())
+            await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
 
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
-        assert written.model.id == "gpt-5.6-sol-2026-07-09-reasoning"
-        assert leaf(written).split("__")[0] == "gpt-5.6-sol-2026-07-09-reasoning"
+        assert written.model.id == MODEL_DEPLOYMENT
+        assert leaf(written).split("__")[0] == MODEL_DEPLOYMENT
 
 
 class TestCreateRunConversationModelResolution:
-    async def test_model_taken_from_payload(self, mock_dial):
+    async def test_model_taken_from_location(self, mock_dial):
         with structlog.testing.capture_logs():
             await create_run_conversation(
-                make_ctx(),
+                make_located_ctx(deployment_id="gpt-4o"),
                 make_creds(),
                 make_properties(payload={"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}),
                 _result(),
@@ -645,27 +776,15 @@ class TestCreateRunConversationModelResolution:
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert written.model.id == "gpt-4o"
 
-    @pytest.mark.parametrize("bad_model", [123, ["gpt-4o"], {"id": "gpt-4o"}, ""])
-    async def test_non_string_model_raises_named_conversation_error(self, mock_dial, bad_model):
-        # payload is dict[str, Any]; the value is path-facing now, so it must fail with a named
-        # error rather than an opaque AttributeError/TypeError from startswith()/quote().
-        props = make_properties()
-        object.__setattr__(props, "payload", {"model": bad_model, "messages": []})
 
-        with structlog.testing.capture_logs():
-            with pytest.raises(ConversationCreationError, match="payload.model"):
-                await create_run_conversation(make_ctx(), make_creds(), props, _result())
+class TestHeaderEncodingOfStoredId:
+    """US3: name-part escapes in the stored id are sent literally, never double-encoded."""
 
-        mock_dial.put_conversation.assert_not_awaited()
+    def test_literal_percent_and_separators_are_not_double_encoded(self):
+        location = make_location(display_name="50% done/Q1\\x")
+        build_input = ConversationBuildInput(**location.model_dump(), model_id=MODEL_DEPLOYMENT)
 
-    async def test_missing_model_raises_conversation_error(self, mock_dial):
-        # Construct properties whose payload lacks a model, bypassing schema validation
-        # (validation normally guarantees presence) to exercise the executor's guard.
-        props = make_properties()
-        object.__setattr__(props, "payload", {"messages": [{"role": "user", "content": "hi"}]})
+        stored_id = build_conversation(make_properties(), _result(), build_input).id
 
-        with structlog.testing.capture_logs():
-            with pytest.raises(ConversationCreationError):
-                await create_run_conversation(make_ctx(), make_creds(), props, _result())
-
-        mock_dial.put_conversation.assert_not_awaited()
+        assert "50%25 done%2FQ1%5Cx" in stored_id
+        assert encode_header_value(conversation_id_for(location)) == stored_id

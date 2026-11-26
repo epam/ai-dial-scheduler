@@ -1,3 +1,4 @@
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -6,10 +7,15 @@ from pydantic import ValidationError
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from src.lib.clients.dial_client import DialClient
-from src.lib.constants import EXTERNAL_SERVICE_URL_TEMPLATE, HEARTBEAT_JOB_NAME
+from src.lib.constants import (
+    CONVERSATION_LOCATION_TIMEOUT_SECONDS,
+    EXTERNAL_SERVICE_URL_TEMPLATE,
+    HEARTBEAT_JOB_NAME,
+    MAX_CONVERSATION_ID_HEADER_BYTES,
+)
 from src.lib.db.engine import Database
 from src.lib.db.enums import TargetType
-from src.lib.exceptions.errors import OboCredentialsError, ScheduleRunError
+from src.lib.exceptions.errors import ConversationCreationError, OboCredentialsError, ScheduleRunError
 from src.lib.models.schedule import Schedule as _Schedule  # noqa: F401 — registers schedules table for FK resolution
 from src.lib.repositories.schedule_repository import ScheduleRepository
 from src.lib.repositories.schedule_run_repository import ScheduleRunRepository
@@ -17,9 +23,15 @@ from src.lib.schemas.credentials import OboCredentials, OboCredentialsRequest, R
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
+from src.lib.utils.conversation_header import encode_header_value
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
-from src.worker.conversation import create_run_conversation
+from src.worker.conversation import (
+    conversation_id_for,
+    create_run_conversation,
+    deployment_kind,
+    resolve_conversation_location,
+)
 from src.worker.dispatcher import resolve_executor
 from src.worker.health import touch_heartbeat
 from src.worker.retry import execute_with_policy
@@ -72,11 +84,21 @@ async def _maybe_create_conversation(
 ) -> None:
     """Best-effort DIAL conversation creation after a successful chat completion run.
 
-    Only runs for chat completion schedules that opted in via ``create_conversation``. Any
-    failure is logged and swallowed so it never changes the already-successful run outcome.
-    No prompt/response content or credentials are logged.
+    Only runs for chat completion schedules that opted in via ``create_conversation``, and only
+    when the conversation location was resolved before the run -- otherwise the run call carried no
+    ``X-CONVERSATION-ID`` and a conversation saved now would sit in a different session, so it is
+    skipped. Any failure is logged and swallowed so it never changes the already-successful run
+    outcome. No prompt/response content or credentials are logged.
     """
     if properties.target_type != TargetType.CHAT_COMPLETION or not properties.create_conversation:
+        return
+    if ctx.conversation_location is None:
+        logger.info(
+            "conversation_create_skipped",
+            run_id=ctx.run_id,
+            schedule_id=ctx.schedule_id,
+            reason="conversation_id_unresolved",
+        )
         return
     try:
         conversation_id = await create_run_conversation(ctx, credentials, properties, result)
@@ -103,6 +125,71 @@ async def _maybe_create_conversation(
             schedule_id=ctx.schedule_id,
             reason=str(exc),
         )
+
+
+async def _resolve_conversation_location(
+    ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
+) -> None:
+    """Resolve the run's conversation location once, before any attempt, for opted-in chat completions.
+
+    Sets ``ctx.conversation_location`` so the conversation is later saved at that location, and
+    ``ctx.conversation_id`` so every attempt sends the same ``X-CONVERSATION-ID``. Best-effort, like
+    ``_maybe_create_conversation``: a failure (or exceeding ``CONVERSATION_LOCATION_TIMEOUT_SECONDS``,
+    since this runs outside the run's own timeout) is logged once and leaves both unset, so the
+    request goes out without the header and no conversation is saved -- a run must never fail
+    because of conversation work. An id too long for a header keeps the location (the conversation
+    is still saved) and only omits the header.
+    """
+    if properties.target_type != TargetType.CHAT_COMPLETION or not properties.create_conversation:
+        return
+    try:
+        async with asyncio.timeout(CONVERSATION_LOCATION_TIMEOUT_SECONDS):
+            location = await resolve_conversation_location(ctx, credentials, properties)
+    except ConversationCreationError as exc:
+        logger.warning(
+            "conversation_id_resolve_failed", run_id=ctx.run_id, schedule_id=ctx.schedule_id, reason=str(exc)
+        )
+        return
+    except TimeoutError:
+        logger.warning(
+            "conversation_id_resolve_failed",
+            run_id=ctx.run_id,
+            schedule_id=ctx.schedule_id,
+            reason=f"timed out after {CONVERSATION_LOCATION_TIMEOUT_SECONDS}s",
+        )
+        return
+    except Exception as exc:
+        # Not an expected remote/input fault: keep the traceback so the bug can be diagnosed.
+        logger.warning(
+            "conversation_id_resolve_failed",
+            run_id=ctx.run_id,
+            schedule_id=ctx.schedule_id,
+            reason=str(exc),
+            exc_info=True,
+        )
+        return
+    ctx.conversation_location = location
+    conversation_id = conversation_id_for(location)
+    # Every later log entry of the run carries the raw id; callers clear the context after the run.
+    bind_contextvars(conversation_id=conversation_id)
+    logger.info(
+        "conversation_id_resolved",
+        run_id=ctx.run_id,
+        schedule_id=ctx.schedule_id,
+        deployment_kind=deployment_kind(location.deployment_id),
+    )
+    # display_name has no length limit; an oversized header would make the target reject the run.
+    encoded_length = len(encode_header_value(conversation_id))
+    if encoded_length > MAX_CONVERSATION_ID_HEADER_BYTES:
+        logger.warning(
+            "conversation_id_header_omitted",
+            run_id=ctx.run_id,
+            schedule_id=ctx.schedule_id,
+            reason=f"encoded id exceeds {MAX_CONVERSATION_ID_HEADER_BYTES} bytes",
+            encoded_length=encoded_length,
+        )
+        return
+    ctx.conversation_id = conversation_id
 
 
 async def _resolve_credentials(ctx: RunContext) -> OboCredentials:
@@ -169,6 +256,8 @@ async def _resolve_credentials(ctx: RunContext) -> OboCredentials:
         schedule_id=schedule_id,
         service_id=schedule.service_id,
     )
+    # Recorded from the row already loaded here, so conversation work never reads the schedule again.
+    ctx.schedule_display_name = schedule.display_name
     return credentials
 
 
@@ -233,6 +322,7 @@ async def execute_run(ctx: RunContext, snapshot: dict[str, Any]) -> None:
             raise err from exc
 
         credentials = await _resolve_credentials(ctx)
+        await _resolve_conversation_location(ctx, credentials, properties)
 
         executor = resolve_executor(properties.target_type)
         outcome = await execute_with_policy(ctx, credentials, properties, executor)

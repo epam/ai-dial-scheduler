@@ -1,5 +1,6 @@
 import asyncio
 import time
+from urllib.parse import unquote
 
 import httpx
 import openai
@@ -9,11 +10,15 @@ import pytest
 from structlog.contextvars import bind_contextvars, clear_contextvars
 import structlog.testing
 
+from src.lib.constants import CONVERSATION_ID_HEADER
 from src.lib.db.enums import TargetType
 from src.lib.exceptions.errors import ScheduleRunError, StreamIdleTimeoutError
+from src.lib.schemas.conversation import ConversationLocation
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
+from src.lib.utils.conversation_header import encode_header_value
+from src.worker.conversation import conversation_id_for
 from src.worker.executors.chat_completion import ChatCompletionExecutor
 
 
@@ -353,3 +358,162 @@ class TestChatCompletionExecutorIdleTimeout:
                 await ChatCompletionExecutor().execute(ctx, CREDS, self._stream_properties())
 
         assert exc_info.value.status_code is None
+
+
+def make_location(**kwargs) -> ConversationLocation:
+    defaults = dict(
+        deployment_id="gpt-4", bucket="bkt", schedule_id=SCHEDULE_ID, run_id=RUN_ID, display_name="Daily report"
+    )
+    defaults.update(kwargs)
+    return ConversationLocation(**defaults)
+
+
+def _conversation_header_keys(headers: dict[str, str]) -> list[str]:
+    return [name for name in headers if name.lower() == CONVERSATION_ID_HEADER.lower()]
+
+
+def _sent_headers(mock_instance, streaming: bool) -> dict[str, str]:
+    call = mock_instance.chat.completions.stream if streaming else mock_instance.chat.completions.create
+    return call.call_args.kwargs["extra_headers"]
+
+
+_STREAMING_PAYLOAD = {"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}], "stream": True}
+
+
+class TestConversationIdHeader:
+    """US1: chat completion runs carry the X-CONVERSATION-ID set on the run context."""
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    async def test_header_is_the_encoded_conversation_id(self, mocker, streaming):
+        _, mock_instance, _ = _mock_stream(mocker)
+        location = make_location(display_name="Щоденний звіт")
+        props = make_properties(payload=_STREAMING_PAYLOAD) if streaming else make_properties()
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(location)), CREDS, props
+            )
+
+        headers = _sent_headers(mock_instance, streaming)
+        assert headers[CONVERSATION_ID_HEADER] == encode_header_value(conversation_id_for(location))
+
+    async def test_ascii_header_equals_the_stored_conversation_id(self, mocker):
+        _, mock_instance, _ = _mock_stream(mocker)
+        location = make_location()
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(location)), CREDS, make_properties()
+            )
+
+        assert _sent_headers(mock_instance, False)[CONVERSATION_ID_HEADER] == conversation_id_for(location)
+
+    async def test_no_location_passes_caller_header_through(self, mocker):
+        _, mock_instance, _ = _mock_stream(mocker)
+        props = make_properties(extra_headers={"x-conversation-id": "manual", "X-Other": "1"})
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(CTX, CREDS, props)
+
+        assert _sent_headers(mock_instance, False) == {"x-conversation-id": "manual", "X-Other": "1"}
+
+    async def test_scheduler_value_replaces_caller_header(self, mocker):
+        _, mock_instance, _ = _mock_stream(mocker)
+        location = make_location()
+        props = make_properties(extra_headers={"x-Conversation-ID": "manual", "X-Other": "1"})
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(location)), CREDS, props
+            )
+
+        headers = _sent_headers(mock_instance, False)
+        assert _conversation_header_keys(headers) == [CONVERSATION_ID_HEADER]
+        assert headers[CONVERSATION_ID_HEADER] == conversation_id_for(location)
+        assert headers["X-Other"] == "1"
+
+    async def test_caller_user_agent_is_still_stripped(self, mocker):
+        _, mock_instance, _ = _mock_stream(mocker)
+        props = make_properties(extra_headers={"User-Agent": "spoofed", "user-agent": "spoofed"})
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(make_location())), CREDS, props
+            )
+
+        headers = _sent_headers(mock_instance, False)
+        assert not [name for name in headers if name.lower() == "user-agent"]
+        assert CONVERSATION_ID_HEADER in headers
+
+    async def test_location_without_header_id_sends_no_header(self, mocker):
+        # An id too long for a header keeps the location (the conversation is saved) but no header.
+        _, mock_instance, _ = _mock_stream(mocker)
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_location=make_location()), CREDS, make_properties()
+            )
+
+        assert _conversation_header_keys(_sent_headers(mock_instance, False)) == []
+
+    @pytest.mark.parametrize("streaming", [False, True])
+    async def test_header_omitted_without_location(self, mocker, streaming):
+        # Omitted entirely -- never sent as an empty value.
+        _, mock_instance, _ = _mock_stream(mocker)
+        props = make_properties(payload=_STREAMING_PAYLOAD) if streaming else make_properties()
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(CTX, CREDS, props)
+
+        assert _conversation_header_keys(_sent_headers(mock_instance, streaming)) == []
+
+
+_COMPLETION_JSON = {
+    "id": "cmpl-wire",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4",
+    "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+}
+
+
+class TestConversationHeaderOnTheWire:
+    """US3: through the real SDK and httpx, any display name yields a sendable ASCII header."""
+
+    @pytest.mark.parametrize("display_name", ["Daily report", "Щоденний звіт", "📈 KPI", "50% done", "line1\nline2"])
+    async def test_run_succeeds_and_header_is_ascii(self, display_name):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=_COMPLETION_JSON)
+
+        location = make_location(display_name=display_name)
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            ctx = make_ctx(http_client=http_client, conversation_id=conversation_id_for(location))
+            with structlog.testing.capture_logs():
+                result = await ChatCompletionExecutor().execute(ctx, CREDS, make_properties())
+
+        assert result["result"]["id"] == "cmpl-wire"
+        header = captured[0].headers["x-conversation-id"]
+        assert header.isascii()
+        assert "\n" not in header
+        assert "\r" not in header
+        assert unquote(header) == unquote(conversation_id_for(location))
+        assert header == encode_header_value(conversation_id_for(location))
+
+    async def test_ascii_name_is_sent_byte_for_byte_as_stored(self):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=_COMPLETION_JSON)
+
+        location = make_location(display_name="Daily report")
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
+            ctx = make_ctx(http_client=http_client, conversation_id=conversation_id_for(location))
+            with structlog.testing.capture_logs():
+                await ChatCompletionExecutor().execute(ctx, CREDS, make_properties())
+
+        assert captured[0].headers["x-conversation-id"] == conversation_id_for(location)
+        assert captured[0].headers.get_list("x-conversation-id") == [conversation_id_for(location)]

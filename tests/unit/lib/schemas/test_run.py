@@ -167,3 +167,20 @@ class TestRunResponseConversationId:
         dumped = resp.model_dump()
         assert "conversation_id" in dumped
         assert dumped["conversation_id"] is None
+
+
+class TestRunContextConversationLocation:
+    def test_defaults_to_none(self):
+        from src.lib.schemas.run import RunContext
+
+        assert RunContext(run_id="r-1", schedule_id="s-1").conversation_location is None
+
+    def test_accepts_a_location(self):
+        from src.lib.schemas.conversation import ConversationLocation
+        from src.lib.schemas.run import RunContext
+
+        location = ConversationLocation(
+            deployment_id="gpt-4o", bucket="bkt", schedule_id="s-1", run_id="r-1", display_name="Daily"
+        )
+        ctx = RunContext(run_id="r-1", schedule_id="s-1", conversation_location=location)
+        assert ctx.conversation_location == location

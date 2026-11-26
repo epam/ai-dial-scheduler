@@ -1,5 +1,6 @@
 import httpx
 
+from src.lib.clients.http_client import create_http_client
 from src.lib.settings import get_settings
 from src.lib.utils.logging import logger
 
@@ -21,19 +22,7 @@ class HttpClientProvider:
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None:
-            worker_http = get_settings().worker_http
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    connect=worker_http.connect_timeout_seconds,
-                    read=worker_http.read_timeout_seconds,
-                    write=worker_http.write_timeout_seconds,
-                    pool=worker_http.pool_timeout_seconds,
-                ),
-                limits=httpx.Limits(
-                    max_connections=worker_http.max_connections,
-                    max_keepalive_connections=worker_http.max_keepalive_connections,
-                ),
-            )
+            self._client = create_http_client(get_settings().worker_http)
             logger.info("Created shared worker HTTP client.")
         return self._client
 

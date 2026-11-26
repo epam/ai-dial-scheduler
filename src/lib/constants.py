@@ -11,6 +11,21 @@ HEARTBEAT_JOB_ID = "worker_heartbeat"
 HEARTBEAT_JOB_NAME = "worker_heartbeat"
 API_KEY_HEADER = "Api-Key"
 
+# Sent on every outbound request so DIAL Core (logs, traces) can tell scheduler traffic apart.
+USER_AGENT_HEADER = "User-Agent"
+USER_AGENT_PRODUCT = "ai-dial-scheduler"
+# DIAL Core and DIAL Admin key sessions on this header; chat completion runs send their conversation id in it.
+CONVERSATION_ID_HEADER = "X-CONVERSATION-ID"
+# Upper bound for the encoded header value; proxies and DIAL Core reject header sets above ~8 KiB, which would
+# turn a successful run into a failed one. Longer ids are not sent as a header (the conversation is still saved).
+MAX_CONVERSATION_ID_HEADER_BYTES = 4096
+# Bound on resolving a run's conversation location (bucket lookup) before the target request. It runs outside the
+# run's own timeout and retry policy, so a slow bucket endpoint must not delay every run by a full HTTP timeout.
+CONVERSATION_LOCATION_TIMEOUT_SECONDS = 10.0
+# Auth headers the OpenAI SDK emits for AsyncAzureOpenAI (``api-key``; ``Authorization`` for AD tokens). A caller
+# copy in ``extra_headers`` would be sent alongside the OBO value and could override the run's identity.
+SDK_AUTH_HEADERS = ("api-key", "Authorization")
+
 MCP_SERVER_NAME = "aidial-scheduler"
 MCP_BACKING_BASE_URL = "http://scheduler.internal"
 

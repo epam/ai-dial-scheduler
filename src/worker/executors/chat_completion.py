@@ -3,14 +3,17 @@ from typing import Any
 import httpx
 from openai import APIStatusError, AsyncAzureOpenAI, OpenAIError
 
+from src.lib.constants import USER_AGENT_HEADER
 from src.lib.exceptions.errors import ScheduleRunError
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
+from src.lib.utils.conversation_header import with_conversation_id
 from src.lib.utils.dial import strip_bearer_prefix
 from src.lib.utils.logging import logger
+from src.lib.utils.user_agent import get_user_agent
 from src.worker.clients import HttpClientProvider
-from src.worker.executors.base import build_timeout, iterate_with_idle_timeout
+from src.worker.executors.base import build_timeout, iterate_with_idle_timeout, sdk_extra_headers
 
 
 class ChatCompletionExecutor:
@@ -29,12 +32,18 @@ class ChatCompletionExecutor:
                 api_key=api_key,
                 api_version=properties.api_version,
                 http_client=http_client,
+                # The SDK sets its own User-Agent per request, overriding the http client's default.
+                default_headers={USER_AGENT_HEADER: get_user_agent()},
             )
             # ``stream`` is controlled by DIAL via the payload flag (defaults to False). When
             # streaming, ``.stream()`` assembles a single ChatCompletion via
             # ``get_final_completion()``; otherwise ``.create()`` returns one directly. Either
             # way the stored result shape is identical.
-            create_kwargs: dict[str, Any] = {**properties.payload, "extra_headers": properties.extra_headers}
+            create_kwargs: dict[str, Any] = {
+                **properties.payload,
+                # DIAL Core and DIAL Admin group the call into the run's conversation session.
+                "extra_headers": with_conversation_id(sdk_extra_headers(credentials, properties), ctx.conversation_id),
+            }
             create_kwargs.pop("stream", None)
             timeout = build_timeout(http_client, ctx.effective_timeout)
             if timeout is not None:

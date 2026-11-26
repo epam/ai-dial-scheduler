@@ -9,10 +9,14 @@ from src.lib.constants import (
     CONVERSATION_NAME_SEPARATOR,
     SCHEDULER_CONVERSATION_FOLDER,
 )
-from src.lib.db.engine import Database
 from src.lib.exceptions.errors import ConversationCreationError
-from src.lib.repositories.schedule_repository import ScheduleRepository
-from src.lib.schemas.conversation import ConversationBuildInput, DialConversation, DialMessage, DialModel
+from src.lib.schemas.conversation import (
+    ConversationBuildInput,
+    ConversationLocation,
+    DialConversation,
+    DialMessage,
+    DialModel,
+)
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
@@ -92,7 +96,7 @@ def _deployment_location(deployment_id: str) -> tuple[str, str]:
     return (prefix if separator else "", last)
 
 
-def _conversation_leaf(build_input: ConversationBuildInput) -> str:
+def _conversation_leaf(location: ConversationLocation) -> str:
     """Return the final storage path segment ``{deployment-name}__{schedule-name}__{run-id}``.
 
     This is the conversation's address, not its title: the run id keeps every run of a schedule at
@@ -101,16 +105,16 @@ def _conversation_leaf(build_input: ConversationBuildInput) -> str:
     escaped. The deployment part is the final segment of the id configured on the schedule (its
     folder segments live in the path instead), never an application's resolved reference.
     """
-    _, deployment_name = _deployment_location(build_input.deployment_id)
+    _, deployment_name = _deployment_location(location.deployment_id)
     segments = (
         encode_name_part(deployment_name),
-        encode_name_part(build_input.display_name),
-        encode_name_part(build_input.run_id),
+        encode_name_part(location.display_name),
+        encode_name_part(location.run_id),
     )
     return CONVERSATION_NAME_SEPARATOR.join(segments)
 
 
-def conversation_resource_path(build_input: ConversationBuildInput) -> str:
+def conversation_resource_path(location: ConversationLocation) -> str:
     """Return the conversation storage path (``{bucket}/{folder...}/{name}``).
 
     This is the resource path DIAL uses to store and address the conversation, without the
@@ -119,12 +123,32 @@ def conversation_resource_path(build_input: ConversationBuildInput) -> str:
     under the schedule folder, and the final segment is the conversation name. The document's
     ``id`` and ``folderId`` are derived from it.
     """
-    deployment_folder, _ = _deployment_location(build_input.deployment_id)
-    segments = [build_input.bucket, SCHEDULER_CONVERSATION_FOLDER, build_input.schedule_id]
+    deployment_folder, _ = _deployment_location(location.deployment_id)
+    segments = [location.bucket, SCHEDULER_CONVERSATION_FOLDER, location.schedule_id]
     if deployment_folder:
         segments.append(deployment_folder)
-    segments.append(_conversation_leaf(build_input))
+    segments.append(_conversation_leaf(location))
     return "/".join(segments)
+
+
+def deployment_kind(deployment_id: str) -> str:
+    """Return ``"application"`` for an ``applications/...`` deployment id, otherwise ``"model"``."""
+    return "application" if deployment_id.startswith(APPLICATION_DEPLOYMENT_PREFIX) else "model"
+
+
+def conversation_id_for(location: ConversationLocation) -> str:
+    """Return the addressable conversation id (``conversations/{resource path}``) for a location.
+
+    The single source for the ``X-CONVERSATION-ID`` header value, the stored document ``id`` and
+    the PUT target, so the three can never drift apart.
+
+    Args:
+        location: The run's resolved conversation location.
+
+    Returns:
+        The conversation id, raw (not percent-encoded).
+    """
+    return f"{CONVERSATION_ID_PREFIX}{conversation_resource_path(location)}"
 
 
 def build_conversation(
@@ -168,7 +192,7 @@ def build_conversation(
     # carries no deployment or run id noise and needs no escaping (only the path leaf is a segment).
     # Runs stay distinguishable through the storage path, which keeps the three-part leaf.
     name = build_input.display_name
-    conversation_id = f"{CONVERSATION_ID_PREFIX}{conversation_resource_path(build_input)}"
+    conversation_id = conversation_id_for(build_input)
     folder_id = conversation_id.rsplit("/", 1)[0]
 
     return DialConversation(
@@ -182,31 +206,31 @@ def build_conversation(
     )
 
 
-async def create_run_conversation(
-    ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties, result: dict[str, Any]
-) -> str:
-    """Create a DIAL conversation for a completed chat completion run.
+async def resolve_conversation_location(
+    ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
+) -> ConversationLocation:
+    """Resolve where a run's conversation will live, before the target request is sent.
 
-    Resolves the owner's bucket and, for applications, the underlying model reference, builds the
-    conversation, and writes it to DIAL storage using the run owner's credentials. The storage path
-    is keyed on the deployment configured on the schedule; the resolved reference is recorded only
-    inside the document. Raises ``ConversationCreationError`` on any failure; the caller treats
-    this as non-fatal.
+    Combines the schedule's display name (recorded on ``ctx`` by credential resolution, so the
+    schedule is not read again) with the owner's bucket, so the conversation id can be sent as
+    ``X-CONVERSATION-ID`` on every attempt and the conversation saved at that same location after
+    the run. Raises ``ConversationCreationError`` when any input is missing; the caller treats this
+    as non-fatal.
 
     Args:
-        ctx: The run context (run/schedule ids).
+        ctx: The run context (run/schedule ids and the schedule's display name).
         credentials: The run owner's on-behalf-of credentials.
-        properties: The run's schedule properties.
-        result: The stored run result.
+        properties: The run's schedule properties (source of ``payload.model``).
 
     Returns:
-        The addressable DIAL conversation id (``conversations/...``) of the created conversation.
-    """
-    settings = get_settings()
-    client = DialClient(ctx.http_client or HttpClientProvider().client, settings.dial_url)
+        The run's conversation location.
 
+    Raises:
+        ConversationCreationError: On an unusable ``payload.model``, a display name that was not
+            recorded, or a failed bucket lookup.
+    """
     raw_deployment = properties.payload.get("model")
-    # payload is dict[str, Any] and this value is now path-facing, so a non-string would otherwise
+    # payload is dict[str, Any] and this value is path-facing, so a non-string would otherwise
     # surface as an opaque AttributeError/TypeError instead of naming the offending field.
     if not isinstance(raw_deployment, str) or not raw_deployment:
         raise ConversationCreationError("payload.model must be a non-empty string to create a conversation")
@@ -220,37 +244,59 @@ async def create_run_conversation(
     # for them.
     deployment = unquote(raw_deployment)
 
-    is_application = deployment.startswith(APPLICATION_DEPLOYMENT_PREFIX)
-    logger.info(
-        "conversation_create_start",
-        run_id=ctx.run_id,
+    if ctx.schedule_display_name is None:
+        raise ConversationCreationError(f"schedule display name not loaded: {ctx.schedule_id}")
+
+    client = DialClient(ctx.http_client or HttpClientProvider().client, get_settings().dial_url)
+    bucket = await client.get_bucket(credentials)
+    return ConversationLocation(
+        deployment_id=deployment,
+        bucket=bucket,
         schedule_id=ctx.schedule_id,
-        deployment_kind="application" if is_application else "model",
+        run_id=ctx.run_id,
+        display_name=ctx.schedule_display_name,
     )
+
+
+async def create_run_conversation(
+    ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties, result: dict[str, Any]
+) -> str:
+    """Create a DIAL conversation for a completed chat completion run.
+
+    Saves the conversation at the location resolved before the run (``ctx.conversation_location``),
+    so its id matches the ``X-CONVERSATION-ID`` the target request carried. For applications the
+    underlying model reference is resolved here, since it is only recorded inside the document; the
+    storage path stays keyed on the deployment configured on the schedule. Raises
+    ``ConversationCreationError`` on any failure; the caller treats this as non-fatal.
+
+    Args:
+        ctx: The run context carrying the resolved conversation location.
+        credentials: The run owner's on-behalf-of credentials.
+        properties: The run's schedule properties.
+        result: The stored run result.
+
+    Returns:
+        The addressable DIAL conversation id (``conversations/...``) of the created conversation.
+    """
+    location = ctx.conversation_location
+    if location is None:
+        # Callers skip conversation creation without a location; this guards direct use.
+        raise ConversationCreationError("conversation location not resolved")
+
+    client = DialClient(ctx.http_client or HttpClientProvider().client, get_settings().dial_url)
+    kind = deployment_kind(location.deployment_id)
+    logger.info("conversation_create_start", run_id=ctx.run_id, schedule_id=ctx.schedule_id, deployment_kind=kind)
 
     # Applications are still resolved to their underlying model reference: the reference is what
     # the conversation document records as its model, so the chat UI reopens the conversation
     # exactly as before. It is excluded from the storage path only -- see _conversation_leaf.
-    if is_application:
-        details = await client.get_application(credentials, deployment)
+    if kind == "application":
+        details = await client.get_application(credentials, location.deployment_id)
         model_id = details.reference
     else:
-        model_id = deployment
+        model_id = location.deployment_id
 
-    async with Database().sessionmaker() as session:
-        schedule = await ScheduleRepository(session).get_by_id(ctx.schedule_id)
-    if schedule is None:
-        raise ConversationCreationError(f"schedule not found: {ctx.schedule_id}")
-
-    bucket = await client.get_bucket(credentials)
-    build_input = ConversationBuildInput(
-        deployment_id=deployment,
-        model_id=model_id,
-        bucket=bucket,
-        schedule_id=ctx.schedule_id,
-        run_id=ctx.run_id,
-        display_name=schedule.display_name,
-    )
+    build_input = ConversationBuildInput(**location.model_dump(), model_id=model_id)
     conversation = build_conversation(properties, result, build_input)
     # Derived from the document rather than recomputed, so the PUT target and the stored id can
     # never drift apart.

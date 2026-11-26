@@ -217,11 +217,11 @@ before each run.
 | `url`                 | Yes                                         | String            | Target URL. Must be a valid HTTP/HTTPS URL. For model types this is a base URL; the SDK appends `/chat/completions` or `/responses`.                                   | -                                                 | -             |
 | `method`              | Conditional                                 | String or null    | HTTP method. **Required** for `rest`/`sse`; **must not be set** for `chat_completion`/`responses`.                                                                     | `POST`, `PUT`, `GET`                              | `null`        |
 | `payload`             | No                                          | Object            | Request body. For model types, `payload.model` is **required** and `stream` is honoured (defaults to `false` if absent). For HTTP types, sent as the request payload. | -                                                 | `{}`          |
-| `extra_headers`       | No                                          | Dict[String,String] | Extra request headers. The injected OBO auth header always overrides a same-named entry — callers cannot bypass the authenticated identity.                          | -                                                 | `{}`          |
+| `extra_headers`       | No                                          | Dict[String,String] | Extra request headers. The injected OBO auth header always overrides a same-named entry — callers cannot bypass the authenticated identity. `User-Agent` is ignored; `X-CONVERSATION-ID` is replaced when the scheduler sends its own (see [conversation id header](#conversation-id-header)). | -                                                 | `{}`          |
 | `api_version`         | Conditional                                 | String or null    | **Required** for `chat_completion`/`responses`; **must not be set** for `rest`/`sse`.                                                                                  | -                                                 | `null`        |
 | `timeout`             | No                                          | Float or null     | Per-run request timeout in seconds. Must be a positive number when set.                                                                                               | -                                                 | `null`        |
 | `retry`               | No                                          | Object or null    | Per-schedule retry policy for a failed dispatch. See [Retry policy configuration](#retry-policy-configuration).                                                        | -                                                 | `null`        |
-| `create_conversation` | No                                          | Boolean           | Save each successful run as a DIAL conversation in the owner's storage, titled after `display_name`. **Only allowed for `chat_completion`**; rejected otherwise. Conversation creation is best-effort — a failure is logged and never fails the run. | `true`, `false`  | `false`       |
+| `create_conversation` | No                                          | Boolean           | Save each successful run as a DIAL conversation in the owner's storage, titled after `display_name`. **Only allowed for `chat_completion`**; rejected otherwise. Conversation creation is best-effort — a failure is logged and never fails the run. Runs also send the conversation id as `X-CONVERSATION-ID` (see [conversation id header](#conversation-id-header)). | `true`, `false`  | `false`       |
 
 #### Target-type rules
 
@@ -329,7 +329,33 @@ on-behalf-of (OBO) credentials authenticate **every** run of this schedule.
   (`result.stage == "credentials"`), the target action is **never dispatched**, and the failure
   does **not** consume the retry budget.
 - The injected auth header always overrides a same-named entry in `properties.extra_headers` —
-  callers cannot use `extra_headers` to bypass the authenticated identity.
+  callers cannot use `extra_headers` to bypass the authenticated identity. The match ignores case:
+  an `authorization` entry never travels next to an injected `Authorization`, and for
+  `chat_completion`/`responses` caller `api-key` and `Authorization` entries are dropped as well,
+  since the SDK sends the OBO value itself.
+- Every outbound request (DIAL Core calls and target runs) carries
+  `User-Agent: ai-dial-scheduler/<version>`, so scheduler traffic can be filtered in DIAL Core logs
+  and traces. A `User-Agent` entry in `properties.extra_headers` is ignored.
+- <a id="conversation-id-header"></a>**Conversation id header.** `chat_completion` runs with
+  `create_conversation: true` also send `X-CONVERSATION-ID` on every attempt, set to the id the
+  run's conversation is saved under (the `conversation_id` the runs API returns for a successful
+  run; failed runs carry the header too but record no `conversation_id`). DIAL Admin then shows the
+  scheduled call and any DIAL Chat continuation as one session. Characters outside printable ASCII
+  are percent-encoded (UTF-8); printable ASCII, including spaces, is sent as is. DIAL records the
+  value as received, so for a non-ASCII display name a DIAL Admin session carries the encoded form of
+  `conversation_id`. This value replaces any `X-CONVERSATION-ID` entry (any casing) in
+  `properties.extra_headers`. Other target types, and chat completion runs without
+  `create_conversation`, do not send it.
+  - The header goes to whatever `properties.url` points at, including non-DIAL OpenAI-compatible
+    endpoints. Its value contains the owner's DIAL bucket id and the schedule's `display_name`, so
+    a schedule targeting a third-party endpoint shares both with it. Use `create_conversation: false`
+    for such schedules if that is not acceptable.
+  - The id is resolved once before the run (owner's bucket lookup), bounded to 10 seconds because
+    it runs outside the run's `timeout`. If it cannot be resolved (bucket lookup fails or times out),
+    the header is omitted, a `conversation_id_resolve_failed` warning is logged, the run proceeds
+    unchanged, and no conversation is saved for it.
+  - If the encoded id would exceed 4096 bytes (a very long `display_name`), only the header is
+    omitted (`conversation_id_header_omitted` warning); the conversation is still saved.
 - Schedules created before this field existed were backfilled with `service_id = "dial-oauth"`,
   then moved to `"dial-native"` when the scheduler adopted DIAL-native offline delegation.
 

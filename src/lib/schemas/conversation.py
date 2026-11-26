@@ -46,7 +46,21 @@ class DialConversation(BaseModel):
     responseFormat: str = "Markdown"  # noqa: N815 — DIAL Chat field name
 
 
-class ConversationBuildInput(BaseModel):
+class ConversationLocation(BaseModel):
+    """Path-facing inputs that determine where a run's conversation lives and what its id is.
+
+    Resolved once before the target request (the id is sent as ``X-CONVERSATION-ID``) and reused
+    when the conversation is saved, so the header and the stored document always agree.
+    """
+
+    deployment_id: str
+    bucket: str
+    schedule_id: str
+    run_id: str
+    display_name: str
+
+
+class ConversationBuildInput(ConversationLocation):
     """Resolved inputs for assembling a conversation document.
 
     Groups the values derived during orchestration (deployment/model ids, storage location, ids)
@@ -62,12 +76,7 @@ class ConversationBuildInput(BaseModel):
       against. For an application this is its reference; for a model the two fields are equal.
     """
 
-    deployment_id: str
     model_id: str
-    bucket: str
-    schedule_id: str
-    run_id: str
-    display_name: str
 
 
 class ApplicationDetails(BaseModel):
