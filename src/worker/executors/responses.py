@@ -25,10 +25,10 @@ class ResponsesExecutor:
         try:
             # The Responses API is invoked against the base URL (e.g. ".../openai/v1/") with the
             # model supplied in the payload — unlike chat completion's per-deployment URL path.
-            # The SDK appends "/responses" to base_url, so properties.url must be that base URL.
+            # The SDK appends "/responses" to base_url, so properties.target_url must be that base URL.
             http_client = ctx.http_client or HttpClientProvider().client
             client = AsyncAzureOpenAI(
-                base_url=properties.url,
+                base_url=properties.target_url,
                 api_key=api_key,
                 api_version=properties.api_version,
                 http_client=http_client,

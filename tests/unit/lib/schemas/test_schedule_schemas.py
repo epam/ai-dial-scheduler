@@ -287,6 +287,53 @@ class TestScheduleProperties:
             )
 
 
+class TestScheduleUrlDefault:
+    """``url`` defaults per target_type; tests/conftest.py sets DIAL_URL=http://localhost:8080."""
+
+    @pytest.mark.parametrize(
+        ("target_type", "expected"),
+        [
+            (TargetType.CHAT_COMPLETION, "http://localhost:8080/openai/"),
+            (TargetType.RESPONSES, "http://localhost:8080/openai/v1"),
+        ],
+    )
+    @pytest.mark.parametrize("raw", [{}, {"url": None}])
+    def test_dial_targets_get_default_url(self, target_type: TargetType, expected: str, raw: dict) -> None:
+        props = ScheduleProperties.model_validate(
+            {"target_type": target_type, "payload": {"model": "gpt-4o"}, "api_version": "2025-01-01-preview", **raw}
+        )
+        assert props.url == expected
+        assert props.target_url == expected
+
+    def test_explicit_url_is_kept(self) -> None:
+        props = ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION,
+            url="https://custom.dial/openai/",
+            payload={"model": "gpt-4o"},
+            api_version="2025-01-01-preview",
+        )
+        assert props.url == "https://custom.dial/openai/"
+
+    def test_default_url_strips_trailing_slash_of_dial_url(self, mocker) -> None:
+        mocker.patch("src.lib.schemas.schedule.get_settings").return_value.dial_url = "https://core.dial/"
+        props = ScheduleProperties(
+            target_type=TargetType.RESPONSES, payload={"model": "gpt-4o"}, api_version="2025-01-01-preview"
+        )
+        assert props.url == "https://core.dial/openai/v1"
+
+    def test_default_url_is_persisted_in_dump(self) -> None:
+        props = ScheduleProperties(
+            target_type=TargetType.CHAT_COMPLETION, payload={"model": "gpt-4o"}, api_version="2025-01-01-preview"
+        )
+        assert props.model_dump(mode="json")["url"] == "http://localhost:8080/openai/"
+
+    @pytest.mark.parametrize("target_type", [TargetType.REST, TargetType.SSE])
+    @pytest.mark.parametrize("raw", [{}, {"url": None}])
+    def test_rest_and_sse_without_url_raise(self, target_type: TargetType, raw: dict) -> None:
+        with pytest.raises(ValidationError, match=f"url is required for target_type '{target_type}'"):
+            ScheduleProperties.model_validate({"target_type": target_type, "method": HttpMethod.POST, **raw})
+
+
 class TestCreateConversation:
     def test_defaults_to_false(self):
         props = ScheduleProperties(

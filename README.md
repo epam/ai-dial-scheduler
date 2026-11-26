@@ -339,7 +339,7 @@ The `api` service runs the FastAPI application.
 |---|---|---|---|
 | `SERVICE` | — | Yes | Must be `api` |
 | `RUN_MIGRATIONS_ON_START` | `false` | No | When truthy (`true`/`1`), run `alembic upgrade head` before the api starts; aborts startup on failure. Alternative to the standalone `migrations` service |
-| `DIAL_URL` | — | Yes | Base URL of the DIAL platform |
+| `DIAL_URL` | — | Yes | Base URL of the DIAL platform. Also the base of the default `properties.url` for `chat_completion` (`{DIAL_URL}/openai/`) and `responses` (`{DIAL_URL}/openai/v1`) schedules that omit it |
 | `DIAL_API_KEY` | — | Yes | API key for authenticating with DIAL |
 | `PORT` | `5000` | No | HTTP port to listen on |
 | `LOG_LEVEL` | `INFO` | No | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`) |

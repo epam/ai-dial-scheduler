@@ -28,7 +28,7 @@ class ChatCompletionExecutor:
             # request body by the SDK). Validation guarantees ``payload.model`` is present.
             http_client = ctx.http_client or HttpClientProvider().client
             client = AsyncAzureOpenAI(
-                base_url=properties.url,
+                base_url=properties.target_url,
                 api_key=api_key,
                 api_version=properties.api_version,
                 http_client=http_client,

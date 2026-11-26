@@ -22,7 +22,10 @@ occur; it is not enforced by the database.
   `responses` behaves like `chat_completion` (same validation rules) but invokes the DIAL/OpenAI
   Responses API (a single `input`/`instructions` request) instead of the Chat Completions API.
 - `method` — type: nullable enum, one of the values listed above. Not used for chat completion or responses.
-- `url` — type: str. For chat completion and responses, a base URL passed to the SDK as-is; the SDK
+- `url` — type: nullable str in the API, always a str once stored. Required for rest and sse. For
+  chat completion and responses it is optional: when omitted or null the API sets it to
+  `{DIAL_URL}/openai/` (chat completion) or `{DIAL_URL}/openai/v1` (responses) before storing.
+  For these two types the value is a base URL passed to the SDK as-is; the SDK
   appends the endpoint path (`/chat/completions` or `/responses`). The exact base depends on the
   DIAL deployment — typically `.../openai/` for a DIAL Core proxy or
   `.../openai/deployments/{name}` when pointing at a specific deployment. The model/deployment is
