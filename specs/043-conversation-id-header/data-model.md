@@ -14,7 +14,7 @@ request; reused when the conversation is saved.
 | `bucket`       | `str` | `GET /v1/bucket` with the owner's OBO credentials                          | non-empty; missing/err → resolution fails                 |
 | `schedule_id`  | `str` | `RunContext.schedule_id`                                                  | —                                                         |
 | `run_id`       | `str` | `RunContext.run_id`                                                       | —                                                         |
-| `display_name` | `str` | schedule row loaded from DB                                               | schedule missing → resolution fails                       |
+| `display_name` | `str` | `RunContext.schedule_display_name` (recorded by credential resolution)    | not recorded → resolution fails                           |
 
 Derived (functions in `src/worker/conversation.py`, not stored):
 - `conversation_resource_path(location)` → `{bucket}/.scheduler/{schedule_id}/[{deployment folder}/]{leaf}` (existing function,
@@ -22,8 +22,9 @@ Derived (functions in `src/worker/conversation.py`, not stored):
 - `conversation_id_for(location)` → `conversations/` + resource path. Single source for the header value, the document `id`, and
   the PUT target.
 
-Validation at resolution: `len(encode_header_value(conversation_id_for(location))) <= 4096`
-(`MAX_CONVERSATION_ID_HEADER_BYTES`); otherwise resolution fails with `ConversationCreationError` (no header, no conversation).
+Header size check (in `execute_run`, after resolution): `len(encode_header_value(conversation_id_for(location))) <= 4096`
+(`MAX_CONVERSATION_ID_HEADER_BYTES`); otherwise the location is kept (conversation saved) but `RunContext.conversation_id` stays
+unset (no header).
 
 Stored vs. sent form: `schedule_runs.conversation_id` holds the raw id; the header — and therefore DIAL Core `chat.id` and the
 DIAL Admin session id — holds `encode_header_value(raw id)`. They are equal for ASCII display names.
@@ -39,7 +40,9 @@ callers/tests keep working; `build_conversation` and `conversation_resource_path
 
 | New field               | Type                          | Default | Set by                                   | Read by                                         |
 |-------------------------|-------------------------------|---------|------------------------------------------|-------------------------------------------------|
-| `conversation_location` | `ConversationLocation \| None` | `None`  | `execute_run` (once, before attempts)    | `ChatCompletionExecutor`, `create_run_conversation`, `_maybe_create_conversation` |
+| `schedule_display_name` | `str \| None`                  | `None`  | `_resolve_credentials` (from the loaded row) | `resolve_conversation_location` |
+| `conversation_location` | `ConversationLocation \| None` | `None`  | `execute_run` (once, before attempts)    | `create_run_conversation`, `_maybe_create_conversation` |
+| `conversation_id`       | `str \| None`                  | `None`  | `execute_run` (only if the encoded id ≤ 4096 bytes) | `ChatCompletionExecutor` (header value) |
 
 State per run:
 
@@ -64,6 +67,8 @@ State per run:
 
 - `CONVERSATION_ID_HEADER = "X-CONVERSATION-ID"` (new).
 - `MAX_CONVERSATION_ID_HEADER_BYTES = 4096` (new) — upper bound for the encoded header value.
+- `CONVERSATION_LOCATION_TIMEOUT_SECONDS = 10.0` (new) — bound on resolving the location before the run.
+- `SDK_AUTH_HEADERS = ("api-key", "Authorization")` (new) — caller entries dropped for SDK-based targets.
 - `USER_AGENT_HEADER`, `USER_AGENT_PRODUCT` (exist since `f94816b`).
 
 ## 5. Header helpers (new, `src/lib/utils/conversation_header.py`)

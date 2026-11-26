@@ -381,7 +381,7 @@ _STREAMING_PAYLOAD = {"model": "gpt-4", "messages": [{"role": "user", "content":
 
 
 class TestConversationIdHeader:
-    """US1: chat completion runs with a resolved location carry X-CONVERSATION-ID."""
+    """US1: chat completion runs carry the X-CONVERSATION-ID set on the run context."""
 
     @pytest.mark.parametrize("streaming", [False, True])
     async def test_header_is_the_encoded_conversation_id(self, mocker, streaming):
@@ -390,7 +390,9 @@ class TestConversationIdHeader:
         props = make_properties(payload=_STREAMING_PAYLOAD) if streaming else make_properties()
 
         with structlog.testing.capture_logs():
-            await ChatCompletionExecutor().execute(make_ctx(conversation_location=location), CREDS, props)
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(location)), CREDS, props
+            )
 
         headers = _sent_headers(mock_instance, streaming)
         assert headers[CONVERSATION_ID_HEADER] == encode_header_value(conversation_id_for(location))
@@ -400,7 +402,9 @@ class TestConversationIdHeader:
         location = make_location()
 
         with structlog.testing.capture_logs():
-            await ChatCompletionExecutor().execute(make_ctx(conversation_location=location), CREDS, make_properties())
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(location)), CREDS, make_properties()
+            )
 
         assert _sent_headers(mock_instance, False)[CONVERSATION_ID_HEADER] == conversation_id_for(location)
 
@@ -419,7 +423,9 @@ class TestConversationIdHeader:
         props = make_properties(extra_headers={"x-Conversation-ID": "manual", "X-Other": "1"})
 
         with structlog.testing.capture_logs():
-            await ChatCompletionExecutor().execute(make_ctx(conversation_location=location), CREDS, props)
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(location)), CREDS, props
+            )
 
         headers = _sent_headers(mock_instance, False)
         assert _conversation_header_keys(headers) == [CONVERSATION_ID_HEADER]
@@ -431,11 +437,24 @@ class TestConversationIdHeader:
         props = make_properties(extra_headers={"User-Agent": "spoofed", "user-agent": "spoofed"})
 
         with structlog.testing.capture_logs():
-            await ChatCompletionExecutor().execute(make_ctx(conversation_location=make_location()), CREDS, props)
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_id=conversation_id_for(make_location())), CREDS, props
+            )
 
         headers = _sent_headers(mock_instance, False)
         assert not [name for name in headers if name.lower() == "user-agent"]
         assert CONVERSATION_ID_HEADER in headers
+
+    async def test_location_without_header_id_sends_no_header(self, mocker):
+        # An id too long for a header keeps the location (the conversation is saved) but no header.
+        _, mock_instance, _ = _mock_stream(mocker)
+
+        with structlog.testing.capture_logs():
+            await ChatCompletionExecutor().execute(
+                make_ctx(conversation_location=make_location()), CREDS, make_properties()
+            )
+
+        assert _conversation_header_keys(_sent_headers(mock_instance, False)) == []
 
     @pytest.mark.parametrize("streaming", [False, True])
     async def test_header_omitted_without_location(self, mocker, streaming):
@@ -471,7 +490,7 @@ class TestConversationHeaderOnTheWire:
 
         location = make_location(display_name=display_name)
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-            ctx = make_ctx(http_client=http_client, conversation_location=location)
+            ctx = make_ctx(http_client=http_client, conversation_id=conversation_id_for(location))
             with structlog.testing.capture_logs():
                 result = await ChatCompletionExecutor().execute(ctx, CREDS, make_properties())
 
@@ -492,7 +511,7 @@ class TestConversationHeaderOnTheWire:
 
         location = make_location(display_name="Daily report")
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http_client:
-            ctx = make_ctx(http_client=http_client, conversation_location=location)
+            ctx = make_ctx(http_client=http_client, conversation_id=conversation_id_for(location))
             with structlog.testing.capture_logs():
                 await ChatCompletionExecutor().execute(ctx, CREDS, make_properties())
 

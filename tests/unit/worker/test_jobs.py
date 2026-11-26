@@ -1446,6 +1446,7 @@ def conversation_mocks(mocker, mock_run_repo):
     """Patch location resolution, conversation creation and the executor for execute_run tests."""
     calls: list[str] = []
     seen_locations: list = []
+    seen_conversation_ids: list = []
 
     async def _resolve(ctx, credentials, properties):
         calls.append("resolve")
@@ -1454,6 +1455,7 @@ def conversation_mocks(mocker, mock_run_repo):
     async def _execute(ctx, credentials, properties):
         calls.append("execute")
         seen_locations.append(ctx.conversation_location)
+        seen_conversation_ids.append(ctx.conversation_id)
         return {"result": {"id": "cmpl-1", "choices": []}}
 
     resolve = mocker.patch("src.worker.jobs.resolve_conversation_location", side_effect=_resolve)
@@ -1467,6 +1469,7 @@ def conversation_mocks(mocker, mock_run_repo):
         executor=executor,
         calls=calls,
         seen_locations=seen_locations,
+        seen_conversation_ids=seen_conversation_ids,
         run_repo=mock_run_repo,
     )
 
@@ -1669,6 +1672,121 @@ class TestConversationLocationFailure:
 
         conversation_mocks.resolve.assert_awaited_once()
         assert len([log for log in logs if log.get("event") == "conversation_id_resolve_failed"]) == 1
+
+
+class TestConversationIdHeaderValue:
+    """The executor's X-CONVERSATION-ID value is set once per run, and only when it fits a header."""
+
+    async def test_resolved_id_is_set_for_the_executor(self, conversation_mocks):
+        from src.worker.conversation import conversation_id_for
+        from src.worker.jobs import execute_run
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert conversation_mocks.seen_conversation_ids == [conversation_id_for(CONV_LOCATION)]
+
+    async def test_too_long_id_omits_the_header_but_still_saves_the_conversation(self, conversation_mocks):
+        from src.lib.constants import MAX_CONVERSATION_ID_HEADER_BYTES
+        from src.worker.jobs import execute_run
+
+        # Each Cyrillic character encodes to six header bytes.
+        long_location = CONV_LOCATION.model_copy(
+            update={"display_name": "Щ" * (MAX_CONVERSATION_ID_HEADER_BYTES // 6 + 1)}
+        )
+        conversation_mocks.resolve.side_effect = None
+        conversation_mocks.resolve.return_value = long_location
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert conversation_mocks.seen_locations == [long_location]
+        assert conversation_mocks.seen_conversation_ids == [None]
+        conversation_mocks.create.assert_awaited_once()
+        conversation_mocks.run_repo.set_conversation_id.assert_awaited_once()
+
+        omitted = [log for log in logs if log.get("event") == "conversation_id_header_omitted"]
+        assert len(omitted) == 1
+        assert omitted[0]["log_level"] == "warning"
+        assert omitted[0]["encoded_length"] > MAX_CONVERSATION_ID_HEADER_BYTES
+        assert not [log for log in logs if log.get("event") == "conversation_id_resolve_failed"]
+
+    async def test_id_within_the_limit_is_sent(self, conversation_mocks):
+        from src.worker.conversation import conversation_id_for
+        from src.worker.jobs import execute_run
+
+        location = CONV_LOCATION.model_copy(update={"display_name": "Щ" * 500})
+        conversation_mocks.resolve.side_effect = None
+        conversation_mocks.resolve.return_value = location
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert conversation_mocks.seen_conversation_ids == [conversation_id_for(location)]
+
+
+class TestConversationLocationTimeout:
+    """Resolution runs outside the run's own timeout, so it is bounded on its own."""
+
+    async def test_slow_resolution_times_out_and_the_run_proceeds_without_header(self, mocker, conversation_mocks):
+        from src.worker.jobs import execute_run
+
+        mocker.patch("src.worker.jobs.CONVERSATION_LOCATION_TIMEOUT_SECONDS", 0.01)
+
+        async def _slow(ctx, credentials, properties):
+            await asyncio.sleep(1)
+            return CONV_LOCATION
+
+        conversation_mocks.resolve.side_effect = _slow
+
+        with structlog.testing.capture_logs() as logs:
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        conversation_mocks.executor.execute.assert_awaited_once()
+        assert conversation_mocks.seen_locations == [None]
+        assert conversation_mocks.seen_conversation_ids == [None]
+        conversation_mocks.run_repo.mark_success.assert_awaited_once()
+        conversation_mocks.create.assert_not_awaited()
+
+        failed = [log for log in logs if log.get("event") == "conversation_id_resolve_failed"]
+        assert len(failed) == 1
+        assert failed[0]["reason"] == "timed out after 0.01s"
+        assert "exc_info" not in failed[0]
+
+
+class TestScheduleDisplayNameRecorded:
+    """Credential resolution records the display name, so conversation work never re-reads the schedule."""
+
+    async def test_display_name_is_recorded_on_the_context(self, mock_credentials):
+        from src.worker.jobs import _resolve_credentials
+
+        mock_credentials.schedule.display_name = "Щоденний звіт"
+        ctx = _conv_ctx()
+
+        with structlog.testing.capture_logs():
+            await _resolve_credentials(ctx)
+
+        assert ctx.schedule_display_name == "Щоденний звіт"
+        mock_credentials.schedule_repo.get_by_id.assert_awaited_once()
+
+    async def test_resolver_sees_the_recorded_display_name(self, conversation_mocks, mock_credentials):
+        from src.worker.jobs import execute_run
+
+        mock_credentials.schedule.display_name = "Daily"
+        seen: list = []
+
+        async def _capture(ctx, credentials, properties):
+            seen.append(ctx.schedule_display_name)
+            return CONV_LOCATION
+
+        conversation_mocks.resolve.side_effect = _capture
+
+        with structlog.testing.capture_logs():
+            await execute_run(_conv_ctx(), _chat_snapshot())
+
+        assert seen == ["Daily"]
+        # One schedule read for the whole run (credentials), none for conversation work.
+        mock_credentials.schedule_repo.get_by_id.assert_awaited_once()
 
 
 class TestConversationLogContext:

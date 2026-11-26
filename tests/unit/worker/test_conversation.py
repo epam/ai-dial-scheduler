@@ -6,7 +6,7 @@ from pydantic import SecretStr
 import pytest
 import structlog.testing
 
-from src.lib.constants import CONVERSATION_ID_PREFIX, CONVERSATION_NAME_SEPARATOR, MAX_CONVERSATION_ID_HEADER_BYTES
+from src.lib.constants import CONVERSATION_ID_PREFIX, CONVERSATION_NAME_SEPARATOR
 from src.lib.db.enums import TargetType
 from src.lib.exceptions.errors import ConversationCreationError
 from src.lib.schemas.conversation import (
@@ -39,7 +39,8 @@ MODEL_DEPLOYMENT = "gpt-5.6-sol-2026-07-09-reasoning"
 
 
 def make_ctx(**kwargs) -> RunContext:
-    defaults = dict(run_id=RUN_ID, schedule_id=SCHEDULE_ID)
+    # Credential resolution records the display name on the context before conversation work runs.
+    defaults = dict(run_id=RUN_ID, schedule_id=SCHEDULE_ID, schedule_display_name=DISPLAY_NAME)
     defaults.update(kwargs)
     return RunContext(**defaults)
 
@@ -422,25 +423,7 @@ class TestBuildConversationCustomContent:
 
 
 @pytest.fixture
-def mock_schedule(mocker):
-    """Patch the worker's DB session + ScheduleRepository so the display name resolves."""
-    schedule = mocker.MagicMock()
-    schedule.display_name = DISPLAY_NAME
-    repo = mocker.MagicMock()
-    repo.get_by_id = mocker.AsyncMock(return_value=schedule)
-    mocker.patch("src.worker.conversation.ScheduleRepository", return_value=repo)
-
-    session = mocker.MagicMock()
-    session.__aenter__ = mocker.AsyncMock(return_value=session)
-    session.__aexit__ = mocker.AsyncMock(return_value=None)
-    database = mocker.MagicMock()
-    database.sessionmaker.return_value = session
-    mocker.patch("src.worker.conversation.Database", return_value=database)
-    return repo
-
-
-@pytest.fixture
-def mock_dial(mocker, mock_schedule):
+def mock_dial(mocker):
     dial_client = mocker.MagicMock()
     dial_client.get_bucket = mocker.AsyncMock(return_value=BUCKET)
     dial_client.get_application = mocker.AsyncMock()
@@ -493,13 +476,19 @@ class TestResolveConversationLocation:
         mock_dial.get_bucket.assert_awaited_once()
         assert mock_dial.get_bucket.call_args.args[0] is creds
 
-    async def test_display_name_comes_from_the_schedule(self, mock_dial, mock_schedule):
-        mock_schedule.get_by_id.return_value.display_name = "Щоденний звіт"
+    async def test_display_name_comes_from_the_run_context(self, mock_dial):
+        location = await resolve_conversation_location(
+            make_ctx(schedule_display_name="Щоденний звіт"), make_creds(), make_properties()
+        )
 
-        location = await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
-
-        mock_schedule.get_by_id.assert_awaited_once_with(SCHEDULE_ID)
         assert location.display_name == "Щоденний звіт"
+
+    def test_does_not_read_the_schedule_again(self):
+        # Credential resolution already loaded the row; a second read could disagree with it.
+        import src.worker.conversation as conversation_module
+
+        assert not hasattr(conversation_module, "ScheduleRepository")
+        assert not hasattr(conversation_module, "Database")
 
     async def test_bucket_failure_raises(self, mock_dial):
         mock_dial.get_bucket.side_effect = ConversationCreationError("bucket request failed with status 503")
@@ -507,11 +496,11 @@ class TestResolveConversationLocation:
         with pytest.raises(ConversationCreationError, match="bucket"):
             await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
 
-    async def test_missing_schedule_raises(self, mock_dial, mock_schedule):
-        mock_schedule.get_by_id.return_value = None
+    async def test_display_name_not_recorded_raises_before_the_bucket_lookup(self, mock_dial):
+        with pytest.raises(ConversationCreationError, match=f"schedule display name not loaded: {SCHEDULE_ID}"):
+            await resolve_conversation_location(make_ctx(schedule_display_name=None), make_creds(), make_properties())
 
-        with pytest.raises(ConversationCreationError, match=f"schedule not found: {SCHEDULE_ID}"):
-            await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
+        mock_dial.get_bucket.assert_not_awaited()
 
     @pytest.mark.parametrize("bad_model", [123, ["gpt-4o"], {"id": "gpt-4o"}, ""])
     async def test_non_string_model_raises_named_conversation_error(self, mock_dial, bad_model):
@@ -530,24 +519,6 @@ class TestResolveConversationLocation:
 
         with pytest.raises(ConversationCreationError, match="payload.model"):
             await resolve_conversation_location(make_ctx(), make_creds(), props)
-
-
-class TestConversationIdHeaderSizeLimit:
-    """An oversized header would make the target reject the run, so such ids are never resolved."""
-
-    async def test_id_too_long_for_a_header_raises(self, mock_dial, mock_schedule):
-        # Each Cyrillic character encodes to six header bytes.
-        mock_schedule.get_by_id.return_value.display_name = "Щ" * (MAX_CONVERSATION_ID_HEADER_BYTES // 6 + 1)
-
-        with pytest.raises(ConversationCreationError, match="exceeds"):
-            await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
-
-    async def test_id_within_the_limit_resolves(self, mock_dial, mock_schedule):
-        mock_schedule.get_by_id.return_value.display_name = "Щ" * 500
-
-        location = await resolve_conversation_location(make_ctx(), make_creds(), make_properties())
-
-        assert len(encode_header_value(conversation_id_for(location))) <= MAX_CONVERSATION_ID_HEADER_BYTES
 
 
 class TestDeploymentKind:
@@ -577,12 +548,11 @@ class TestConversationIdFor:
 
 
 class TestCreateRunConversationOrchestration:
-    async def test_reuses_the_resolved_location_without_lookups(self, mock_dial, mock_schedule):
+    async def test_reuses_the_resolved_location_without_lookups(self, mock_dial):
         with structlog.testing.capture_logs():
             await create_run_conversation(make_located_ctx(), make_creds(), make_properties(), _result())
 
         mock_dial.get_bucket.assert_not_awaited()
-        mock_schedule.get_by_id.assert_not_awaited()
         mock_dial.put_conversation.assert_awaited_once()
         written = mock_dial.put_conversation.call_args.kwargs["conversation"]
         assert f"/{BUCKET}/" in written.id

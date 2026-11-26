@@ -159,9 +159,15 @@ conversation identifier.
   loaded for this run.
 - **Retries**: the identifier is resolved once per run; a failing bucket lookup is not retried per attempt.
 - **Very long identifier**: the display name has no length limit, and percent-encoding multiplies the size of non-ASCII
-  characters (one Cyrillic letter becomes 12 bytes). An oversized header would make proxies or DIAL Core reject the request
-  and turn a successful run into a failed one, so an identifier whose encoded form exceeds 4096 bytes is treated as
-  unresolved: the request is sent without the header and no conversation is saved for that run.
+  characters (a Cyrillic letter becomes 6 bytes, a CJK character 9). An oversized header would make proxies or DIAL Core
+  reject the request and turn a successful run into a failed one, so when the encoded identifier exceeds 4096 bytes only the
+  header is omitted; the conversation is still saved, exactly as before this feature.
+- **Slow bucket lookup**: resolution runs before the run's own timeout and retry policy apply, so it is bounded separately;
+  if it does not finish in time the identifier is treated as unresolved.
+- **Caller auth headers**: an `extra_headers` entry matching the OBO header name in a different casing (or, for SDK-based
+  targets, `api-key` / `Authorization`) is dropped, so it can never be sent next to the run owner's credentials.
+- **Non-DIAL targets**: a chat completion schedule may point at a third-party OpenAI-compatible endpoint; that endpoint then
+  receives the header, which contains the owner's bucket id and the display name. This is documented rather than prevented.
 - **Non-ASCII names downstream**: DIAL Core and DIAL Admin record the identifier exactly as received, i.e. in its encoded form.
   For ASCII names this equals the run's `conversation_id`; for non-ASCII names a DIAL Admin session is found by the encoded
   form of `conversation_id` (FR-006 applied to it), not by the raw value.
@@ -189,9 +195,13 @@ conversation identifier.
 
 **Failure handling**
 
-- **FR-007**: If the identifier cannot be resolved (bucket lookup fails or returns no bucket, the payload has no usable
-  deployment, the schedule cannot be loaded, or the encoded identifier would exceed 4096 bytes), the target request MUST be
+- **FR-007**: If the identifier cannot be resolved (bucket lookup fails, returns no bucket or exceeds the resolution time
+  bound, the payload has no usable deployment, or the schedule's display name is unavailable), the target request MUST be
   sent without the header, and the run MUST proceed and be recorded exactly as it would without this feature.
+- **FR-007a**: If the identifier is resolved but its encoded form exceeds 4096 bytes, the target request MUST be sent without
+  the header, a warning `conversation_id_header_omitted` MUST be logged, and the conversation MUST still be saved.
+- **FR-007b**: Resolving the identifier MUST be bounded in time (10 seconds), since it runs outside the run's timeout and retry
+  policy, and MUST reuse the schedule row already loaded for the run instead of reading it again.
 - **FR-008**: A resolution failure MUST emit one warning log entry `conversation_id_resolve_failed` per run, with run id,
   schedule id and reason, and MUST NOT log credentials or tokens.
 - **FR-009**: After a resolution failure, the system MUST NOT attempt to save a conversation for that run; it MUST emit an
@@ -215,8 +225,14 @@ conversation identifier.
 **Documentation**
 
 - **FR-015**: User-facing configuration documentation for `create_conversation` and `extra_headers` MUST describe the header,
-  its precedence over caller values, its encoding, the 4096-byte limit, and the behaviour when the identifier cannot be
-  resolved.
+  its precedence over caller values, its encoding, the 4096-byte limit, the resolution time bound, the behaviour when the
+  identifier cannot be resolved, and that non-DIAL targets receive the header (with the owner's bucket id and display name).
+
+**Request headers owned by the scheduler**
+
+- **FR-016**: Caller-supplied `extra_headers` MUST NOT duplicate the run owner's auth header in any casing: entries matching the
+  OBO header name (and, for chat completion and responses targets, `api-key` and `Authorization`) MUST be dropped before the
+  request is sent.
 
 ### Key Entities
 
@@ -264,6 +280,8 @@ conversation identifier.
 
 - Sending the header for responses, REST or SSE targets, or for chat completion schedules without `create_conversation`.
 - Storing the owner's bucket on the schedule to avoid the per-run lookup.
+- Restricting the header to DIAL-hosted targets (documented instead).
+- Changing the header encoding for display names that combine `%`, `/` or `\` with non-ASCII characters.
 - Duplicated export of OpenTelemetry log records (deployment configuration, not application code).
 - New span attributes on the run span.
 

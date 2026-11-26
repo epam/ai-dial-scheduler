@@ -7,12 +7,9 @@ from src.lib.constants import (
     APPLICATION_DEPLOYMENT_PREFIX,
     CONVERSATION_ID_PREFIX,
     CONVERSATION_NAME_SEPARATOR,
-    MAX_CONVERSATION_ID_HEADER_BYTES,
     SCHEDULER_CONVERSATION_FOLDER,
 )
-from src.lib.db.engine import Database
 from src.lib.exceptions.errors import ConversationCreationError
-from src.lib.repositories.schedule_repository import ScheduleRepository
 from src.lib.schemas.conversation import (
     ConversationBuildInput,
     ConversationLocation,
@@ -24,7 +21,6 @@ from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.settings import get_settings
-from src.lib.utils.conversation_header import encode_header_value
 from src.lib.utils.logging import logger
 from src.worker.clients import HttpClientProvider
 
@@ -215,13 +211,14 @@ async def resolve_conversation_location(
 ) -> ConversationLocation:
     """Resolve where a run's conversation will live, before the target request is sent.
 
-    Loads the schedule's display name and the owner's bucket so the conversation id can be sent as
+    Combines the schedule's display name (recorded on ``ctx`` by credential resolution, so the
+    schedule is not read again) with the owner's bucket, so the conversation id can be sent as
     ``X-CONVERSATION-ID`` on every attempt and the conversation saved at that same location after
     the run. Raises ``ConversationCreationError`` when any input is missing; the caller treats this
     as non-fatal.
 
     Args:
-        ctx: The run context (run/schedule ids).
+        ctx: The run context (run/schedule ids and the schedule's display name).
         credentials: The run owner's on-behalf-of credentials.
         properties: The run's schedule properties (source of ``payload.model``).
 
@@ -229,8 +226,8 @@ async def resolve_conversation_location(
         The run's conversation location.
 
     Raises:
-        ConversationCreationError: On an unusable ``payload.model``, a missing schedule, a failed
-            bucket lookup, or a conversation id too long to send as a header.
+        ConversationCreationError: On an unusable ``payload.model``, a display name that was not
+            recorded, or a failed bucket lookup.
     """
     raw_deployment = properties.payload.get("model")
     # payload is dict[str, Any] and this value is path-facing, so a non-string would otherwise
@@ -247,26 +244,18 @@ async def resolve_conversation_location(
     # for them.
     deployment = unquote(raw_deployment)
 
-    async with Database().sessionmaker() as session:
-        schedule = await ScheduleRepository(session).get_by_id(ctx.schedule_id)
-    if schedule is None:
-        raise ConversationCreationError(f"schedule not found: {ctx.schedule_id}")
+    if ctx.schedule_display_name is None:
+        raise ConversationCreationError(f"schedule display name not loaded: {ctx.schedule_id}")
 
     client = DialClient(ctx.http_client or HttpClientProvider().client, get_settings().dial_url)
     bucket = await client.get_bucket(credentials)
-    location = ConversationLocation(
+    return ConversationLocation(
         deployment_id=deployment,
         bucket=bucket,
         schedule_id=ctx.schedule_id,
         run_id=ctx.run_id,
-        display_name=schedule.display_name,
+        display_name=ctx.schedule_display_name,
     )
-    # display_name has no length limit; an oversized header would make the target reject the run.
-    if len(encode_header_value(conversation_id_for(location))) > MAX_CONVERSATION_ID_HEADER_BYTES:
-        raise ConversationCreationError(
-            f"conversation id exceeds {MAX_CONVERSATION_ID_HEADER_BYTES} bytes as a request header"
-        )
-    return location
 
 
 async def create_run_conversation(

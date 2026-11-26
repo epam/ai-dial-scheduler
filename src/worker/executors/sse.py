@@ -9,19 +9,15 @@ from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.logging import logger
-from src.lib.utils.user_agent import strip_user_agent
 from src.worker.clients import HttpClientProvider
-from src.worker.executors.base import build_timeout, iterate_with_idle_timeout
+from src.worker.executors.base import build_timeout, http_request_headers, iterate_with_idle_timeout
 
 
 class SseExecutor:
     async def execute(
         self, ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
     ) -> dict[str, Any]:
-        headers = {
-            **strip_user_agent(properties.extra_headers),
-            credentials.header_name: credentials.header_value.get_secret_value(),
-        }
+        headers = http_request_headers(credentials, properties)
         events: list[dict[str, str]] = []
         client = ctx.http_client or HttpClientProvider().client
 

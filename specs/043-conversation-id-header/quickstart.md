@@ -21,7 +21,11 @@ Expected: all pass. The new tests cover (see [contracts/outbound-headers.md](con
 - caller `x-conversation-id` (any casing) replaced; passed through when the scheduler sends none;
 - bucket failure / missing schedule / invalid `payload.model` → no header, one warning with `trace_id`/`span_id`, run outcome
   unchanged, no PUT, `conversation_create_skipped` logged;
-- `responses`, `rest`, `sse` never add the header; all executors send `User-Agent: ai-dial-scheduler/<version>`.
+- `responses`, `rest`, `sse` never add the header; all executors send `User-Agent: ai-dial-scheduler/<version>`;
+- encoded id over 4096 bytes → no header, `conversation_id_header_omitted`, conversation still saved;
+- resolution slower than 10 s → `conversation_id_resolve_failed` (`timed out after …`), run proceeds without header;
+- the schedule is read once per run (display name recorded by credential resolution);
+- caller auth headers in any casing (`authorization`, `api-key`, OBO header name) never reach the target next to the OBO value.
 
 ## 2. Manual end-to-end (any DIAL environment)
 
@@ -31,7 +35,9 @@ Expected: all pass. The new tests cover (see [contracts/outbound-headers.md](con
 4. Repeat with `display_name: "Щоденний звіт"`: the run succeeds; DIAL Core records the percent-encoded id
    (`encode(conversation_id)`, see [contracts/outbound-headers.md](contracts/outbound-headers.md)).
 5. Repeat with a display name whose encoded id exceeds 4096 bytes: the run succeeds, the request carries no
-   `X-CONVERSATION-ID`, `conversation_id_resolve_failed` is logged and no conversation is saved.
+   `X-CONVERSATION-ID`, `conversation_id_header_omitted` is logged, and the conversation is still saved.
+6. Put `authorization` (REST/SSE) or `api-key` (chat completion) with another value into `extra_headers`: the target receives
+   only the run owner's value.
 
 ## 3. Failure path
 

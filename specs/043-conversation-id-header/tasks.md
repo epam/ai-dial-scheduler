@@ -176,6 +176,18 @@ feature moved.
 
 ---
 
+## Phase 9: PR review follow-ups
+
+**Purpose**: Address PR review comments (items not related to header encoding).
+
+- [X] T038 [P] Add `without_headers` in `src/lib/utils/headers.py` (case-insensitive drop) with tests in `tests/unit/lib/utils/test_headers.py`; reimplement `strip_user_agent` on top of it
+- [X] T039 Drop caller auth headers in any casing: `http_request_headers` (REST/SSE: OBO header name, `User-Agent`) and `sdk_extra_headers` (chat completion/responses: OBO header name, `api-key`, `Authorization`, `User-Agent`) in `src/worker/executors/base.py`, used by all four executors; on-the-wire tests in `tests/unit/worker/executors/test_auth_headers.py`
+- [X] T040 Bound location resolution with `asyncio.timeout(CONVERSATION_LOCATION_TIMEOUT_SECONDS)` (10 s) in `src/worker/jobs.py`; timeout → `conversation_id_resolve_failed` with `reason="timed out after …"`; test in `tests/unit/worker/test_jobs.py`
+- [X] T041 Over-long encoded id (> 4096 bytes): keep the location and save the conversation, omit only the header (`RunContext.conversation_id` unset, `conversation_id_header_omitted` warning); move the check from `resolve_conversation_location` to `execute_run`; executor reads `ctx.conversation_id`
+- [X] T042 Record `display_name` on `RunContext.schedule_display_name` in `_resolve_credentials`; `resolve_conversation_location` reads it and no longer queries the database
+- [X] T043 [P] Document in `CONFIGURATION.md` and `documentation/properties.md`: auth-header dropping, 10 s bound, header-only omission over 4096 bytes, and that non-DIAL targets receive the header (owner bucket id + display name)
+- [X] T044 Update spec, contracts, research (R2a, R4, R9–R11), data model and quickstart for T038–T043
+
 ## Dependencies & Execution Order
 
 ### Phase Dependencies

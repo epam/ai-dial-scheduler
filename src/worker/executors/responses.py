@@ -10,9 +10,9 @@ from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.dial import strip_bearer_prefix
 from src.lib.utils.logging import logger
-from src.lib.utils.user_agent import get_user_agent, strip_user_agent
+from src.lib.utils.user_agent import get_user_agent
 from src.worker.clients import HttpClientProvider
-from src.worker.executors.base import build_timeout, iterate_with_idle_timeout
+from src.worker.executors.base import build_timeout, iterate_with_idle_timeout, sdk_extra_headers
 
 
 class ResponsesExecutor:
@@ -41,7 +41,7 @@ class ResponsesExecutor:
             # is identical.
             create_kwargs: dict[str, Any] = {
                 **properties.payload,
-                "extra_headers": strip_user_agent(properties.extra_headers),
+                "extra_headers": sdk_extra_headers(credentials, properties),
             }
             create_kwargs.pop("stream", None)
             timeout = build_timeout(http_client, ctx.effective_timeout)

@@ -4,10 +4,12 @@ from typing import Any, Protocol, TypeVar
 
 import httpx
 
+from src.lib.constants import SDK_AUTH_HEADERS, USER_AGENT_HEADER
 from src.lib.exceptions.errors import StreamIdleTimeoutError
 from src.lib.schemas.credentials import OboCredentials
 from src.lib.schemas.run import RunContext
 from src.lib.schemas.schedule import ScheduleProperties
+from src.lib.utils.headers import without_headers
 
 
 T = TypeVar("T")
@@ -17,6 +19,42 @@ class Executor(Protocol):
     async def execute(
         self, ctx: RunContext, credentials: OboCredentials, properties: ScheduleProperties
     ) -> dict[str, Any]: ...
+
+
+def http_request_headers(credentials: OboCredentials, properties: ScheduleProperties) -> dict[str, str]:
+    """Build the headers for a direct HTTP target (REST, SSE): caller headers plus the OBO header.
+
+    Caller-supplied ``User-Agent`` and any entry matching the OBO header name are dropped regardless
+    of casing. A plain dict merge is case-sensitive, so ``authorization`` in ``extra_headers`` would
+    otherwise be sent next to the injected ``Authorization`` and a target reading the first value
+    would authenticate as the caller's identity instead of the schedule owner.
+
+    Args:
+        credentials: The run owner's on-behalf-of credentials.
+        properties: The run's schedule properties (source of ``extra_headers``).
+
+    Returns:
+        The request headers; the OBO header is always present exactly once.
+    """
+    caller = without_headers(properties.extra_headers, (USER_AGENT_HEADER, credentials.header_name))
+    return {**caller, credentials.header_name: credentials.header_value.get_secret_value()}
+
+
+def sdk_extra_headers(credentials: OboCredentials, properties: ScheduleProperties) -> dict[str, str]:
+    """Return the caller headers that may be passed to the OpenAI SDK as ``extra_headers``.
+
+    The SDK emits the OBO value itself (``api-key``) and merges ``extra_headers`` case-sensitively, so
+    a caller copy of an auth header in any casing would be sent alongside it. Those, the OBO header
+    name and ``User-Agent`` are dropped.
+
+    Args:
+        credentials: The run owner's on-behalf-of credentials.
+        properties: The run's schedule properties (source of ``extra_headers``).
+
+    Returns:
+        The sanitized caller headers.
+    """
+    return without_headers(properties.extra_headers, (USER_AGENT_HEADER, credentials.header_name, *SDK_AUTH_HEADERS))
 
 
 def build_timeout(client: httpx.AsyncClient, read_seconds: float | None) -> httpx.Timeout | None:

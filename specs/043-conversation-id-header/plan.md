@@ -131,6 +131,12 @@ documented on GitHub), so it is not updated.
 7. **Quality gates** — `make lint`, `make test`; code-review-agent loop per constitution SDLC.
 8. **Dev verification** — [quickstart.md §4](quickstart.md), including the non-ASCII DIAL Chat continuation check.
 
+## PR review follow-ups
+
+Caller auth headers are dropped case-insensitively in all executors (R10); location resolution is bounded to 10 s (R9) and
+reuses the display name recorded by credential resolution (R4); an over-long encoded id only omits the header and the
+conversation is still saved (R2a); the header reaching non-DIAL targets is documented (R11). See tasks T038–T044.
+
 ## Risks & Mitigations
 
 | Risk | Mitigation |

@@ -11,10 +11,9 @@ from src.lib.schemas.schedule import ScheduleProperties
 from src.lib.utils.conversation_header import with_conversation_id
 from src.lib.utils.dial import strip_bearer_prefix
 from src.lib.utils.logging import logger
-from src.lib.utils.user_agent import get_user_agent, strip_user_agent
+from src.lib.utils.user_agent import get_user_agent
 from src.worker.clients import HttpClientProvider
-from src.worker.conversation import conversation_id_for
-from src.worker.executors.base import build_timeout, iterate_with_idle_timeout
+from src.worker.executors.base import build_timeout, iterate_with_idle_timeout, sdk_extra_headers
 
 
 class ChatCompletionExecutor:
@@ -40,12 +39,10 @@ class ChatCompletionExecutor:
             # streaming, ``.stream()`` assembles a single ChatCompletion via
             # ``get_final_completion()``; otherwise ``.create()`` returns one directly. Either
             # way the stored result shape is identical.
-            location = ctx.conversation_location
-            conversation_id = conversation_id_for(location) if location else None
             create_kwargs: dict[str, Any] = {
                 **properties.payload,
                 # DIAL Core and DIAL Admin group the call into the run's conversation session.
-                "extra_headers": with_conversation_id(strip_user_agent(properties.extra_headers), conversation_id),
+                "extra_headers": with_conversation_id(sdk_extra_headers(credentials, properties), ctx.conversation_id),
             }
             create_kwargs.pop("stream", None)
             timeout = build_timeout(http_client, ctx.effective_timeout)

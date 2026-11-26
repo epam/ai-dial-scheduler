@@ -36,7 +36,9 @@ occur; it is not enforced by the database.
 - `extra_headers` — type: dict[str, str]. The injected per-user auth header (resolved from the
   schedule's `service_id` via DIAL's on-behalf-of credentials, applied as `header_name:
   header_value`) always overrides any same-named entry in `extra_headers` — callers cannot use
-  `extra_headers` to override or bypass the authenticated identity a schedule runs as. A
+  `extra_headers` to override or bypass the authenticated identity a schedule runs as. The match
+  ignores case, and for `chat_completion`/`responses` caller `api-key` and `Authorization` entries
+  are dropped too, since the SDK sends the OBO value itself. A
   `User-Agent` entry (any casing) is ignored: every run is sent with
   `User-Agent: ai-dial-scheduler/<version>` so scheduler traffic stays identifiable. For
   `chat_completion` with `create_conversation: true` the scheduler's own `X-CONVERSATION-ID` takes
@@ -46,10 +48,13 @@ occur; it is not enforced by the database.
   `chat_completion`; setting it `true` for `responses`/`rest`/`sse` is rejected with a validation error. When
   `true`, a successful run's prompt and assembled response are saved as a DIAL conversation under
   the run owner's storage bucket, titled after the schedule's `display_name`. The conversation's
-  location is resolved once before the run, and every attempt sends its id as `X-CONVERSATION-ID`
-  (percent-encoded outside printable ASCII), so the run call and the saved conversation share one
-  DIAL session. If the location cannot be resolved (e.g. the bucket lookup fails, or the encoded id
-  would exceed 4096 bytes), the header is omitted and the conversation is not saved for that run. Failure to create the conversation is
+  location is resolved once before the run (bounded to 10 seconds), and every attempt sends its id as
+  `X-CONVERSATION-ID` (percent-encoded outside printable ASCII), so the run call and the saved
+  conversation share one DIAL session. The header goes to the schedule's `url` whatever it points at,
+  so a non-DIAL target receives the owner's bucket id and the `display_name`. If the location cannot
+  be resolved (e.g. the bucket lookup fails or times out), the header is omitted and the conversation
+  is not saved for that run; if only the encoded id exceeds 4096 bytes, the header is omitted but the
+  conversation is still saved. Failure to create the conversation is
   non-fatal and does not affect the run outcome. Recommended value for
   `chat_completion` schedules is `true` — the field's OpenAPI description says so, so MCP clients
   creating a schedule opt in unless the caller asked for runs not to be saved.

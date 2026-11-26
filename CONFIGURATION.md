@@ -329,7 +329,10 @@ on-behalf-of (OBO) credentials authenticate **every** run of this schedule.
   (`result.stage == "credentials"`), the target action is **never dispatched**, and the failure
   does **not** consume the retry budget.
 - The injected auth header always overrides a same-named entry in `properties.extra_headers` —
-  callers cannot use `extra_headers` to bypass the authenticated identity.
+  callers cannot use `extra_headers` to bypass the authenticated identity. The match ignores case:
+  an `authorization` entry never travels next to an injected `Authorization`, and for
+  `chat_completion`/`responses` caller `api-key` and `Authorization` entries are dropped as well,
+  since the SDK sends the OBO value itself.
 - Every outbound request (DIAL Core calls and target runs) carries
   `User-Agent: ai-dial-scheduler/<version>`, so scheduler traffic can be filtered in DIAL Core logs
   and traces. A `User-Agent` entry in `properties.extra_headers` is ignored.
@@ -338,12 +341,21 @@ on-behalf-of (OBO) credentials authenticate **every** run of this schedule.
   run's conversation is saved under (the `conversation_id` the runs API returns for a successful
   run; failed runs carry the header too but record no `conversation_id`). DIAL Admin then shows the
   scheduled call and any DIAL Chat continuation as one session. Characters outside printable ASCII
-  are percent-encoded (UTF-8); printable ASCII, including spaces, is sent as is. This value replaces
-  any `X-CONVERSATION-ID` entry (any casing) in `properties.extra_headers`. Other target types, and
-  chat completion runs without `create_conversation`, do not send it. If the conversation id cannot
-  be resolved before the run (e.g. the owner's bucket lookup fails, or the encoded id would exceed
-  4096 bytes), the header is omitted, a `conversation_id_resolve_failed` warning is logged, the run
-  proceeds unchanged, and no conversation is saved for it.
+  are percent-encoded (UTF-8); printable ASCII, including spaces, is sent as is. DIAL records the
+  value as received, so for a non-ASCII display name a DIAL Admin session carries the encoded form of
+  `conversation_id`. This value replaces any `X-CONVERSATION-ID` entry (any casing) in
+  `properties.extra_headers`. Other target types, and chat completion runs without
+  `create_conversation`, do not send it.
+  - The header goes to whatever `properties.url` points at, including non-DIAL OpenAI-compatible
+    endpoints. Its value contains the owner's DIAL bucket id and the schedule's `display_name`, so
+    a schedule targeting a third-party endpoint shares both with it. Use `create_conversation: false`
+    for such schedules if that is not acceptable.
+  - The id is resolved once before the run (owner's bucket lookup), bounded to 10 seconds because
+    it runs outside the run's `timeout`. If it cannot be resolved (bucket lookup fails or times out),
+    the header is omitted, a `conversation_id_resolve_failed` warning is logged, the run proceeds
+    unchanged, and no conversation is saved for it.
+  - If the encoded id would exceed 4096 bytes (a very long `display_name`), only the header is
+    omitted (`conversation_id_header_omitted` warning); the conversation is still saved.
 - Schedules created before this field existed were backfilled with `service_id = "dial-oauth"`,
   then moved to `"dial-native"` when the scheduler adopted DIAL-native offline delegation.
 

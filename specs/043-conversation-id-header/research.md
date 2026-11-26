@@ -51,17 +51,19 @@ after deployment (quickstart §4.5).
 
 ## R2a. Header length limit
 
-**Decision**: If the encoded id is longer than 4096 bytes (`MAX_CONVERSATION_ID_HEADER_BYTES`), `resolve_conversation_location`
-raises `ConversationCreationError`, which follows the R5 failure path (no header, one warning, no conversation saved).
+**Decision**: If the encoded id is longer than 4096 bytes (`MAX_CONVERSATION_ID_HEADER_BYTES`), `execute_run` keeps the resolved
+location but leaves `RunContext.conversation_id` unset: the header is omitted, `conversation_id_header_omitted` is logged, and
+the conversation is still saved.
 
-**Rationale**: `display_name` has no `max_length`, and percent-encoding grows a Cyrillic letter to 12 bytes. Proxies and DIAL
-Core reject header sets above roughly 8 KiB with 400/431, which would turn a previously successful run into a failed one (SC-004).
-4096 bytes leaves room for the other request headers and is far above any realistic id. Raised during code review.
+**Rationale**: `display_name` has no `max_length`, and percent-encoding grows a Cyrillic letter to 6 bytes (CJK to 9). Proxies
+and DIAL Core reject header sets above roughly 8 KiB with 400/431, which would turn a previously successful run into a failed
+one (SC-004). 4096 bytes leaves room for the other request headers. Raised during code review; a first version treated an
+oversized id as unresolved and skipped the conversation, which PR review flagged as a regression (such schedules got a
+conversation before this feature), so only the header is dropped now.
 
 **Alternatives considered**:
-- Truncating the id: the header would no longer match the saved conversation, splitting the session. Rejected.
-- Sending the header but still saving the conversation: the conversation would land in a session that has no scheduler call,
-  which is what the feature exists to prevent. Rejected.
+- Truncating the id: the header would no longer match the saved conversation. Rejected.
+- Skipping the conversation as well: regresses schedules with long names. Rejected (PR review).
 - Adding `max_length` to `display_name`: an API contract change affecting existing schedules; out of scope.
 
 ## R3. When and where the id is resolved
@@ -87,21 +89,20 @@ The chat completion executor derives the header from it; `create_run_conversatio
 
 ## R4. Display name source
 
-**Decision**: `resolve_conversation_location` loads the schedule itself (as `create_run_conversation` does today), instead of
-changing `_resolve_credentials` to return the schedule.
+**Decision**: `_resolve_credentials`, which already loads the schedule row, records `display_name` on
+`RunContext.schedule_display_name`; `resolve_conversation_location` reads it from there and does not touch the database.
 
-**Rationale**: Query count per conversation run is unchanged (the lookup moves from post-run to pre-run), `_resolve_credentials`
-and its tests stay untouched, and the location resolver remains self-contained. A deleted schedule surfaces as a
-`ConversationCreationError` → warning → no header (spec edge case).
+**Rationale**: One schedule read per run instead of two, and no window in which the two reads could disagree (schedule deleted
+in between). Raised in PR review. `RunContext` already carries per-run state, so no signature grows past three parameters.
 
-**Alternatives considered**: return `(credentials, schedule)` from `_resolve_credentials` — saves one indexed query but widens a
-function used by every run type and touches many tests. Deferred (not needed now).
+**Alternatives considered**: resolver loads the schedule itself (first version) — a duplicate SELECT and a consistency gap.
+Returning `(credentials, schedule)` from `_resolve_credentials` — would push a fourth parameter into the resolver.
 
 ## R5. Failure semantics
 
 **Decision**: Any exception while resolving the location (bucket error/missing bucket, invalid `payload.model`, schedule
-missing, encoded id over 4096 bytes (R2a), unexpected error) → `logger.warning("conversation_id_resolve_failed", run_id,
-schedule_id, reason)`, location stays
+missing display name, timeout of the 10 s bound (R9), unexpected error) → `logger.warning("conversation_id_resolve_failed",
+run_id, schedule_id, reason)`, location stays
 `None`, header omitted. After a successful run with `create_conversation` and no location →
 `logger.info("conversation_create_skipped", run_id, schedule_id, reason="conversation_id_unresolved")`; no PUT; the run's
 `conversation_id` stays `NULL`. No second bucket attempt.
@@ -147,3 +148,30 @@ after the location is resolved; add a unit test that the new warning carries `tr
   Out of scope (deployment configuration), recorded as a follow-up.
 - `execute_run` and both callers already clear contextvars at the end of a run, so the bound `conversation_id` cannot leak
   into the next run.
+
+## R9. Resolution time bound
+
+**Decision**: `execute_run` wraps location resolution in `asyncio.timeout(CONVERSATION_LOCATION_TIMEOUT_SECONDS)` (10 s); a
+timeout follows the R5 failure path with reason `timed out after 10.0s`.
+
+**Rationale**: Resolution happens before `execute_with_policy`, so neither the run's `effective_timeout` nor its retry policy
+covers it; without a bound a slow bucket endpoint would delay every opted-in run by the full client connect + read timeout,
+invisibly in attempt logs. Raised in PR review.
+
+## R10. Auth headers in `extra_headers`
+
+**Decision**: Executors drop caller entries that match the OBO header name case-insensitively; SDK-based executors also drop
+`api-key` and `Authorization`. Shared helpers `http_request_headers` / `sdk_extra_headers` in `src/worker/executors/base.py`,
+built on `without_headers` (`src/lib/utils/headers.py`).
+
+**Rationale**: Pre-existing, raised in PR review. `{**extra_headers, header_name: value}` and the OpenAI SDK's header merge are
+case-sensitive, and httpx keeps differently-cased keys as separate lines, so `authorization: Bearer other` was sent next to the
+injected `Authorization` — contradicting the documented guarantee that `extra_headers` cannot override the run's identity.
+
+## R11. Non-DIAL targets
+
+**Decision**: Document that the header (owner bucket id + display name) reaches whatever `url` a chat completion schedule
+targets; no host allow-list.
+
+**Rationale**: Schedules typically call DIAL through its public URL while the scheduler's `DIAL_URL` is the internal one, so a
+host comparison would be unreliable; a configurable allow-list can be added if needed. Raised in PR review.

@@ -3,6 +3,7 @@ from pathlib import Path
 import tomllib
 
 from src.lib.constants import USER_AGENT_HEADER, USER_AGENT_PRODUCT
+from src.lib.utils.headers import without_headers
 from src.lib.utils.logging import logger
 
 
@@ -43,4 +44,4 @@ def strip_user_agent(headers: dict[str, str]) -> dict[str, str]:
     Returns:
         A copy of ``headers`` without any ``User-Agent`` entry.
     """
-    return {name: value for name, value in headers.items() if name.lower() != USER_AGENT_HEADER.lower()}
+    return without_headers(headers, (USER_AGENT_HEADER,))

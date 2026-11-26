@@ -11,7 +11,8 @@ No event contains credentials, OBO header values, prompts or responses.
 | Event                             | Level   | When                                                                                   | Fields                                                                 |
 |-----------------------------------|---------|----------------------------------------------------------------------------------------|------------------------------------------------------------------------|
 | `conversation_id_resolved`        | info    | Location resolved before the target request                                            | `run_id`, `schedule_id`, `deployment_kind` (`application`\|`model`)    |
-| `conversation_id_resolve_failed`  | warning | Location could not be resolved (incl. encoded id over 4096 bytes); request will be sent without `X-CONVERSATION-ID` | `run_id`, `schedule_id`, `reason` (exception text, no secrets)         |
+| `conversation_id_resolve_failed`  | warning | Location could not be resolved (incl. a timeout of the 10 s bound); request will be sent without `X-CONVERSATION-ID` | `run_id`, `schedule_id`, `reason` (exception text or `timed out after 10.0s`, no secrets) |
+| `conversation_id_header_omitted`  | warning | Location resolved but the encoded id exceeds 4096 bytes; header omitted, conversation still saved | `run_id`, `schedule_id`, `reason`, `encoded_length` |
 | `conversation_create_skipped`     | info    | Run succeeded, `create_conversation: true`, but no location → no conversation saved    | `run_id`, `schedule_id`, `reason = "conversation_id_unresolved"`       |
 
 Exactly one `conversation_id_resolve_failed` per affected run (resolution is attempted once, not per attempt).
