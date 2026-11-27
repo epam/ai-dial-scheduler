@@ -21,7 +21,7 @@ class RestExecutor:
 
         request_kwargs: dict[str, Any] = {
             "method": properties.method.value,  # type: ignore[union-attr]
-            "url": properties.url,
+            "url": properties.target_url,
             "json": properties.payload,
             "headers": headers,
         }

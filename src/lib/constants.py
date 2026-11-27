@@ -6,6 +6,10 @@ EXECUTE_SCHEDULED_JOB_REF = "src.worker.jobs:execute_scheduled_job"
 DEFAULT_PAGE_LIMIT = 20
 MAX_CRON_ENTRIES = 20
 DEFAULT_SCHEDULE_TIMEZONE = "UTC"
+# DIAL Core paths appended to settings.dial_url when a chat_completion/responses schedule omits ``url``.
+# The OpenAI SDK appends the endpoint itself: "/deployments/{model}/chat/completions" or "/responses".
+DEFAULT_CHAT_COMPLETION_URL_PATH = "/openai/"
+DEFAULT_RESPONSES_URL_PATH = "/openai/v1"
 
 HEARTBEAT_JOB_ID = "worker_heartbeat"
 HEARTBEAT_JOB_NAME = "worker_heartbeat"

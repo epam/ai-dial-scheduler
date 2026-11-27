@@ -214,7 +214,7 @@ before each run.
 | Field                 | Required                                    | Type              | Description                                                                                                                                                            | Available Values                                  | Default Value |
 |-----------------------|---------------------------------------------|-------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------|---------------|
 | `target_type`         | Yes                                         | String            | Selects the execution style and which rules below apply.                                                                                                              | `chat_completion`, `responses`, `rest`, `sse`     | -             |
-| `url`                 | Yes                                         | String            | Target URL. Must be a valid HTTP/HTTPS URL. For model types this is a base URL; the SDK appends `/chat/completions` or `/responses`.                                   | -                                                 | -             |
+| `url`                 | Conditional                                 | String or null    | Target URL. Must be a valid HTTP/HTTPS URL. For model types this is a base URL; the SDK appends `/chat/completions` or `/responses`. **Optional** for `chat_completion`/`responses`: when omitted or `null` it defaults to `{DIAL_URL}/openai/` or `{DIAL_URL}/openai/v1` respectively, and the resolved value is stored and returned. **Required** for `rest`/`sse`, which have no default. | -                                                 | see description |
 | `method`              | Conditional                                 | String or null    | HTTP method. **Required** for `rest`/`sse`; **must not be set** for `chat_completion`/`responses`.                                                                     | `POST`, `PUT`, `GET`                              | `null`        |
 | `payload`             | No                                          | Object            | Request body. For model types, `payload.model` is **required** and `stream` is honoured (defaults to `false` if absent). For HTTP types, sent as the request payload. | -                                                 | `{}`          |
 | `extra_headers`       | No                                          | Dict[String,String] | Extra request headers. The injected OBO auth header always overrides a same-named entry — callers cannot bypass the authenticated identity. `User-Agent` is ignored; `X-CONVERSATION-ID` is replaced when the scheduler sends its own (see [conversation id header](#conversation-id-header)). | -                                                 | `{}`          |
@@ -225,17 +225,21 @@ before each run.
 
 #### Target-type rules
 
-| `target_type`     | `method`          | `api_version`     | `payload.model` | `stream`                          | `create_conversation` |
-|-------------------|-------------------|-------------------|-----------------|-----------------------------------|-----------------------|
-| `chat_completion` | must **not** be set | **required**    | **required**    | honoured; defaults to `false`     | allowed               |
-| `responses`       | must **not** be set | **required**    | **required**    | honoured; defaults to `false`     | rejected              |
-| `rest`            | **required**      | must **not** be set | not applicable | not applicable                    | rejected              |
-| `sse`             | **required**      | must **not** be set | not applicable | not applicable                    | rejected              |
+| `target_type`     | `url`                                   | `method`          | `api_version`     | `payload.model` | `stream`                          | `create_conversation` |
+|-------------------|-----------------------------------------|-------------------|-------------------|-----------------|-----------------------------------|-----------------------|
+| `chat_completion` | optional; defaults to `{DIAL_URL}/openai/`   | must **not** be set | **required**    | **required**    | honoured; defaults to `false`     | allowed               |
+| `responses`       | optional; defaults to `{DIAL_URL}/openai/v1` | must **not** be set | **required**    | **required**    | honoured; defaults to `false`     | rejected              |
+| `rest`            | **required**                            | **required**      | must **not** be set | not applicable | not applicable                    | rejected              |
+| `sse`             | **required**                            | **required**      | must **not** be set | not applicable | not applicable                    | rejected              |
 
 - `chat_completion` calls a DIAL Chat Completions endpoint. `responses` behaves identically for
   validation but invokes the DIAL/OpenAI Responses API (`/responses`) instead.
 - `url` for model types is the base (e.g. `.../openai/` for a DIAL Core proxy). The deployment is
   **not** encoded in the URL path — it is supplied via `payload.model`.
+- Omit `url` for model types to target the DIAL Core the scheduler is configured with. The API
+  resolves it from `DIAL_URL` when the schedule is created or updated and stores the result, so a
+  later `DIAL_URL` change does not affect existing schedules. Omitting `url` for `rest`/`sse` is
+  rejected with `422`.
 - For `chat_completion`/`responses`, if `stream` is absent from `payload` it is set to `false`; the
   stored result shape is identical whether streamed or not.
 

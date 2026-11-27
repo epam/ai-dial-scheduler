@@ -32,7 +32,7 @@ class SseExecutor:
             async with aconnect_sse(
                 client,
                 properties.method.value,  # type: ignore[union-attr]
-                properties.url,
+                properties.target_url,
                 **connect_kwargs,
             ) as event_source:
                 if not (200 <= event_source.response.status_code < 300):

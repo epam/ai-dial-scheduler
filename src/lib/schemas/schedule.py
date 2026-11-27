@@ -6,11 +6,41 @@ import zoneinfo
 from apscheduler.triggers.cron import CronTrigger
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter, ValidationInfo, field_validator, model_validator
 
-from src.lib.constants import DEFAULT_SCHEDULE_TIMEZONE, MAX_CRON_ENTRIES
+from src.lib.constants import (
+    DEFAULT_CHAT_COMPLETION_URL_PATH,
+    DEFAULT_RESPONSES_URL_PATH,
+    DEFAULT_SCHEDULE_TIMEZONE,
+    MAX_CRON_ENTRIES,
+)
 from src.lib.db.enums import HttpMethod, TargetType, TriggerType
+from src.lib.settings import get_settings
 
 
 _HTTP_URL: TypeAdapter[AnyHttpUrl] = TypeAdapter(AnyHttpUrl)
+
+_DEFAULT_URL_PATHS: dict[TargetType, str] = {
+    TargetType.CHAT_COMPLETION: DEFAULT_CHAT_COMPLETION_URL_PATH,
+    TargetType.RESPONSES: DEFAULT_RESPONSES_URL_PATH,
+}
+
+
+def default_target_url(target_type: TargetType) -> str:
+    """Return the DIAL Core URL used when a schedule omits ``url``.
+
+    Args:
+        target_type: Target type of the schedule.
+
+    Returns:
+        The configured ``dial_url`` joined with the target type's default path.
+
+    Raises:
+        ValueError: If the target type has no default URL (``rest`` and ``sse``).
+    """
+    path = _DEFAULT_URL_PATHS.get(target_type)
+    if path is None:
+        raise ValueError(f"url is required for target_type '{target_type}': it has no default value")
+    return f"{get_settings().dial_url.rstrip('/')}{path}"
+
 
 _TIMEZONE_DESCRIPTION = (
     "IANA timezone identifier, for example 'Europe/Berlin'. Cron fields and any start_date, end_date "
@@ -129,7 +159,15 @@ class ScheduleProperties(BaseModel):
 
     target_type: TargetType
     method: HttpMethod | None = None
-    url: str
+    url: str | None = Field(
+        default=None,
+        description=(
+            "Target URL. Optional for `chat_completion` and `responses`: when omitted or null it "
+            "defaults to the DIAL Core OpenAI-compatible base URL (`{dial_url}/openai/` and "
+            "`{dial_url}/openai/v1` respectively), which is what DIAL deployments need. Required "
+            "for `rest` and `sse`, which have no default. The resolved value is stored and returned."
+        ),
+    )
     payload: dict[str, Any] = Field(default_factory=dict)
     extra_headers: dict[str, str] = Field(default_factory=dict)
     api_version: str | None = None
@@ -167,8 +205,9 @@ class ScheduleProperties(BaseModel):
 
     @field_validator("url")
     @classmethod
-    def validate_url(cls, v: str) -> str:
-        _HTTP_URL.validate_python(v)
+    def validate_url(cls, v: str | None) -> str | None:
+        if v is not None:
+            _HTTP_URL.validate_python(v)
         return v
 
     @field_validator("timeout", "idle_timeout")
@@ -177,6 +216,11 @@ class ScheduleProperties(BaseModel):
         if v is not None and v <= 0:
             raise ValueError(f"{info.field_name} must be a positive number (seconds)")
         return v
+
+    @property
+    def target_url(self) -> str:
+        """URL the executor calls; validation has already replaced an omitted ``url`` with its default."""
+        return self.url if self.url is not None else default_target_url(self.target_type)
 
     @property
     def is_streaming(self) -> bool:
@@ -198,6 +242,12 @@ class ScheduleProperties(BaseModel):
         # schedule's validity depend on deployment configuration.
         if self.timeout is not None and self.idle_timeout is not None and self.idle_timeout > self.timeout:
             raise ValueError("idle_timeout must not exceed timeout")
+        return self
+
+    @model_validator(mode="after")
+    def apply_default_url(self) -> "ScheduleProperties":
+        if self.url is None:
+            self.url = default_target_url(self.target_type)
         return self
 
     @model_validator(mode="after")

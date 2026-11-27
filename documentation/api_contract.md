@@ -28,9 +28,9 @@ Request
     "date": "datetime|None"
   },
   "properties": {
-    "target_type": "chat_completion|rest|sse",
+    "target_type": "chat_completion|responses|rest|sse",
     "method": "POST|PUT|GET|null",
-    "url": "",
+    "url": "str|null",
     "payload": {},
     "extra_headers": {"tenant_id": "hcscd"},
     "api_version": "str",
@@ -159,9 +159,9 @@ Request
     "date": "datetime|None"
   },
   "properties": {
-    "target_type": "chat_completion|rest|sse",
+    "target_type": "chat_completion|responses|rest|sse",
     "method": "POST|PUT|GET|null",
-    "url": "",
+    "url": "str|null",
     "payload": {},
     "extra_headers": {"tenant_id": "hcscd"},
     "api_version": "str",
