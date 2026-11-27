@@ -1,6 +1,6 @@
 [project]
 name = "aidial-scheduler"
-version = "0.0.0"
+version = "0.4.0rc0"
 description = "Scheduling service for AI DIAL: runs chat completion, responses, REST and SSE targets on cron and date triggers"
 readme = "README.md"
 license = "Apache-2.0"
